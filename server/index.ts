@@ -33,6 +33,8 @@ import { createCodexQueueRunner, findCodexBin } from './messages/codex';
 import { createMessageRoutes } from './messages/http';
 import { MessageRegistry } from './messages/registry';
 import type { CodexLive } from './sources/codex/live';
+import { AntigravitySource } from './sources/antigravity';
+import { KiloSource } from './sources/kilo';
 import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
@@ -134,6 +136,17 @@ const office = new Office({
 // ela mesma (accounts.setProviderAccounts). `codex` também recebe os eventos dos hooks do Codex (CodexLive).
 const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker });
 const agents = new SourceSet([claude]);
+
+if (config.antigravity) {
+  const antigravity = new AntigravitySource({ office });
+  agents.add(antigravity);
+}
+
+if (config.kilo) {
+  const kilo = new KiloSource({ office });
+  agents.add(kilo);
+}
+
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
 if (codex) agents.add(codex);

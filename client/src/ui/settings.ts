@@ -18,9 +18,9 @@ type LanguageChoice = 'auto' | Locale;
 /** Idioma escolhido nas Configurações ("auto" = o do navegador). */
 function savedLanguage(): LanguageChoice {
   try {
-    return normalizeLocale(localStorage.getItem(LOCALE_STORAGE_KEY)) ?? 'auto';
+    return normalizeLocale(localStorage.getItem(LOCALE_STORAGE_KEY)) ?? 'en';
   } catch {
-    return 'auto';
+    return 'en';
   }
 }
 

@@ -107,6 +107,7 @@ export interface MainInput {
   startedAt: number;
   status: AgentStatus;
   waitingFor?: string;
+  name?: string;
 }
 
 export interface SubInput {
@@ -332,7 +333,7 @@ export class Office {
       id: p.id,
       kind: 'main',
       roomId,
-      name: person.name,
+      name: p.name || person.name,
       look: person.look,
       role: p.role,
       sessionId: p.sessionId,
