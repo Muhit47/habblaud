@@ -79,7 +79,7 @@ function detect(): Locale {
   }
   const env = g.process?.env ?? {};
   // Os testes comparam textos em PT: ficam em PT mesmo numa máquina em outro idioma.
-  if (env.VITEST) return normalizeLocale(env.HABBLAUD_LANG_TEST) ?? 'en';
+  if (env.VITEST) return normalizeLocale(env.HABBLAUD_LANG_TEST) ?? 'pt-BR';
   let intl: string | undefined;
   try {
     intl = Intl.DateTimeFormat().resolvedOptions().locale;
