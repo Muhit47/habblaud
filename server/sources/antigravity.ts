@@ -279,7 +279,7 @@ export class AntigravitySource implements AgentSource {
         provider: this.provider,
         account: '.antigravity',
         sessionId: sessionId,
-        cwd: meta.cwd,
+        cwd: 'Antigravity Office',
         role: meta.model,
         startedAt: Date.now(),
         status,

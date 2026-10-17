@@ -166,7 +166,7 @@ export class KiloSource implements AgentSource {
         provider: this.provider,
         account: '.kilo',
         sessionId: s.id,
-        cwd: cwd,
+        cwd: 'Kilo Office',
         role: modelName,
         startedAt: s.time_created || Date.now(),
         status,
