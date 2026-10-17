@@ -1071,7 +1071,7 @@
 
 /* Cartão de uso com contagem real de tokens (Antigravity, Kilo): sem barra de limite, foco nos números diários e semanais */
 .ui-usage-card.is-tokens .ui-usage-card__meters {
-  grid-template-columns: 46px 0 auto minmax(0, 1fr);
+  grid-template-columns: 44px auto minmax(0, 1fr);
   column-gap: 6px;
 }
 
@@ -1198,7 +1198,7 @@
   }
 
   .ui-usage-card.is-tokens .ui-usage-card__meters {
-    grid-template-columns: 24px 0 auto minmax(0, 1fr);
+    grid-template-columns: 24px auto minmax(0, 1fr);
   }
 
   .ui-meter__label-long,
@@ -1221,6 +1221,10 @@
 
   .ui-meter__reset {
     display: none;
+  }
+
+  .ui-usage-card.is-tokens .ui-usage-card__meters {
+    grid-template-columns: 24px auto;
   }
 
   /* A idade vira só o relógio (o texto continua na dica). */

@@ -86,6 +86,8 @@ describe('officeFromBuilding', () => {
     expect(s.accounts).toEqual([
       { id: 'world:claude', provider: 'claude', short: 'C', name: 'Claude Code', color: WORLD_TOOL_ACCOUNTS.claude.color, configDir: '', sessions: 2, usageStatus: 'disabled' },
       { id: 'world:codex', provider: 'codex', short: 'X', name: 'Codex', color: WORLD_TOOL_ACCOUNTS.codex.color, configDir: '', sessions: 2, usageStatus: 'disabled' },
+      { id: 'world:antigravity', provider: 'antigravity', short: 'AG', name: 'Antigravity', color: WORLD_TOOL_ACCOUNTS.antigravity.color, configDir: '', sessions: 0, usageStatus: 'disabled' },
+      { id: 'world:kilo', provider: 'kilo', short: 'K', name: 'Kilo', color: WORLD_TOOL_ACCOUNTS.kilo.color, configDir: '', sessions: 0, usageStatus: 'disabled' },
     ]);
     expect(s.meta).toEqual({
       demo: false,
@@ -191,7 +193,7 @@ describe('applyBuildingPatch', () => {
     expect(snapshot.rooms[0].name).toBe('Projeto Órion');
     expect(snapshot.agents.map((a) => a.name).sort()).toEqual(['Camila', 'Gustavo', 'Larissa', 'Marina', 'Rafael']);
     expect(byName(snapshot, 'Camila')).toMatchObject({ id: 'world:a_0badf00d', roomId: 'f_3d4e5f6071', statusSince: T1, startedAt: T1 });
-    expect(snapshot.accounts.map((a) => a.sessions)).toEqual([3, 1]); // Marina, Larissa e Camila; Gustavo
+    expect(snapshot.accounts.map((a) => a.sessions)).toEqual([3, 1, 0, 0]); // Marina, Larissa e Camila; Gustavo
   });
 
   it('só visitantes (ou nada que mude o escritório): o mesmo snapshot', () => {
@@ -248,6 +250,10 @@ describe('canários invertidos: o escritório da visita só tem o que veio do mu
       ...Object.values(WORLD_TOOL_ACCOUNTS).flatMap((t) => [t.name, t.short, t.color]),
       'world:claude',
       'world:codex',
+      'world:antigravity',
+      'world:kilo',
+      'antigravity',
+      'kilo',
       'disabled',
       'approved',
       '',

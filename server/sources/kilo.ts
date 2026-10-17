@@ -51,7 +51,7 @@ export class KiloSource implements AgentSource {
           name: 'Kilo',
           color: '#7c3aed',
           configDir: this.baseDataDir,
-          plan: 'OpenRouter',
+          plan: 'Kilo Gateway & Gemini',
         },
       },
     ]);
@@ -132,7 +132,15 @@ export class KiloSource implements AgentSource {
   }
 
   sources(): SourceInfo[] {
-    return [{ provider: this.provider, account: 'Kilo Department', name: 'OpenRouter / Gemini', sessions: this.activeSessions.size }];
+    return [
+      {
+        provider: this.provider,
+        label: 'Kilo Department',
+        path: this.baseDataDir,
+        sessions: this.activeSessions.size,
+        ok: true,
+      },
+    ];
   }
 
   transcriptPathOf(_agentId: string): string | undefined {
@@ -154,14 +162,21 @@ export class KiloSource implements AgentSource {
     try {
       if (rawModel.startsWith('{')) {
         const parsed = JSON.parse(rawModel);
+        if (parsed.id === 'kilo-auto/free') {
+          return 'Auto Free (Kilo Gateway)';
+        }
+        if (parsed.id === 'openrouter/free') {
+          return 'OpenRouter Free Models Router (Kilo Gateway)';
+        }
+        if (parsed.id === 'gemini-3.1-flash-lite') {
+          return 'Gemini 3.1 Flash Lite';
+        }
         if (parsed.id) {
-          return parsed.id.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+          const name = parsed.id.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+          return parsed.providerID === 'kilo' ? `${name} (Kilo Gateway)` : name;
         }
       }
     } catch {}
-    if (rawModel.startsWith('openrouter/')) {
-      return `OpenRouter: ${rawModel.replace('openrouter/', '')}`;
-    }
     if (rawModel.startsWith('gemini/')) {
       return `Gemini: ${rawModel.replace('gemini/', '')}`;
     }
@@ -198,7 +213,7 @@ export class KiloSource implements AgentSource {
         status,
       });
 
-      this.deps.office.applyTranscriptSummary(agentId, {
+      this.deps.office.applyTranscript(agentId, {
         title: `${title} (${modelName})`,
         model: modelName,
         tasks: [],
@@ -265,9 +280,10 @@ export class KiloSource implements AgentSource {
           this.deps.office.addActivity(agentId, {
             id: `kilo-${p.id}`,
             kind: toolName === 'bash' ? 'run' : 'edit',
+            icon: toolName === 'bash' ? '💻' : '✏️',
             tool: toolName === 'bash' ? 'Bash' : toolName,
             text: summary,
-            at: p.time_updated
+            at: p.time_updated,
           }, isWorking);
         }
       }

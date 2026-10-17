@@ -23,31 +23,31 @@ function roomsFor(slots: number[]): AreaLayout[] {
 
 describe('mapeamento de slots', () => {
   it('coluna = núcleo + floor(slot/2); par = norte, ímpar = sul', () => {
-    expect(slotColumn(0)).toBe(2);
-    expect(slotColumn(1)).toBe(2);
-    expect(slotColumn(2)).toBe(3);
-    expect(slotColumn(7)).toBe(5);
+    expect(slotColumn(0)).toBe(3);
+    expect(slotColumn(1)).toBe(3);
+    expect(slotColumn(2)).toBe(4);
+    expect(slotColumn(7)).toBe(6);
     expect(slotSide(0)).toBe('north');
     expect(slotSide(1)).toBe('south');
     expect(slotSide(6)).toBe('north');
-    expect(slotAt(3, 'south')).toBe(3);
+    expect(slotAt(4, 'south')).toBe(3);
     expect(slotAt(slotColumn(9), slotSide(9))).toBe(9);
   });
 
   it('retângulos das salas não se sobrepõem e respeitam o corredor', () => {
     const a = slotRect(0);
     const b = slotRect(1);
-    expect(a).toEqual({ x: 2 * COL_W, y: 0, w: COL_W, h: 12 });
+    expect(a).toEqual({ x: 3 * COL_W, y: 0, w: COL_W, h: 12 });
     expect(b.y).toBe(SOUTH_Y);
     expect(a.y + a.h).toBe(CORRIDOR_Y);
     expect(b.y + b.h).toBe(BUILDING_H);
   });
 
   it('largura do prédio: núcleo + maior coluna usada + 1 (mínimo 1 coluna de projeto)', () => {
-    expect(columnsFor([])).toBe(3);
-    expect(columnsFor([0, 1])).toBe(3);
-    expect(columnsFor([5])).toBe(5);
-    expect(columnsFor([2, 11])).toBe(8);
+    expect(columnsFor([])).toBe(4);
+    expect(columnsFor([0, 1])).toBe(4);
+    expect(columnsFor([5])).toBe(6);
+    expect(columnsFor([2, 11])).toBe(9);
   });
 });
 
@@ -140,9 +140,9 @@ describe('layout do prédio', () => {
 
   it('corredor alterna bebedouro e banco nas colunas de projeto, sem excesso de plantas', () => {
     const coolers = b.corridor.furniture.filter((f) => f.kind === 'water_cooler');
-    expect(coolers.length).toBeGreaterThanOrEqual(Math.ceil((cols - 2) / 2));
+    expect(coolers.length).toBeGreaterThanOrEqual(Math.ceil((cols - 3) / 2));
     const benches = b.corridor.furniture.filter((f) => f.kind === 'bench');
-    expect(benches.length).toBeGreaterThanOrEqual(Math.floor((cols - 2) / 2));
+    expect(benches.length).toBeGreaterThanOrEqual(Math.floor((cols - 3) / 2));
     const plants = b.corridor.furniture.filter((f) => f.kind === 'plant_tall' || f.kind === 'plant_small');
     expect(plants.length).toBeLessThanOrEqual(cols * 2);
   });

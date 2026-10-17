@@ -323,20 +323,28 @@ export class Sim {
     const mode = this.modeOf(ch);
     if (mode === ch.mode) return;
     const prev = ch.mode;
+
+    if (prev === 'idle' && mode === 'work') {
+      if (ch.icon === 'zzz' || ch.atSpot?.startsWith('core:dorm_')) {
+        ch.setIcon(ch.rng() < 0.5 ? 'idea' : 'alert', 2000, this.now);
+        this.releaseTemp(ch);
+        if (ch.homeSpot) {
+          this.planGoHome(ch, this.now);
+        }
+      }
+    }
+
     ch.mode = mode;
     if (prev === 'idle' && mode !== 'idle') ch.nextOutingAt = 0;
     if (ch.icon === 'zzz') ch.setIcon(null, 0, this.now);
     this.refreshShell(ch, this.now);
-    // numa roda, ocioso <-> esperando shell não muda nada (segue na roda)
     if (ch.gathering && (mode === 'idle' || mode === 'shell') && (prev === 'idle' || prev === 'shell')) return;
-    // o trabalho chamou no meio de uma roda: avisa a turma antes de sair
     if (ch.gathering) this.social.calledAway(ch, prev, this.now);
-    // comemoração/lamento do fim de um shell em andamento: termina (curta, volta à mesa) e o
-    // planejador segue o modo novo; ir embora não espera
     if (this.now < ch.reactUntil && mode !== 'leave' && mode !== 'deliver') return;
     ch.reactUntil = 0;
     this.interrupt(ch);
   }
+
 
   private modeOf(ch: Character): Mode {
     const a = ch.info;
@@ -601,7 +609,9 @@ export class Sim {
       if (ch.info.kind === 'sub' && !ch.leaving) this.refreshMode(ch);
       // comando em primeiro plano passou dos 10 s (ou a espera acabou): muda de modo sem snapshot novo
       else if (!ch.leaving && (ch.mode === 'shell' || (ch.info.status === 'working' && ch.info.shells?.length))) this.refreshMode(ch);
-      if (ch.mode === 'idle' && this.longIdle(ch, now) && ch.atSpot === ch.homeSpot && ch.pose === 'sleep' && ch.icon !== 'zzz') {
+      if (ch.mode === 'idle' && ch.atSpot?.startsWith('core:dorm_') && ch.pose === 'sleep' && ch.icon !== 'zzz') {
+        ch.setIcon('zzz', 1e12, now);
+      } else if (ch.mode === 'idle' && !ch.atSpot?.startsWith('core:dorm_') && ch.pose === 'sleep' && ch.icon !== 'zzz' && isLongIdle(ch.info.status, ch.info.statusSince, now)) {
         ch.setIcon('zzz', 1e12, now);
       }
     }
@@ -1201,11 +1211,18 @@ export class Sim {
     }
     if (ch.atSpot !== ch.homeSpot) return this.planGoHome(ch, now);
     ch.arriving = false;
-    if (ch.mode === 'idle' && !this.longIdle(ch, now)) {
-      if (!ch.nextOutingAt) ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
-      if (now >= ch.nextOutingAt) {
-        if (this.planOuting(ch, now)) return true;
-        ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
+    if (ch.mode === 'idle') {
+      if (this.longIdle(ch, now)) {
+        // Não manda para o dormitório quem já está na sua mesa: pode cochilar no lugar.
+        if (ch.atSpot !== ch.homeSpot && !ch.atSpot?.startsWith('core:dorm_')) {
+          if (this.goToDorm(ch, now)) return true;
+        }
+      } else {
+        if (!ch.nextOutingAt) ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
+        if (now >= ch.nextOutingAt) {
+          if (this.planOuting(ch, now)) return true;
+          ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
+        }
       }
     }
     // esperando um shell: só sai da mesa para uma roda (sozinho, fica na pipoca)
@@ -1218,6 +1235,26 @@ export class Sim {
       }
     }
     return false;
+  }
+
+  /** Agentes long-idle vagando para a sua respectiva dormitório para dormir. */
+  private goToDorm(ch: Character, now: number): boolean {
+    const dormId = ch.info.provider === 'kilo' ? 'core:dorm_kilo' : 'core:dorm_antigravity';
+    const dormSpot = [...this.spots.all()].find(
+      (s) => s.areaId === dormId && this.spots.isFree(s.id, ch.id)
+    );
+    if (!dormSpot || !this.reserveTemp(ch, dormSpot)) return false;
+    const steps: Step[] = [];
+    this.pushLeave(ch, steps);
+    steps.push(
+      { t: 'go', tx: dormSpot.tx, ty: dormSpot.ty },
+      { t: 'enter', spot: dormSpot.id },
+      { t: 'act', pose: 'sleep', icon: 'zzz', ms: 300000 },
+      { t: 'exit' },
+      { t: 'do', fn: () => this.releaseTemp(ch) }
+    );
+    ch.queue.push(...steps);
+    return true;
   }
 
   /** Levantar/sair do lugar atual antes de andar. */
@@ -1478,6 +1515,25 @@ export class Sim {
   }
 
   private planOuting(ch: Character, now: number): boolean {
+    const IDLE_SLEEP_THRESHOLD_MS = 2 * 60 * 1000;
+    if (ch.info.statusSince && now - ch.info.statusSince >= IDLE_SLEEP_THRESHOLD_MS) {
+      const dormId = ch.info.provider === 'kilo' ? 'core:dorm_kilo' : 'core:dorm_antigravity';
+      const dormSpot = [...this.spots.all()].find(
+        (s) => s.areaId === dormId && this.spots.isFree(s.id, ch.id)
+      );
+      if (dormSpot && this.reserveTemp(ch, dormSpot)) {
+        this.pushLeave(ch, []);
+        ch.queue.push(
+          { t: 'go', tx: dormSpot.tx, ty: dormSpot.ty },
+          { t: 'enter', spot: dormSpot.id },
+          { t: 'act', pose: 'sleep', ms: 120000, icon: 'zzz' },
+          { t: 'exit' },
+          { t: 'do', fn: () => this.releaseTemp(ch) }
+        );
+        return true;
+      }
+    }
+
     const near = { tx: ch.tx, ty: ch.ty };
     const rng = ch.rng;
     const persona = personaFor(ch.info.seed);
@@ -1671,7 +1727,8 @@ export class Sim {
     if (atHome && ch.mode === 'work') ch.setPose('type', laptop ? 'laptop' : 'none');
     else if (atHome && ch.mode === 'wait') ch.setPose('raise_hand');
     else if (atHome && ch.mode === 'shell') this.shellPose(ch, spot, now);
-    else if (ch.mode === 'idle' && this.longIdle(ch, now)) ch.setPose('sleep');
+    else if (ch.mode === 'idle' && ch.atSpot?.startsWith('core:dorm_')) ch.setPose('sleep');
+    else if (ch.mode === 'idle' && isLongIdle(ch.info.status, ch.info.statusSince, now)) ch.setPose('sleep');
     else ch.setPose('sit');
   }
 

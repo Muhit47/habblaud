@@ -209,8 +209,7 @@ function scanClaudeDirs(env: NodeJS.ProcessEnv, home: string): { dirs: string[];
 }
 
 const ALIAS_RE = /^\s*alias\s+([A-Za-z0-9_][A-Za-z0-9_.-]*)=(?:'([^']*)'|"((?:[^"\\]|\\.)*)")\s*(?:#.*)?$/;
-/** O que identifica o alias de cada ferramenta: o comando invocado e a variável com a pasta da conta. */
-const ALIAS_TOOLS: Record<Provider, { invokes: RegExp; dir: RegExp }> = {
+const ALIAS_TOOLS: Partial<Record<Provider, { invokes: RegExp; dir: RegExp }>> = {
   claude: {
     invokes: /(?:^|[\s;&|(])(?:[\w.~/-]*\/)?claude(?=$|[\s;&|)])/,
     dir: /\bCLAUDE_CONFIG_DIR=(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/,
@@ -226,7 +225,9 @@ const ALIAS_TOOLS: Record<Provider, { invokes: RegExp; dir: RegExp }> = {
  * ou CODEX_HOME). Considera SOMENTE linhas `alias NOME='...'` (ou com aspas duplas); qualquer outra linha é ignorada.
  */
 export function parseToolAliases(text: string, home: string, tool: Provider): ClaudeAlias[] {
-  const { invokes, dir: dirRe } = ALIAS_TOOLS[tool];
+  const target = ALIAS_TOOLS[tool];
+  if (!target) return [];
+  const { invokes, dir: dirRe } = target;
   const out: ClaudeAlias[] = [];
   for (const line of text.split(/\r?\n/)) {
     const m = ALIAS_RE.exec(line);

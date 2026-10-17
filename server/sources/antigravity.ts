@@ -157,7 +157,15 @@ export class AntigravitySource implements AgentSource {
   }
 
   sources(): SourceInfo[] {
-    return [{ provider: this.provider, account: 'Antigravity Department', name: 'Gemini', sessions: this.activeSessions.size }];
+    return [
+      {
+        provider: this.provider,
+        label: 'Antigravity Department',
+        path: this.baseDir,
+        sessions: this.activeSessions.size,
+        ok: true,
+      },
+    ];
   }
 
   transcriptPathOf(agentId: string): string | undefined {
@@ -315,7 +323,7 @@ export class AntigravitySource implements AgentSource {
         status,
       });
 
-      this.deps.office.applyTranscriptSummary(agentId, {
+      this.deps.office.applyTranscript(agentId, {
         title: `${meta.title} (${meta.model})`,
         model: meta.model,
         tasks: [],
@@ -379,16 +387,16 @@ export class AntigravitySource implements AgentSource {
 
     switch (name) {
       case 'view_file':
-        return { id: callId, kind: 'read', tool: 'View', text: clean(args.toolSummary) || clean(args.toolAction) || 'Viewing file', at };
+        return { id: callId, kind: 'read', icon: '📄', tool: 'View', text: clean(args.toolSummary) || clean(args.toolAction) || 'Viewing file', at };
       case 'replace_file_content':
       case 'write_to_file':
-        return { id: callId, kind: 'edit', tool: 'Edit', text: clean(args.toolSummary) || clean(args.toolAction) || 'Editing file', at };
+        return { id: callId, kind: 'edit', icon: '✏️', tool: 'Edit', text: clean(args.toolSummary) || clean(args.toolAction) || 'Editing file', at };
       case 'run_command':
-        return { id: callId, kind: 'run', tool: 'Bash', text: clean(args.toolSummary) || clean(args.toolAction) || 'Running command', at };
+        return { id: callId, kind: 'run', icon: '💻', tool: 'Bash', text: clean(args.toolSummary) || clean(args.toolAction) || 'Running command', at };
       case 'search_web':
-        return { id: callId, kind: 'search', tool: 'Web', text: clean(args.toolSummary) || 'Web search', at };
+        return { id: callId, kind: 'search', icon: '🔍', tool: 'Web', text: clean(args.toolSummary) || 'Web search', at };
       default:
-        return { id: callId, kind: 'edit', tool: name, text: clean(args.toolSummary) || name, at };
+        return { id: callId, kind: 'edit', icon: '⚡', tool: name, text: clean(args.toolSummary) || name, at };
     }
   }
 }

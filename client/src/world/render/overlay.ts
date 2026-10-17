@@ -51,6 +51,8 @@ const CORE_NAMES: Record<string, string> = {
   'core:banheiros': tr('Banheiros'),
   'core:copa': tr('Copa'),
   'core:lounge': tr('Lounge'),
+  'core:dorm_antigravity': 'Antigravity Dorm',
+  'core:dorm_kilo': 'Kilo Dorm',
 };
 
 /** 'shell' = espera de shell: balão escuro de terminal com texto verde. 'say' = fala das rodas (papo, torcida, apostas). */
@@ -95,6 +97,8 @@ interface Label {
   /** Etiqueta acima da cabeça (quem senta de frente para a câmera atrás de uma mesa). */
   above: boolean;
   compact: boolean;
+  /** Se a etiqueta está expandida (nome completo + badges) ou só o chip minimalista. */
+  isExpanded: boolean;
   x: number;
   y: number;
   w: number;
@@ -332,7 +336,7 @@ export class Overlay {
       if (labeled) {
         const prio = selected ? 100 : hovered ? 95 : visitor ? 92 : ch.mode === 'wait' ? 90 : ch.info.kind === 'main' ? 50 : 40;
         let l = this.labelPool[this.nl];
-        if (!l) this.labelPool[this.nl] = l = { type: 'label', ch, head, prio, above, compact: false, x: 0, y: 0, w: 0, h: 0 };
+        if (!l) this.labelPool[this.nl] = l = { type: 'label', ch, head, prio, above, compact: false, isExpanded: false, x: 0, y: 0, w: 0, h: 0 };
         else {
           l.ch = ch;
           l.head = head;
@@ -340,6 +344,7 @@ export class Overlay {
           l.above = above;
         }
         l.compact = zoom < 2.5 && !selected && !hovered;
+        l.isExpanded = selected || hovered;
         this.nl++;
         items.push(l);
       }
@@ -511,14 +516,27 @@ export class Overlay {
 
   private drawRoomPill(name: string, cx: number, cy: number, maxW: number, accounts: string[], count: number, accent: string, lit: boolean): void {
     const { ctx } = this;
+    let logo: { letter: string; color: string } | null = null;
+    let displayText = name;
+    if (name.startsWith('Antigravity')) {
+      logo = { letter: 'A', color: '#2563eb' };
+      displayText = name.replace(/^Antigravity\s*/i, '') || 'Office';
+    } else if (name.startsWith('Kilo')) {
+      logo = { letter: 'K', color: '#7c3aed' };
+      displayText = name.replace(/^Kilo\s*/i, '') || 'Office';
+    }
+
     let dots = accounts.filter((a) => this.sim.accounts.has(a));
     let countText = count > 0 ? String(count) : '';
     let cw = countText ? this.measure(LABEL_FONT, countText) + 14 : 0;
+    
+    const chipSpace = logo ? 16 : 0;
+    
     // nome cortado para caber na largura da coluna; com pouco espaço, o nome vale mais que a
     // contagem e as bolinhas; sem espaço nem para 3 letras, pílula compacta (só contagem)
-    let text = this.fit(ROOM_FONT, name, Math.min(180, maxW - (18 + dots.length * 10 + cw)));
-    if (text.length < Math.min(7, name.length)) {
-      const alone = this.fit(ROOM_FONT, name, maxW - 18);
+    let text = this.fit(ROOM_FONT, displayText, Math.min(180, maxW - (18 + dots.length * 10 + cw + chipSpace)));
+    if (text.length < Math.min(7, displayText.length)) {
+      const alone = this.fit(ROOM_FONT, displayText, maxW - 18 - chipSpace);
       if (alone.length >= 4) {
         text = alone;
         dots = [];
@@ -526,11 +544,11 @@ export class Overlay {
         cw = 0;
       }
     }
-    const extras = 18 + dots.length * 10 + cw;
+    const extras = 18 + dots.length * 10 + cw + chipSpace;
     // Só vira pílula compacta quando o nome precisou ser cortado (nomes curtos como "app" cabem inteiros).
-    const compact = text !== name && text.length < 4;
+    const compact = text !== displayText && text.length < 4;
     const tw = compact ? 0 : this.measure(ROOM_FONT, text);
-    const w = Math.round(compact ? Math.max(12, 10 + cw + dots.length * 10) : tw + extras);
+    const w = Math.round(compact ? Math.max(12, 10 + cw + dots.length * 10 + chipSpace) : tw + extras);
     const h = 22;
     const x = Math.round(cx - w / 2);
     const y = Math.round(cy - h - 4);
@@ -548,12 +566,26 @@ export class Overlay {
     ctx.beginPath();
     ctx.roundRect(x, y, 4, h, [7, 0, 0, 7]);
     ctx.fill();
+    
     let dx = x + 10;
+    if (logo) {
+      ctx.beginPath();
+      ctx.arc(dx + 5.5, y + h / 2, 5.5, 0, Math.PI * 2);
+      ctx.fillStyle = logo.color;
+      ctx.fill();
+      ctx.font = CHIP_FONT;
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.fillText(logo.letter, dx + 5.5, y + h / 2 + 0.5);
+      ctx.textAlign = 'left';
+      dx += 16;
+    }
+    
     if (!compact) {
       ctx.font = ROOM_FONT;
       ctx.fillStyle = '#f3f5fa';
-      ctx.fillText(text, x + 10, y + h / 2 + 1);
-      dx = x + 10 + tw + 8;
+      ctx.fillText(text, dx, y + h / 2 + 1);
+      dx += tw + 8;
     }
     for (const id of dots) {
       accountDot(ctx, dx + 3, y + h / 2, 3.5, this.sim.accounts.get(id)!);
@@ -574,12 +606,26 @@ export class Overlay {
 
   private drawCorePill(name: string, cx: number, cy: number, maxW: number): void {
     const { ctx } = this;
+    
+    let logo: { letter: string; color: string } | null = null;
+    let displayText = name;
+    if (name === 'Antigravity Dorm') {
+      logo = { letter: 'A', color: '#2563eb' };
+      displayText = 'Dorm';
+    } else if (name === 'Kilo Dorm') {
+      logo = { letter: 'K', color: '#7c3aed' };
+      displayText = 'Dorm';
+    }
+    
+    const chipSpace = logo ? 16 : 0;
+    
     // fonte um pouco menor antes de cortar o nome
-    const font = this.measure(CORE_FONT, name) <= maxW - 14 ? CORE_FONT : CORE_FONT_SMALL;
-    const text = this.fit(font, name, maxW - 14);
+    const font = this.measure(CORE_FONT, displayText) <= maxW - 14 - chipSpace ? CORE_FONT : CORE_FONT_SMALL;
+    const text = this.fit(font, displayText, maxW - 14 - chipSpace);
     if (text.length < 3) return;
+    
     const tw = this.measure(font, text);
-    const w = Math.round(tw + 14);
+    const w = Math.round(tw + 14 + chipSpace);
     const h = 18;
     const x = Math.round(cx - w / 2);
     const y = Math.round(cy - h - 4);
@@ -587,9 +633,24 @@ export class Overlay {
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, 6);
     ctx.fill();
+    
+    let dx = x + 7;
+    if (logo) {
+      ctx.beginPath();
+      ctx.arc(dx + 5, y + h / 2, 5, 0, Math.PI * 2);
+      ctx.fillStyle = logo.color;
+      ctx.fill();
+      ctx.font = CHIP_FONT;
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.fillText(logo.letter, dx + 5, y + h / 2 + 0.5);
+      ctx.textAlign = 'left';
+      dx += 16;
+    }
+    
     ctx.font = font;
     ctx.fillStyle = '#e8ecf5';
-    ctx.fillText(text, x + 7, y + h / 2 + 1);
+    ctx.fillText(text, dx, y + h / 2 + 1);
     this.place(x, y, w, h);
   }
 
@@ -870,6 +931,7 @@ export class Overlay {
 
   /** Larguras das partes da etiqueta. O selo "CODEX" (como o "SUB") só aparece fora do modo compacto. */
   private labelWidth(l: Label): { nameW: number; chipW: number; badgeW: number; codexW: number } {
+    if (!l.isExpanded) return { nameW: 0, chipW: 12, badgeW: 0, codexW: 0 };
     const ch = l.ch;
     const acc = this.sim.accounts.get(ch.info.account);
     const nameW = this.measure(LABEL_FONT, ch.info.name);
@@ -883,8 +945,15 @@ export class Overlay {
   /** Posiciona a etiqueta: nos pés (ou acima da cabeça); se colidir, tenta o outro lado. */
   private placeLabel(l: Label): boolean {
     const { nameW, chipW, badgeW, codexW } = this.labelWidth(l);
-    const w = Math.round(nameW + 10 + chipW + (badgeW ? badgeW + 3 : 0) + (codexW ? codexW + 3 : 0));
-    const h = LABEL_H;
+    let w: number;
+    let h: number;
+    if (!l.isExpanded) {
+      w = 16;
+      h = 16;
+    } else {
+      w = Math.round(nameW + 10 + chipW + (badgeW ? badgeW + 3 : 0) + (codexW ? codexW + 3 : 0));
+      h = LABEL_H;
+    }
     const x = Math.round(this.sx(l.head.x) - w / 2);
     const below = Math.round(this.sy(l.head.feetY) + 3);
     const iconLift = this.iconLift(l.ch) * this.zoom;
@@ -906,71 +975,97 @@ export class Overlay {
     const { ctx } = this;
     const ch = l.ch;
     const acc = this.sim.accounts.get(ch.info.account);
-    const sub = ch.info.kind === 'sub';
-    const codex = ch.info.provider === 'codex' || acc?.provider === 'codex';
-    const { nameW, chipW, badgeW, codexW } = this.labelWidth(l);
     const { x, y, w, h } = l;
     const selected = sel.agent === ch.id;
     ctx.fillStyle = selected ? 'rgba(18,96,140,0.95)' : ch.mode === 'wait' ? 'rgba(120,78,0,0.92)' : 'rgba(22,26,38,0.82)';
     ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 7.5);
+    ctx.roundRect(x, y, w, h, h / 2);
     ctx.fill();
-    let cx = x + 4;
-    if (acc && codex) {
-      // Codex: chip vazado de cantos em degrau (fundo escuro, borda e letra na cor da conta), como nos painéis.
-      steppedRect(ctx, cx, y + h / 2 - 5, 10, 10, 2);
-      ctx.fillStyle = CODEX_CHIP_BG;
-      ctx.fill();
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = acc.color;
-      steppedRect(ctx, cx + 0.75, y + h / 2 - 4.25, 8.5, 8.5, 1.6);
-      ctx.stroke();
-      ctx.font = CHIP_FONT;
-      ctx.textAlign = 'center';
-      ctx.fillStyle = acc.color;
-      ctx.fillText(acc.short.slice(0, 1), cx + 5, y + h / 2 + 0.5);
-      ctx.textAlign = 'left';
-      cx += chipW;
-    } else if (acc) {
+
+    if (!l.isExpanded) {
+      const provider = ch.info.provider ?? acc?.provider ?? 'claude';
+      let letter: string;
+      let color: string;
+      switch (provider) {
+        case 'antigravity': letter = 'A'; color = '#2563eb'; break;
+        case 'kilo': letter = 'K'; color = '#7c3aed'; break;
+        case 'codex': letter = 'X'; color = '#a77bf3'; break;
+        case 'claude':
+        default: letter = 'C'; color = '#f08a3c'; break;
+      }
+      const cx = x + w / 2;
+      const cy = y + h / 2;
+      const r = 5;
+      ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(cx + 5, y + h / 2, 5, 0, Math.PI * 2);
-      ctx.fillStyle = acc.color;
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fill();
-      ctx.font = CHIP_FONT;
+      ctx.font = `700 9px ${UI_FONT}`;
       ctx.textAlign = 'center';
-      ctx.fillStyle = luminance(acc.color) > 0.62 ? '#1d2330' : '#ffffff';
-      ctx.fillText(acc.short.slice(0, 1), cx + 5, y + h / 2 + 0.5);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(letter, cx, cy + 0.5);
       ctx.textAlign = 'left';
-      cx += chipW;
+      return;
     }
+
+    const { nameW, chipW, badgeW, codexW } = this.labelWidth(l);
+
+    let cx = x + (chipW ? chipW / 2 + 5 : 0);
+    if (chipW) {
+      cx = x + 7;
+      let cy = y + h / 2;
+      if (ch.info.provider === 'codex' || (acc && acc.provider === 'codex')) {
+        steppedRect(ctx, cx - 5, cy - 5, 10, 10, 2);
+        ctx.fillStyle = CODEX_CHIP_BG;
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = acc?.color ?? '#ffffff';
+        steppedRect(ctx, cx - 5 + 0.75, cy - 5 + 0.75, 8.5, 8.5, 1.6);
+        ctx.stroke();
+        ctx.font = CHIP_FONT;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = acc?.color ?? '#ffffff';
+        ctx.fillText(acc?.short.slice(0, 1) ?? '?', cx, cy + 0.5);
+      } else if (acc) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+        ctx.fillStyle = acc.color;
+        ctx.fill();
+        ctx.font = CHIP_FONT;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = luminance(acc.color) > 0.62 ? '#1d2330' : '#ffffff';
+        ctx.fillText(acc.short.slice(0, 1), cx, cy + 0.5);
+      }
+      cx = x + chipW + 10;
+    } else {
+      cx = x + 5;
+    }
+
     ctx.font = LABEL_FONT;
+    ctx.textAlign = 'left';
     ctx.fillStyle = '#f5f7fb';
-    ctx.fillText(ch.info.name, cx + 1, y + h / 2 + 0.5);
-    cx += nameW + 4;
+    ctx.fillText(ch.info.name, cx, y + h / 2 + 4);
+    cx += nameW;
+
     if (badgeW) {
-      ctx.fillStyle = ch.appearance.lanyard ?? '#f2b33d';
+      const visitor = ch === this.sim.visitor;
+      ctx.fillStyle = visitor ? '#c59a6f' : '#3a4a6d';
       ctx.beginPath();
-      ctx.roundRect(cx, y + 3, badgeW, h - 6, 4);
+      ctx.roundRect(cx + 3, y + 2, badgeW, h - 4, 3);
       ctx.fill();
+      ctx.fillStyle = '#ffffff';
       ctx.font = BADGE_FONT;
-      ctx.fillStyle = '#2a2000';
-      ctx.fillText(ch === this.sim.visitor ? visitorBadge() : 'SUB', cx + 3.5, y + h / 2 + 0.5);
+      ctx.fillText(visitor ? visitorBadge() : 'SUB', cx + 6, y + h / 2 + 4);
       cx += badgeW + 3;
-    } else if (sub) {
-      // selo compacto: pontinho na cor do crachá
-      ctx.fillStyle = ch.appearance.lanyard ?? '#f2b33d';
-      ctx.beginPath();
-      ctx.arc(x + w - 3, y + 3, 2.5, 0, Math.PI * 2);
-      ctx.fill();
     }
     if (codexW) {
-      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      ctx.fillStyle = '#3a4a6d';
       ctx.beginPath();
-      ctx.roundRect(cx, y + 3, codexW, h - 6, 3);
+      ctx.roundRect(cx + 3, y + 2, codexW, h - 4, 3);
       ctx.fill();
+      ctx.fillStyle = '#ffffff';
       ctx.font = BADGE_FONT;
-      ctx.fillStyle = '#e8ecf5';
-      ctx.fillText(CODEX_BADGE, cx + 3.5, y + h / 2 + 0.5);
+      ctx.fillText(CODEX_BADGE, cx + 6, y + h / 2 + 4);
     }
   }
 }
