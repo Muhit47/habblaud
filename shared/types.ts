@@ -274,6 +274,12 @@ export interface UsageWindow {
   resetsAt?: number;
 }
 
+export interface TokenUsageWindow {
+  tokens: number;
+  tokensIn?: number;
+  tokensOut?: number;
+}
+
 export interface AccountUsage {
   /** Sessão de 5 horas. */
   fiveHour?: UsageWindow;
@@ -281,6 +287,12 @@ export interface AccountUsage {
   sevenDay?: UsageWindow;
   sevenDayOpus?: UsageWindow;
   sevenDaySonnet?: UsageWindow;
+  /** Uso de tokens diário (24 h) para ferramentas baseadas em contagem real de tokens (Antigravity, Kilo). */
+  dailyTokens?: TokenUsageWindow;
+  /** Uso de tokens semanal (7 d). */
+  weeklyTokens?: TokenUsageWindow;
+  /** Total de tokens acumulado. */
+  totalTokens?: TokenUsageWindow;
   /**
    * Origem dos números (todas são arquivos locais gravados pela própria ferramenta):
    * - 'statusline': capturado ao vivo e gravado em ~/.habblaud/usage/<conta>.json pelo mod do Habblaud

@@ -166,12 +166,13 @@ export function formatDateTime(at: number): string {
   return dateTimeFmt.format(at);
 }
 
-/** Tokens compactos: "850", "12,3 k", "1,2 M". */
+/** Tokens compactos: "850", "12,3 k", "1,2 M", "1,1 B". */
 export function formatTokens(n: number): string {
   const v = Math.max(0, n);
   if (v < 1_000) return integerFmt.format(v);
   if (v < 1_000_000) return `${numberFmt1.format(v / 1_000)} k`;
-  return `${numberFmt1.format(v / 1_000_000)} M`;
+  if (v < 1_000_000_000) return `${numberFmt1.format(v / 1_000_000)} M`;
+  return `${numberFmt1.format(v / 1_000_000_000)} B`;
 }
 
 /** Número inteiro com separador de milhar: "12.345". */

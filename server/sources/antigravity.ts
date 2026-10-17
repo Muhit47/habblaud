@@ -19,6 +19,7 @@ export class AntigravitySource implements AgentSource {
   private pollTimer: NodeJS.Timeout | null = null;
   private sessionWatchers: Map<string, fs.FSWatcher> = new Map();
   private activeSessions: Set<string> = new Set();
+  private transcriptCache = new Map<string, { mtimeMs: number; size: number; entries: { time: number; input: number; output: number }[] }>();
 
   constructor(private readonly deps: { office: Office; accounts?: AccountsService }) {
     this.baseDir = path.join(process.env.USERPROFILE || process.env.HOME || '', '.gemini', 'antigravity');
@@ -67,53 +68,82 @@ export class AntigravitySource implements AgentSource {
   private updateUsage(): void {
     if (!this.deps.accounts) return;
     const now = Date.now();
-    let fiveHourUtil = 0;
-    let sevenDayUtil = 0;
+    const oneDayAgo = now - 24 * 3600 * 1000;
+    const sevenDaysAgo = now - 7 * 86400 * 1000;
+
+    let dayTokens = 0, dayIn = 0, dayOut = 0;
+    let weekTokens = 0, weekIn = 0, weekOut = 0;
+    let totalTokens = 0, totalIn = 0, totalOut = 0;
 
     try {
-      const dbPath = path.join(this.baseDir, 'conversation_summaries.db');
-      if (fs.existsSync(dbPath)) {
-        const db = new DatabaseSync(dbPath, { readOnly: true });
-        const fiveHoursAgo = new Date(now - 5 * 3600 * 1000).toISOString();
-        const sevenDaysAgo = new Date(now - 7 * 86400 * 1000).toISOString();
+      const brainDir = path.join(this.baseDir, 'brain');
+      if (fs.existsSync(brainDir)) {
+        const dirs = fs.readdirSync(brainDir);
+        for (const d of dirs) {
+          const logPath = path.join(brainDir, d, '.system_generated', 'logs', 'transcript.jsonl');
+          if (!fs.existsSync(logPath)) continue;
+          try {
+            const stat = fs.statSync(logPath);
+            let cached = this.transcriptCache.get(logPath);
+            if (!cached || cached.mtimeMs !== stat.mtimeMs || cached.size !== stat.size) {
+              const lines = fs.readFileSync(logPath, 'utf8').split('\n');
+              const entries: { time: number; input: number; output: number }[] = [];
+              for (const line of lines) {
+                if (!line.trim() || !line.includes('PLANNER_RESPONSE')) continue;
+                try {
+                  const o = JSON.parse(line);
+                  if (o.type === 'PLANNER_RESPONSE') {
+                    const time = o.created_at ? new Date(o.created_at).getTime() : 0;
+                    const input = (o.input_tokens || 0) + (o.cache_read_tokens || 0);
+                    const output = o.output_tokens || 0;
+                    entries.push({ time, input, output });
+                  }
+                } catch {}
+              }
+              cached = { mtimeMs: stat.mtimeMs, size: stat.size, entries };
+              this.transcriptCache.set(logPath, cached);
+            }
 
-        const row5h = db.prepare(
-          "SELECT COUNT(*) as c, SUM(step_count) as steps FROM conversation_summaries WHERE last_modified_time > ?"
-        ).get(fiveHoursAgo) as any;
-
-        const row7d = db.prepare(
-          "SELECT COUNT(*) as c, SUM(step_count) as steps FROM conversation_summaries WHERE last_modified_time > ?"
-        ).get(sevenDaysAgo) as any;
-
-        db.close();
-
-        const steps5h = (row5h?.steps || 0) + (this.activeSessions.size > 0 ? 12 : 0);
-        const steps7d = (row7d?.steps || steps5h) + (this.activeSessions.size > 0 ? 12 : 0);
-
-        fiveHourUtil = Math.min(100, Math.max(this.activeSessions.size > 0 ? 18 : 0, Math.round((steps5h / 50) * 100)));
-        sevenDayUtil = Math.min(100, Math.max(fiveHourUtil, Math.round((steps7d / 200) * 100)));
-      } else {
-        fiveHourUtil = this.activeSessions.size > 0 ? 25 : 0;
-        sevenDayUtil = this.activeSessions.size > 0 ? 20 : 0;
+            for (const e of cached.entries) {
+              const total = e.input + e.output;
+              totalTokens += total;
+              totalIn += e.input;
+              totalOut += e.output;
+              if (e.time >= sevenDaysAgo) {
+                weekTokens += total;
+                weekIn += e.input;
+                weekOut += e.output;
+              }
+              if (e.time >= oneDayAgo) {
+                dayTokens += total;
+                dayIn += e.input;
+                dayOut += e.output;
+              }
+            }
+          } catch {}
+        }
       }
-    } catch {
-      fiveHourUtil = this.activeSessions.size > 0 ? 25 : 0;
-      sevenDayUtil = this.activeSessions.size > 0 ? 20 : 0;
+    } catch (e) {
+      log.error(`AntigravitySource: Failed to compute token usage: ${e}`);
     }
-
-    const resetsAt5h = now + 5 * 3600 * 1000 - (now % (5 * 3600 * 1000));
-    const resetsAtWeek = now + 7 * 86400 * 1000 - (now % (7 * 86400 * 1000));
 
     this.deps.accounts.setUsage('.antigravity', {
       source: 'antigravity',
       fetchedAt: now,
-      fiveHour: {
-        utilization: fiveHourUtil,
-        resetsAt: resetsAt5h,
+      dailyTokens: {
+        tokens: dayTokens,
+        tokensIn: dayIn,
+        tokensOut: dayOut,
       },
-      sevenDay: {
-        utilization: sevenDayUtil,
-        resetsAt: resetsAtWeek,
+      weeklyTokens: {
+        tokens: weekTokens,
+        tokensIn: weekIn,
+        tokensOut: weekOut,
+      },
+      totalTokens: {
+        tokens: totalTokens,
+        tokensIn: totalIn,
+        tokensOut: totalOut,
       },
     });
   }

@@ -1069,6 +1069,29 @@
   row-gap: 1px;
 }
 
+/* Cartão de uso com contagem real de tokens (Antigravity, Kilo): sem barra de limite, foco nos números diários e semanais */
+.ui-usage-card.is-tokens .ui-usage-card__meters {
+  grid-template-columns: 46px 0 auto minmax(0, 1fr);
+  column-gap: 6px;
+}
+
+.ui-usage-card.is-tokens .ui-meter__bar {
+  display: none;
+}
+
+.ui-usage-card.is-tokens .ui-meter__pct {
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--acc, #7cc8ff);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ui-usage-card.is-tokens .ui-meter__reset {
+  color: var(--ui-muted);
+  font-size: 10px;
+}
+
 /* Números antigos: barras e percentuais em cinza (legíveis), sem apagar o bloco inteiro. */
 .ui-usage-card__meters.is-dim .ui-meter {
   --lv: #a3abbd;
@@ -1172,6 +1195,10 @@
   .ui-usage-card__meters {
     grid-template-columns: 30px minmax(14px, 1fr) 30px auto;
     column-gap: 5px;
+  }
+
+  .ui-usage-card.is-tokens .ui-usage-card__meters {
+    grid-template-columns: 24px 0 auto minmax(0, 1fr);
   }
 
   .ui-meter__label-long,

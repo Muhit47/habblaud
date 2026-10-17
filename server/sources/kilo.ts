@@ -61,49 +61,67 @@ export class KiloSource implements AgentSource {
   private updateUsage(): void {
     if (!this.deps.accounts) return;
     const now = Date.now();
-    let fiveHourUtil = 0;
-    let sevenDayUtil = 0;
+    const oneDayAgo = now - 24 * 3600 * 1000;
+    const sevenDaysAgo = now - 7 * 86400 * 1000;
+
+    let dayTokens = 0, dayIn = 0, dayOut = 0;
+    let weekTokens = 0, weekIn = 0, weekOut = 0;
+    let totalTokens = 0, totalIn = 0, totalOut = 0;
 
     if (this.db) {
       try {
-        const fiveHoursAgo = now - 5 * 3600 * 1000;
-        const sevenDaysAgo = now - 7 * 86400 * 1000;
+        const rows = this.db.prepare("SELECT time_created, data FROM message WHERE data LIKE '%tokens%'").all() as {
+          time_created: number;
+          data: string;
+        }[];
 
-        const row5h = this.db.prepare(
-          "SELECT COUNT(*) as c, SUM(tokens_input + tokens_output) as tokens FROM session WHERE time_updated > ?"
-        ).get(fiveHoursAgo) as any;
+        for (const r of rows) {
+          try {
+            const d = JSON.parse(r.data);
+            if (d.tokens) {
+              const input = (d.tokens.input || 0) + (d.tokens.cache?.read || 0);
+              const output = (d.tokens.output || 0) + (d.tokens.reasoning || 0);
+              const total = d.tokens.total || (input + output);
+              const time = r.time_created || d.time?.created || 0;
 
-        const row7d = this.db.prepare(
-          "SELECT COUNT(*) as c, SUM(tokens_input + tokens_output) as tokens FROM session WHERE time_updated > ?"
-        ).get(sevenDaysAgo) as any;
-
-        const tokens5h = (row5h?.tokens || 0) + (this.activeSessions.size > 0 ? 5000 : 0);
-        const tokens7d = (row7d?.tokens || tokens5h) + (this.activeSessions.size > 0 ? 5000 : 0);
-
-        fiveHourUtil = Math.min(100, Math.max(this.activeSessions.size > 0 ? 15 : 0, Math.round((tokens5h / 50000) * 100)));
-        sevenDayUtil = Math.min(100, Math.max(fiveHourUtil, Math.round((tokens7d / 200000) * 100)));
-      } catch {
-        fiveHourUtil = this.activeSessions.size > 0 ? 20 : 0;
-        sevenDayUtil = this.activeSessions.size > 0 ? 15 : 0;
+              totalTokens += total;
+              totalIn += input;
+              totalOut += output;
+              if (time >= sevenDaysAgo) {
+                weekTokens += total;
+                weekIn += input;
+                weekOut += output;
+              }
+              if (time >= oneDayAgo) {
+                dayTokens += total;
+                dayIn += input;
+                dayOut += output;
+              }
+            }
+          } catch {}
+        }
+      } catch (e) {
+        log.error(`KiloSource: Failed to query token usage: ${e}`);
       }
-    } else {
-      fiveHourUtil = this.activeSessions.size > 0 ? 20 : 0;
-      sevenDayUtil = this.activeSessions.size > 0 ? 15 : 0;
     }
-
-    const resetsAt5h = now + 5 * 3600 * 1000 - (now % (5 * 3600 * 1000));
-    const resetsAtWeek = now + 7 * 86400 * 1000 - (now % (7 * 86400 * 1000));
 
     this.deps.accounts.setUsage('.kilo', {
       source: 'kilo',
       fetchedAt: now,
-      fiveHour: {
-        utilization: fiveHourUtil,
-        resetsAt: resetsAt5h,
+      dailyTokens: {
+        tokens: dayTokens,
+        tokensIn: dayIn,
+        tokensOut: dayOut,
       },
-      sevenDay: {
-        utilization: sevenDayUtil,
-        resetsAt: resetsAtWeek,
+      weeklyTokens: {
+        tokens: weekTokens,
+        tokensIn: weekIn,
+        tokensOut: weekOut,
+      },
+      totalTokens: {
+        tokens: totalTokens,
+        tokensIn: totalIn,
+        tokensOut: totalOut,
       },
     });
   }

@@ -10,7 +10,7 @@
 import type { AccountInfo } from '../../../shared/types';
 import type { UiContext } from './context';
 import { h, KeyedList, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
-import { FIVE_HOURS_MS, relativeTime, usageLevel, usageWindowView, WEEK_MS, type UsageWindowView } from './format';
+import { FIVE_HOURS_MS, formatInt, formatTokens, relativeTime, usageLevel, usageWindowView, WEEK_MS, type UsageWindowView } from './format';
 import { ICONS } from './icons';
 import { isCodex } from './provider';
 import { usageRowFits } from './usage-row';
@@ -59,6 +59,8 @@ interface Meter {
   reset: HTMLElement;
   resetLong: HTMLElement;
   resetShort: HTMLElement;
+  labelLong: HTMLElement;
+  labelShort: HTMLElement;
 }
 
 interface CardRefs {
@@ -93,17 +95,50 @@ function createMeter(long: string, short: string, title: string): Meter {
   const resetLong = h('span', { class: 'ui-meter__reset-long' });
   const resetShort = h('span', { class: 'ui-meter__reset-short' });
   const reset = h('span', { class: 'ui-meter__reset' }, resetLong, resetShort);
+  const labelLong = h('span', { class: 'ui-meter__label-long', text: long });
+  const labelShort = h('span', { class: 'ui-meter__label-short', text: short, attrs: { 'aria-hidden': 'true' } });
   const label = h(
     'span',
     { class: 'ui-meter__label' },
-    h('span', { class: 'ui-meter__label-long', text: long }),
-    h('span', { class: 'ui-meter__label-short', text: short, attrs: { 'aria-hidden': 'true' } }),
+    labelLong,
+    labelShort,
   );
   const el = h('div', { class: 'ui-meter', role: 'img', attrs: { 'aria-label': title } }, label, bar, pct, reset);
-  return { el, bar, pct, reset, resetLong, resetShort };
+  return { el, bar, pct, reset, resetLong, resetShort, labelLong, labelShort };
+}
+
+function updateTokenMeter(
+  m: Meter,
+  tokenUsage: { tokens: number; tokensIn?: number; tokensOut?: number } | undefined,
+  longLabel: string,
+  shortLabel: string,
+): void {
+  setText(m.labelLong, longLabel);
+  setText(m.labelShort, shortLabel);
+  m.el.classList.remove('is-ok', 'is-warn', 'is-crit', 'is-zero', 'is-none', 'is-renewed');
+  if (!tokenUsage) {
+    setText(m.pct, '—');
+    setText(m.resetLong, '');
+    setText(m.resetShort, '');
+    setAttr(m.el, 'aria-label', `${longLabel}: ${tr('sem dados')}`);
+    setTitle(m.el, `${longLabel}: ${tr('sem dados')}`);
+    return;
+  }
+  const formatted = formatTokens(tokenUsage.tokens);
+  setText(m.pct, `${formatted} tok`);
+  const inStr = tokenUsage.tokensIn != null ? `${formatTokens(tokenUsage.tokensIn)} in` : '';
+  const outStr = tokenUsage.tokensOut != null ? `${formatTokens(tokenUsage.tokensOut)} out` : '';
+  const detail = [inStr, outStr].filter(Boolean).join(' · ');
+  setText(m.resetLong, detail ? `(${detail})` : '');
+  setText(m.resetShort, detail ? `(${detail})` : '');
+  const aria = `${longLabel}: ${formatInt(tokenUsage.tokens)} tokens${detail ? ` (${detail})` : ''}`;
+  setAttr(m.el, 'aria-label', aria);
+  setTitle(m.el, aria);
 }
 
 function updateMeter(m: Meter, view: UsageWindowView | null, windowName: string): void {
+  setText(m.labelLong, windowName === tr('Semana') ? tr('Semana') : '5h');
+  setText(m.labelShort, windowName === tr('Semana') ? tr('Sem.') : '5h');
   if (!view || view.pct === null) {
     setVariant(m.el, 'is-', 'none');
     m.el.classList.remove('is-zero');
@@ -157,7 +192,7 @@ export function createUsageSetup(): HTMLElement {
 export type CardState = 'ok' | 'stale' | 'empty' | 'noquota';
 
 function hasWindows(a: Pick<AccountInfo, 'usage'>): boolean {
-  return !!a.usage && !!(a.usage.fiveHour || a.usage.sevenDay);
+  return !!a.usage && !!(a.usage.fiveHour || a.usage.sevenDay || a.usage.dailyTokens || a.usage.weeklyTokens);
 }
 
 /** Estado efetivo do cartão. */
@@ -180,6 +215,8 @@ export function showsUsageAge(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'pr
 export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'plan' | 'configDir' | 'provider'>): string {
   if (a.email) return a.email;
   if (isCodex(a)) return a.plan ? tr('plano {0}', [a.plan]) : 'Codex';
+  if (a.provider === 'antigravity') return a.plan ? tr('plano {0}', [a.plan]) : 'Antigravity';
+  if (a.provider === 'kilo') return a.plan ? tr('plano {0}', [a.plan]) : 'Kilo';
   return a.configDir;
 }
 
@@ -347,6 +384,8 @@ export class UsageCards {
     setAttr(card, 'aria-label', tr('{0}{1}: uso do plano', [a.name, codex ? ' (Codex)' : '']));
 
     const usage = a.usage;
+    const isTokenAccount = !!(usage && (usage.dailyTokens || usage.weeklyTokens));
+    card.classList.toggle('is-tokens', isTokenAccount);
     const state = cardState(a);
     setVariant(card, 'is-', state);
     const five = usage ? usageWindowView(usage.fiveHour, usage.fetchedAt, now, FIVE_HOURS_MS) : null;
@@ -354,8 +393,13 @@ export class UsageCards {
     const showMeters = hasWindows(a);
     setHidden(r.meters, !showMeters);
     if (usage && showMeters) {
-      updateMeter(r.five, five, tr('Sessão de 5 horas'));
-      updateMeter(r.week, week, tr('Semana'));
+      if (isTokenAccount) {
+        updateTokenMeter(r.five, usage.dailyTokens, tr('Diário'), '1d');
+        updateTokenMeter(r.week, usage.weeklyTokens, tr('Semana'), '7d');
+      } else {
+        updateMeter(r.five, five, tr('Sessão de 5 horas'));
+        updateMeter(r.week, week, tr('Semana'));
+      }
     }
     r.meters.classList.toggle('is-dim', state !== 'ok');
 
@@ -395,16 +439,40 @@ export class UsageCards {
 
   private updateTip(r: CardRefs, a: AccountInfo, state: CardState, five: UsageWindowView | null, week: UsageWindowView | null, now: number): void {
     const codex = isCodex(a);
-    setText(r.tipTitle, `${a.name}${codex && !/codex/i.test(a.name) ? ' · Codex' : ''}${a.plan ? tr(' · plano {0}', [a.plan]) : ''}`);
+    const isToken = a.provider === 'antigravity' || a.provider === 'kilo' || !!(a.usage && (a.usage.dailyTokens || a.usage.weeklyTokens));
+    const provName = a.provider === 'antigravity' ? 'Antigravity' : a.provider === 'kilo' ? 'Kilo' : codex ? 'Codex' : '';
+    setText(r.tipTitle, `${a.name}${provName && !new RegExp(provName, 'i').test(a.name) ? ` · ${provName}` : ''}${a.plan ? tr(' · plano {0}', [a.plan]) : ''}`);
     const rows: [string, string][] = [];
-    if (codex) rows.push([tr('Ferramenta'), 'Codex']);
+    if (a.provider && a.provider !== 'claude') rows.push([tr('Ferramenta'), a.provider === 'antigravity' ? 'Antigravity' : a.provider === 'kilo' ? 'Kilo' : 'Codex']);
     if (a.email) rows.push(['E-mail', a.email]);
     if (a.organization) rows.push([tr('Organização'), a.organization]);
     if (a.plan) rows.push([tr('Plano'), a.plan]);
     rows.push([tr('Pasta'), a.configDir]);
     rows.push([tr('Sessões abertas'), String(a.sessions)]);
     const u = a.usage;
-    if (u && (u.fiveHour || u.sevenDay)) {
+    if (u && (u.dailyTokens || u.weeklyTokens)) {
+      if (u.dailyTokens) {
+        const d = u.dailyTokens;
+        const inStr = d.tokensIn != null ? `${formatTokens(d.tokensIn)} in` : '';
+        const outStr = d.tokensOut != null ? `${formatTokens(d.tokensOut)} out` : '';
+        const detail = [inStr, outStr].filter(Boolean).join(' · ');
+        rows.push([tr('Uso diário (24 h)'), `${formatInt(d.tokens)} tok${detail ? ` (${detail})` : ''}`]);
+      }
+      if (u.weeklyTokens) {
+        const w = u.weeklyTokens;
+        const inStr = w.tokensIn != null ? `${formatTokens(w.tokensIn)} in` : '';
+        const outStr = w.tokensOut != null ? `${formatTokens(w.tokensOut)} out` : '';
+        const detail = [inStr, outStr].filter(Boolean).join(' · ');
+        rows.push([tr('Uso semanal (7 d)'), `${formatInt(w.tokens)} tok${detail ? ` (${detail})` : ''}`]);
+      }
+      if (u.totalTokens) {
+        const t = u.totalTokens;
+        const inStr = t.tokensIn != null ? `${formatTokens(t.tokensIn)} in` : '';
+        const outStr = t.tokensOut != null ? `${formatTokens(t.tokensOut)} out` : '';
+        const detail = [inStr, outStr].filter(Boolean).join(' · ');
+        rows.push([tr('Total geral'), `${formatInt(t.tokens)} tok${detail ? ` (${detail})` : ''}`]);
+      }
+    } else if (u && (u.fiveHour || u.sevenDay)) {
       rows.push([tr('Sessão de 5 h'), five?.summary ?? '—']);
       rows.push([tr('Semana'), week?.summary ?? '—']);
       // Opus e Sonnet são janelas do Claude: no Codex não existem.
@@ -414,15 +482,15 @@ export class UsageCards {
       if (sonnet) rows.push([tr('Sonnet (semana)'), sonnet.summary]);
     }
     if (u && state === 'noquota') rows.push([tr('Cota'), tr('sem cota nem créditos agora')]);
-    if (u && (state !== 'empty' || codex)) {
+    if (u && (state !== 'empty' || codex || isToken)) {
       rows.push([tr('Origem'), sourceLabel(u)]);
       rows.push([tr('Atualizado'), relativeTime(u.fetchedAt, now)]);
     }
     syncRows(r.tipRows, rows);
 
-    // Codex: a explicação dele, sem o passo a passo do Claude Code (não há o que instalar para o uso).
-    if (codex) {
-      const note = codexUsageNote(a, now);
+    // Codex ou ferramentas com tokens (Antigravity/Kilo): sem o passo a passo do Claude Code
+    if (codex || isToken) {
+      const note = codex ? codexUsageNote(a, now) : '';
       setText(r.tipNote, note);
       setHidden(r.tipNote, !note);
       setHidden(r.tipSetup, true);
