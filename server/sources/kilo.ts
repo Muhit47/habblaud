@@ -7,8 +7,8 @@ import type { Office } from '../model/office';
 import type { AccountsService } from '../accounts/service';
 import { log } from '../log';
 
-/** 3 minutes threshold: if no activity within 3 minutes, project is inactive/offline */
-const ACTIVE_THRESHOLD_MS = 3 * 60 * 1000;
+/** 1 minute threshold: if no activity within 1 minute, agent transitions to idle */
+const ACTIVE_THRESHOLD_MS = 60 * 1000;
 
 export class KiloSource implements AgentSource {
   readonly provider = 'kilo' as const;
