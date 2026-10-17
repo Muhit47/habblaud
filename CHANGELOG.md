@@ -1,39 +1,28 @@
-# Novidades
+# Changelog
 
-O que entrou em cada versão do Habblaud. Cada versão tem a sua seção aqui, e o texto dela vira as notas da
-[release no GitHub](https://github.com/marmottajr/habblaud/releases) (`npm run release`), que o Habblaud abre em
-**Configurações › Sobre › Ver o que mudou**.
+What changed in each Habblaud version. Each version has its own section here, and its text becomes the [GitHub release](https://github.com/Muhit47/habblaud/releases) notes (`npm run release`), which Habblaud opens in **Settings › About › See what changed**.
 
-O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/), e os números seguem o
-[versionamento semântico](https://semver.org/lang/pt-BR/): correção sobe o último número (0.2.**1**), novidade sobe o
-do meio (0.**3**.0).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the numbers follow [Semantic Versioning](https://semver.org/): patch releases increment the last number (0.2.**1**), new features increment the middle one (0.**3**.0).
 
-## [Não lançado]
+## [Unreleased]
 
 ## [1.0.3] - 2026-10-16
 
-### Corrigido
+### Fixed
 
-- **Cidade: “Responder” e “Mostrar no escritório” nos avisos voltam ao escritório e abrem o pedido do agente.** Com
-  a cidade aberta, o clique no aviso de um pedido ou pergunta (e na notificação do navegador, no chip de pedidos da
-  barra e nas Entregas) não fazia nada visível: o agente era escolhido atrás da cidade. Agora a cidade fecha, a
-  gaveta abre no agente e o cartão do pedido recebe o foco.
+- **City: "Reply" and "Show in office" in warnings now return to the office and open the agent's request.** With the city open, clicking on a request or question warning (and browser notifications, request chips in the bar, and Deliveries) did nothing visible: the agent was selected behind the city. Now the city closes, the drawer opens to the agent, and the request card receives focus.
 
 ## [1.0.2] - 2026-10-16
 
-### Corrigido
+### Fixed
 
-- **Cidade: entrar e curtir voltaram a funcionar depois de deixar a aba em segundo plano.** Depois de meio minuto com
-  o Habblaud em outra aba ou janela, o personagem parava de mandar a posição ao Habblaud World: andava na tela, mas
-  "Entrar" e curtir diziam para chegar mais perto da porta.
+- **City: Entering and liking started working again after leaving the tab in the background.** After half a minute with Habblaud in another tab or window, the character stopped sending the position to Habblaud World: it would walk on the screen, but "Enter" and liking would say to get closer to the door.
 
 ## [1.0.1] - 2026-10-16
 
-### Corrigido
+### Fixed
 
-- **Cidade: as teclas voltaram a andar.** Na 1.0.0, com os popups de lançamento e a janela do Habblaud World na
-  página, WASD, as setas e os atalhos do escritório paravam de responder mesmo com tudo fechado: um `<dialog>`
-  fechado continua na página e era tomado por um modal aberto. Só os diálogos abertos contam agora.
+- **City: Keys started walking again.** In 1.0.0, with the release popups and the Habblaud World window on the page, WASD, arrows, and office shortcuts stopped responding even with everything closed: a closed `<dialog>` remains on the page and was taken over by an open modal. Only open dialogs now count.
 
 ## [1.0.0] - 2026-10-16
 
@@ -576,20 +565,20 @@ Primeira versão publicada.
   Subagentes chegam, trabalham e entregam ao principal. Mostra as duas contas, com o uso de 5 horas e semanal de
   cada uma (tap de statusline), além de feed de atividade, avisos e modo demonstração. Roda no Node ou no Docker local.
 
-[Não lançado]: https://github.com/marmottajr/habblaud/compare/v1.0.3...HEAD
-[1.0.3]: https://github.com/marmottajr/habblaud/compare/v1.0.2...v1.0.3
-[1.0.2]: https://github.com/marmottajr/habblaud/compare/v1.0.1...v1.0.2
-[1.0.1]: https://github.com/marmottajr/habblaud/compare/v1.0.0...v1.0.1
-[1.0.0]: https://github.com/marmottajr/habblaud/compare/v0.11.0...v1.0.0
-[0.11.0]: https://github.com/marmottajr/habblaud/releases/tag/v0.11.0
-[0.10.0]: https://github.com/marmottajr/habblaud/releases/tag/v0.10.0
-[0.9.0]: https://github.com/marmottajr/habblaud/releases/tag/v0.9.0
-[0.8.0]: https://github.com/marmottajr/habblaud/releases/tag/v0.8.0
-[0.7.0]: https://github.com/marmottajr/habblaud/releases/tag/v0.7.0
-[0.6.0]: https://github.com/marmottajr/habblaud/releases/tag/v0.6.0
-[0.5.0]: https://github.com/marmottajr/habblaud/releases/tag/v0.5.0
-[0.4.0]: https://github.com/marmottajr/habblaud/releases/tag/v0.4.0
-[0.3.2]: https://github.com/marmottajr/habblaud/releases/tag/v0.3.2
-[0.3.1]: https://github.com/marmottajr/habblaud/releases/tag/v0.3.1
-[0.3.0]: https://github.com/marmottajr/habblaud/releases/tag/v0.3.0
-[0.2.0]: https://github.com/marmottajr/habblaud/releases/tag/v0.2.0
+[Unreleased]: https://github.com/Muhit47/habblaud/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/Muhit47/habblaud/compare/v1.0.2...v1.0.3
+[1.0.2]: https://github.com/Muhit47/habblaud/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/Muhit47/habblaud/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/Muhit47/habblaud/compare/v0.11.0...v1.0.0
+[0.11.0]: https://github.com/Muhit47/habblaud/releases/tag/v0.11.0
+[0.10.0]: https://github.com/Muhit47/habblaud/releases/tag/v0.10.0
+[0.9.0]: https://github.com/Muhit47/habblaud/releases/tag/v0.9.0
+[0.8.0]: https://github.com/Muhit47/habblaud/releases/tag/v0.8.0
+[0.7.0]: https://github.com/Muhit47/habblaud/releases/tag/v0.7.0
+[0.6.0]: https://github.com/Muhit47/habblaud/releases/tag/v0.6.0
+[0.5.0]: https://github.com/Muhit47/habblaud/releases/tag/v0.5.0
+[0.4.0]: https://github.com/Muhit47/habblaud/releases/tag/v0.4.0
+[0.3.2]: https://github.com/Muhit47/habblaud/releases/tag/v0.3.2
+[0.3.1]: https://github.com/Muhit47/habblaud/releases/tag/v0.3.1
+[0.3.0]: https://github.com/Muhit47/habblaud/releases/tag/v0.3.0
+[0.2.0]: https://github.com/Muhit47/habblaud/releases/tag/v0.2.0

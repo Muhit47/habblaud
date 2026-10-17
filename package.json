@@ -2,13 +2,13 @@
   "name": "habblaud",
   "version": "1.0.3",
   "private": true,
-  "description": "Escritório virtual animado que mostra, em tempo real, o que seus agentes do Claude Code estão fazendo.",
+  "description": "Animated virtual office that displays real-time activity of your AI agents (Antigravity and Kilo).",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/marmottajr/habblaud.git"
+    "url": "git+https://github.com/Muhit47/habblaud.git"
   },
-  "homepage": "https://github.com/marmottajr/habblaud#readme",
+  "homepage": "https://github.com/Muhit47/habblaud#readme",
   "type": "module",
   "engines": {
     "node": ">=22.12"

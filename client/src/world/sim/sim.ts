@@ -611,8 +611,6 @@ export class Sim {
       else if (!ch.leaving && (ch.mode === 'shell' || (ch.info.status === 'working' && ch.info.shells?.length))) this.refreshMode(ch);
       if (ch.mode === 'idle' && ch.atSpot?.startsWith('core:dorm_') && ch.pose === 'sleep' && ch.icon !== 'zzz') {
         ch.setIcon('zzz', 1e12, now);
-      } else if (ch.mode === 'idle' && !ch.atSpot?.startsWith('core:dorm_') && ch.pose === 'sleep' && ch.icon !== 'zzz' && isLongIdle(ch.info.status, ch.info.statusSince, now)) {
-        ch.setIcon('zzz', 1e12, now);
       }
     }
     if (this.shrinkPending) this.relayout();
@@ -1209,20 +1207,16 @@ export class Sim {
         return true;
       }
     }
+    if (ch.mode === 'idle') {
+      if (ch.atSpot?.startsWith('core:dorm_')) return false;
+    }
     if (ch.atSpot !== ch.homeSpot) return this.planGoHome(ch, now);
     ch.arriving = false;
     if (ch.mode === 'idle') {
-      if (this.longIdle(ch, now)) {
-        // Não manda para o dormitório quem já está na sua mesa: pode cochilar no lugar.
-        if (ch.atSpot !== ch.homeSpot && !ch.atSpot?.startsWith('core:dorm_')) {
-          if (this.goToDorm(ch, now)) return true;
-        }
-      } else {
-        if (!ch.nextOutingAt) ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
-        if (now >= ch.nextOutingAt) {
-          if (this.planOuting(ch, now)) return true;
-          ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
-        }
+      if (!ch.nextOutingAt) ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
+      if (now >= ch.nextOutingAt) {
+        if (this.planOuting(ch, now)) return true;
+        ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
       }
     }
     // esperando um shell: só sai da mesa para uma roda (sozinho, fica na pipoca)
@@ -1249,7 +1243,7 @@ export class Sim {
     steps.push(
       { t: 'go', tx: dormSpot.tx, ty: dormSpot.ty },
       { t: 'enter', spot: dormSpot.id },
-      { t: 'act', pose: 'sleep', icon: 'zzz', ms: 300000 },
+      { t: 'act', pose: 'sleep', icon: 'zzz', ms: 75000 },
       { t: 'exit' },
       { t: 'do', fn: () => this.releaseTemp(ch) }
     );
@@ -1515,30 +1509,18 @@ export class Sim {
   }
 
   private planOuting(ch: Character, now: number): boolean {
-    const IDLE_SLEEP_THRESHOLD_MS = 2 * 60 * 1000;
-    if (ch.info.statusSince && now - ch.info.statusSince >= IDLE_SLEEP_THRESHOLD_MS) {
-      const dormId = ch.info.provider === 'kilo' ? 'core:dorm_kilo' : 'core:dorm_antigravity';
-      const dormSpot = [...this.spots.all()].find(
-        (s) => s.areaId === dormId && this.spots.isFree(s.id, ch.id)
-      );
-      if (dormSpot && this.reserveTemp(ch, dormSpot)) {
-        this.pushLeave(ch, []);
-        ch.queue.push(
-          { t: 'go', tx: dormSpot.tx, ty: dormSpot.ty },
-          { t: 'enter', spot: dormSpot.id },
-          { t: 'act', pose: 'sleep', ms: 120000, icon: 'zzz' },
-          { t: 'exit' },
-          { t: 'do', fn: () => this.releaseTemp(ch) }
-        );
-        return true;
-      }
-    }
-
     const near = { tx: ch.tx, ty: ch.ty };
     const rng = ch.rng;
     const persona = personaFor(ch.info.seed);
-    // colegas à toa: a vontade é de companhia (a personalidade dosa) — TV, jogo, papo, aposta...
-    if (this.social.hasCompany(ch, now) && rng() < 0.45 + persona.sociability * 0.4 && this.social.tryInitiate(ch, now, false)) return true;
+    // Prioritize social adda (TV, games, chat, kitchen, pingpong) if company is available:
+    if (this.social.hasCompany(ch, now) && rng() < 0.7 + persona.sociability * 0.25 && this.social.tryInitiate(ch, now, false)) return true;
+
+    // If idle for over 3 minutes and no adda, go to dorm for a nap:
+    const IDLE_SLEEP_THRESHOLD_MS = 3 * 60 * 1000;
+    if (ch.info.statusSince && now - ch.info.statusSince >= IDLE_SLEEP_THRESHOLD_MS) {
+      if (this.goToDorm(ch, now)) return true;
+    }
+
     const avail: Partial<Record<IdleActivity, boolean>> = {
       coffee: !!this.spots.findFree('coffee', { by: ch.id }),
       water: !!this.spots.findFree('water', { by: ch.id }),
@@ -1727,8 +1709,7 @@ export class Sim {
     if (atHome && ch.mode === 'work') ch.setPose('type', laptop ? 'laptop' : 'none');
     else if (atHome && ch.mode === 'wait') ch.setPose('raise_hand');
     else if (atHome && ch.mode === 'shell') this.shellPose(ch, spot, now);
-    else if (ch.mode === 'idle' && ch.atSpot?.startsWith('core:dorm_')) ch.setPose('sleep');
-    else if (ch.mode === 'idle' && isLongIdle(ch.info.status, ch.info.statusSince, now)) ch.setPose('sleep');
+    else if (ch.mode === 'idle' && ch.atSpot?.startsWith('core:dorm_') && isLongIdle(ch.info.status, ch.info.statusSince, now)) ch.setPose('sleep');
     else ch.setPose('sit');
   }
 
