@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { AgentSource } from './source';
-import type { SourceInfo } from '../../shared/types';
+import type { AgentStatus, SourceInfo } from '../../shared/types';
 import type { Office } from '../model/office';
 import type { AccountsService } from '../accounts/service';
 import { log } from '../log';
@@ -142,6 +142,54 @@ export class KiloSource implements AgentSource {
     return rawModel;
   }
 
+  private handleSession(s: any, status: AgentStatus, currentLive: Set<string>): void {
+    const agentId = `kilo-${s.id}`;
+    currentLive.add(s.id);
+
+    const rawDir = (s.directory || '').replace(/\\/g, '/');
+    const isPinned = rawDir.toLowerCase().includes('kilo desktop/chats') || !rawDir;
+    const cwd = isPinned
+      ? path.join(process.env.USERPROFILE || process.env.HOME || '', 'Pinned Conversations').replace(/\\/g, '/')
+      : rawDir;
+    const projectName = isPinned
+      ? 'Pinned'
+      : (cwd.split('/').filter(Boolean).pop() || 'Project');
+    const title = s.title || projectName;
+    const modelName = this.formatModelName(s.model);
+
+    if (!this.activeSessions.has(s.id)) {
+      this.activeSessions.add(s.id);
+
+      this.deps.office.addMain({
+        id: agentId,
+        name: `[Kilo] ${projectName}: ${title}`,
+        provider: this.provider,
+        account: '.kilo',
+        sessionId: s.id,
+        cwd: cwd,
+        role: modelName,
+        startedAt: s.time_created || Date.now(),
+        status,
+      });
+
+      this.deps.office.applyTranscriptSummary(agentId, {
+        title: `${title} (${modelName})`,
+        model: modelName,
+        tasks: [],
+        stats: {
+          toolCalls: 0,
+          tokensIn: s.tokens_input || 0,
+          tokensOut: s.tokens_output || 0,
+          subagents: 0,
+        },
+      });
+    } else {
+      this.deps.office.setStatus(agentId, status);
+    }
+
+    this.syncParts(agentId, s.id);
+  }
+
   private poll(): void {
     if (!this.db) this.initDb();
     if (!this.db) return;
@@ -153,60 +201,25 @@ export class KiloSource implements AgentSource {
 
       const now = Date.now();
       const currentLive = new Set<string>();
+      let hasActiveWorking = false;
 
       for (const s of sessions) {
         const lockExists = fs.existsSync(path.join(this.locksDir, `${s.id}.lock`));
-        // Strict 3-minute activity check
-        const isActive = lockExists || (now - s.time_updated <= ACTIVE_THRESHOLD_MS);
+        const isWorking = lockExists || (now - s.time_updated <= ACTIVE_THRESHOLD_MS);
 
-        if (isActive) {
-          const agentId = `kilo-${s.id}`;
-          currentLive.add(s.id);
-
-          const rawDir = (s.directory || '').replace(/\\/g, '/');
-          const isPinned = rawDir.toLowerCase().includes('kilo desktop/chats') || !rawDir;
-          const cwd = isPinned
-            ? path.join(process.env.USERPROFILE || process.env.HOME || '', 'Pinned Conversations').replace(/\\/g, '/')
-            : rawDir;
-          const projectName = isPinned
-            ? 'Pinned'
-            : (cwd.split('/').filter(Boolean).pop() || 'Project');
-          const title = s.title || projectName;
-          const modelName = this.formatModelName(s.model);
-
-          if (!this.activeSessions.has(s.id)) {
-            this.activeSessions.add(s.id);
-
-            this.deps.office.addMain({
-              id: agentId,
-              name: `[Kilo] ${projectName}: ${title}`,
-              provider: this.provider,
-              account: '.kilo',
-              sessionId: s.id,
-              cwd: cwd,
-              role: modelName,
-              startedAt: s.time_created || Date.now(),
-              status: 'working'
-            });
-
-            this.deps.office.applyTranscriptSummary(agentId, {
-              title: `${title} (${modelName})`,
-              model: modelName,
-              tasks: [],
-              stats: {
-                toolCalls: 0,
-                tokensIn: s.tokens_input || 0,
-                tokensOut: s.tokens_output || 0,
-                subagents: 0
-              }
-            });
-          }
-
-          this.syncParts(agentId, s.id);
+        if (isWorking) {
+          hasActiveWorking = true;
+          this.handleSession(s, 'working', currentLive);
         }
       }
 
-      // Automatically remove any project that hasn't been active in 3 minutes
+      // If no session is actively working, keep the most recent session in 'idle'
+      // so Kilo visits the lounge, kitchen, restroom, and reception!
+      if (!hasActiveWorking && sessions.length > 0) {
+        this.handleSession(sessions[0], 'idle', currentLive);
+      }
+
+      // Automatically remove any project no longer in currentLive
       for (const id of this.activeSessions) {
         if (!currentLive.has(id)) {
           this.activeSessions.delete(id);

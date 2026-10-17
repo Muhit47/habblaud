@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { AgentSource } from './source';
-import type { SourceInfo } from '../../shared/types';
+import type { AgentStatus, SourceInfo } from '../../shared/types';
 import type { Office } from '../model/office';
 import type { AccountsService } from '../accounts/service';
 import { log } from '../log';
@@ -140,23 +140,46 @@ export class AntigravitySource implements AgentSource {
 
   private syncActiveSessions(): void {
     try {
-      if (!fs.existsSync(this.presenceDir)) return;
-      const files = fs.readdirSync(this.presenceDir);
       const currentLive = new Set<string>();
 
-      for (const file of files) {
-        if (!file.endsWith('.lock')) continue;
-        const sessionId = file.replace('.lock', '');
-        const meta = this.getConversationMeta(sessionId);
+      if (fs.existsSync(this.presenceDir)) {
+        const files = fs.readdirSync(this.presenceDir);
 
-        // Strict 3-minute activity check
-        if (Date.now() - meta.lastActivityTime <= ACTIVE_THRESHOLD_MS) {
+        for (const file of files) {
+          if (!file.endsWith('.lock')) continue;
+          const sessionId = file.replace('.lock', '');
+          const meta = this.getConversationMeta(sessionId);
+
+          // Working if recent activity in last 3 min, otherwise idle (goes to restroom, lounge, kitchen, reception)
+          const isWorking = Date.now() - meta.lastActivityTime <= ACTIVE_THRESHOLD_MS;
           currentLive.add(sessionId);
-          this.registerOrUpdateSession(sessionId, meta);
+          this.registerOrUpdateSession(sessionId, meta, isWorking ? 'working' : 'idle');
         }
       }
 
-      // Automatically remove any project that hasn't been active in 3 minutes
+      // If no active locked session, ensure the most recent conversation stays present in 'idle' mode
+      // so the character can hang out in the lounge, kitchen, restroom, and reception!
+      if (currentLive.size === 0) {
+        try {
+          const dbPath = path.join(this.baseDir, 'conversation_summaries.db');
+          if (fs.existsSync(dbPath)) {
+            const db = new DatabaseSync(dbPath, { readOnly: true });
+            const row = db.prepare(
+              "SELECT conversation_id, title, workspace_uris, last_modified_time FROM conversation_summaries ORDER BY last_modified_time DESC LIMIT 1"
+            ).get() as any;
+            db.close();
+
+            if (row && row.conversation_id) {
+              const sessionId = row.conversation_id;
+              const meta = this.getConversationMeta(sessionId);
+              currentLive.add(sessionId);
+              this.registerOrUpdateSession(sessionId, meta, 'idle');
+            }
+          }
+        } catch {}
+      }
+
+      // Automatically remove any project no longer in currentLive
       for (const sessionId of this.activeSessions) {
         if (!currentLive.has(sessionId)) {
           this.unregisterSession(sessionId);
@@ -239,7 +262,11 @@ export class AntigravitySource implements AgentSource {
     };
   }
 
-  private registerOrUpdateSession(sessionId: string, meta: { cwd: string; title: string; projectName: string; model: string }): void {
+  private registerOrUpdateSession(
+    sessionId: string,
+    meta: { cwd: string; title: string; projectName: string; model: string },
+    status: AgentStatus = 'working',
+  ): void {
     const agentId = `antigravity-${sessionId}`;
     const transcriptPath = this.transcriptPathOf(agentId)!;
 
@@ -255,17 +282,19 @@ export class AntigravitySource implements AgentSource {
         cwd: meta.cwd,
         role: meta.model,
         startedAt: Date.now(),
-        status: 'working'
+        status,
       });
 
       this.deps.office.applyTranscriptSummary(agentId, {
         title: `${meta.title} (${meta.model})`,
         model: meta.model,
         tasks: [],
-        stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }
+        stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 },
       });
 
       this.watchTranscript(sessionId, transcriptPath);
+    } else {
+      this.deps.office.setStatus(agentId, status);
     }
   }
 
