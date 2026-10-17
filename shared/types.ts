@@ -288,7 +288,7 @@ export interface AccountUsage {
    * - 'cache': `cachedUsageUtilization` gravado pelo próprio Claude Code (atualiza quando alguém roda /usage);
    * - 'codex': `rate_limits` dos arquivos de sessão do Codex (só se renovam enquanto alguma sessão roda).
    */
-  source: 'cache' | 'statusline' | 'codex';
+  source: 'cache' | 'statusline' | 'codex' | 'antigravity' | 'kilo';
   /** Quem gravou o arquivo ao vivo ('statusline'): o mod do Habblaud no Claude Code ou o tap de statusline. */
   via?: 'mod' | 'tap';
   /**

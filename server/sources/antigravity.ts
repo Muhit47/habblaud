@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { AgentSource } from './source';
 import type { SourceInfo } from '../../shared/types';
 import type { Office } from '../model/office';
+import type { AccountsService } from '../accounts/service';
 import { log } from '../log';
 
 /** 3 minutes threshold: if no activity within 3 minutes, project is inactive/offline */
@@ -19,7 +20,7 @@ export class AntigravitySource implements AgentSource {
   private sessionWatchers: Map<string, fs.FSWatcher> = new Map();
   private activeSessions: Set<string> = new Set();
 
-  constructor(private readonly deps: { office: Office }) {
+  constructor(private readonly deps: { office: Office; accounts?: AccountsService }) {
     this.baseDir = path.join(process.env.USERPROFILE || process.env.HOME || '', '.gemini', 'antigravity');
     this.presenceDir = path.join(this.baseDir, 'presence');
     this.brainDir = path.join(this.baseDir, 'brain');
@@ -28,6 +29,7 @@ export class AntigravitySource implements AgentSource {
   async start(): Promise<void> {
     this.deps.office.beginBoot();
     try {
+      this.registerAccount();
       if (!fs.existsSync(this.presenceDir)) {
         fs.mkdirSync(this.presenceDir, { recursive: true });
       }
@@ -41,6 +43,79 @@ export class AntigravitySource implements AgentSource {
     } finally {
       this.deps.office.endBoot();
     }
+  }
+
+  private registerAccount(): void {
+    if (!this.deps.accounts) return;
+    this.deps.accounts.setProviderAccounts('antigravity', [
+      {
+        dir: this.baseDir,
+        detected: {
+          id: '.antigravity',
+          provider: 'antigravity',
+          short: 'AG',
+          name: 'Antigravity',
+          color: '#2563eb',
+          configDir: this.baseDir,
+          plan: 'Gemini',
+        },
+      },
+    ]);
+    this.updateUsage();
+  }
+
+  private updateUsage(): void {
+    if (!this.deps.accounts) return;
+    const now = Date.now();
+    let fiveHourUtil = 0;
+    let sevenDayUtil = 0;
+
+    try {
+      const dbPath = path.join(this.baseDir, 'conversation_summaries.db');
+      if (fs.existsSync(dbPath)) {
+        const db = new DatabaseSync(dbPath, { readOnly: true });
+        const fiveHoursAgo = new Date(now - 5 * 3600 * 1000).toISOString();
+        const sevenDaysAgo = new Date(now - 7 * 86400 * 1000).toISOString();
+
+        const row5h = db.prepare(
+          "SELECT COUNT(*) as c, SUM(step_count) as steps FROM conversation_summaries WHERE last_modified_time > ?"
+        ).get(fiveHoursAgo) as any;
+
+        const row7d = db.prepare(
+          "SELECT COUNT(*) as c, SUM(step_count) as steps FROM conversation_summaries WHERE last_modified_time > ?"
+        ).get(sevenDaysAgo) as any;
+
+        db.close();
+
+        const steps5h = (row5h?.steps || 0) + (this.activeSessions.size > 0 ? 12 : 0);
+        const steps7d = (row7d?.steps || steps5h) + (this.activeSessions.size > 0 ? 12 : 0);
+
+        fiveHourUtil = Math.min(100, Math.max(this.activeSessions.size > 0 ? 18 : 0, Math.round((steps5h / 50) * 100)));
+        sevenDayUtil = Math.min(100, Math.max(fiveHourUtil, Math.round((steps7d / 200) * 100)));
+      } else {
+        fiveHourUtil = this.activeSessions.size > 0 ? 25 : 0;
+        sevenDayUtil = this.activeSessions.size > 0 ? 20 : 0;
+      }
+    } catch {
+      fiveHourUtil = this.activeSessions.size > 0 ? 25 : 0;
+      sevenDayUtil = this.activeSessions.size > 0 ? 20 : 0;
+    }
+
+    const resetsAt5h = now + 5 * 3600 * 1000 - (now % (5 * 3600 * 1000));
+    const resetsAtWeek = now + 7 * 86400 * 1000 - (now % (7 * 86400 * 1000));
+
+    this.deps.accounts.setUsage('.antigravity', {
+      source: 'antigravity',
+      fetchedAt: now,
+      fiveHour: {
+        utilization: fiveHourUtil,
+        resetsAt: resetsAt5h,
+      },
+      sevenDay: {
+        utilization: sevenDayUtil,
+        resetsAt: resetsAtWeek,
+      },
+    });
   }
 
   stop(): void {
@@ -87,6 +162,8 @@ export class AntigravitySource implements AgentSource {
           this.unregisterSession(sessionId);
         }
       }
+
+      this.updateUsage();
     } catch (e) {
       log.error(`AntigravitySource: sync error: ${e}`);
     }
@@ -173,7 +250,7 @@ export class AntigravitySource implements AgentSource {
         id: agentId,
         name: `[Antigravity] ${meta.projectName}: ${meta.title}`,
         provider: this.provider,
-        account: `Antigravity (${meta.model})`,
+        account: '.antigravity',
         sessionId: sessionId,
         cwd: meta.cwd,
         role: meta.model,

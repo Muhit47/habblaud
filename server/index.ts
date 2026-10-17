@@ -139,12 +139,12 @@ const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker }
 const agents = new SourceSet([claude]);
 
 if (config.antigravity) {
-  const antigravity = new AntigravitySource({ office });
+  const antigravity = new AntigravitySource({ office, accounts });
   agents.add(antigravity);
 }
 
 if (config.kilo) {
-  const kilo = new KiloSource({ office });
+  const kilo = new KiloSource({ office, accounts });
   agents.add(kilo);
 }
 

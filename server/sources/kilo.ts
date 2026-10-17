@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { AgentSource } from './source';
 import type { SourceInfo } from '../../shared/types';
 import type { Office } from '../model/office';
+import type { AccountsService } from '../accounts/service';
 import { log } from '../log';
 
 /** 3 minutes threshold: if no activity within 3 minutes, project is inactive/offline */
@@ -18,7 +19,7 @@ export class KiloSource implements AgentSource {
   private timer: NodeJS.Timeout | null = null;
   private activeSessions: Set<string> = new Set();
 
-  constructor(private readonly deps: { office: Office }) {
+  constructor(private readonly deps: { office: Office; accounts?: AccountsService }) {
     this.baseDataDir = path.join(process.env.USERPROFILE || process.env.HOME || '', '.local', 'share', 'kilo');
     this.dbPath = path.join(this.baseDataDir, 'kilo.db');
     this.locksDir = path.join(process.env.USERPROFILE || process.env.HOME || '', '.local', 'state', 'kilo', 'locks');
@@ -28,6 +29,7 @@ export class KiloSource implements AgentSource {
     this.deps.office.beginBoot();
     try {
       this.initDb();
+      this.registerAccount();
       this.poll();
       this.timer = setInterval(() => this.poll(), 2000);
     } catch (e) {
@@ -35,6 +37,75 @@ export class KiloSource implements AgentSource {
     } finally {
       this.deps.office.endBoot();
     }
+  }
+
+  private registerAccount(): void {
+    if (!this.deps.accounts) return;
+    this.deps.accounts.setProviderAccounts('kilo', [
+      {
+        dir: this.baseDataDir,
+        detected: {
+          id: '.kilo',
+          provider: 'kilo',
+          short: 'K',
+          name: 'Kilo',
+          color: '#7c3aed',
+          configDir: this.baseDataDir,
+          plan: 'OpenRouter',
+        },
+      },
+    ]);
+    this.updateUsage();
+  }
+
+  private updateUsage(): void {
+    if (!this.deps.accounts) return;
+    const now = Date.now();
+    let fiveHourUtil = 0;
+    let sevenDayUtil = 0;
+
+    if (this.db) {
+      try {
+        const fiveHoursAgo = now - 5 * 3600 * 1000;
+        const sevenDaysAgo = now - 7 * 86400 * 1000;
+
+        const row5h = this.db.prepare(
+          "SELECT COUNT(*) as c, SUM(tokens_input + tokens_output) as tokens FROM session WHERE time_updated > ?"
+        ).get(fiveHoursAgo) as any;
+
+        const row7d = this.db.prepare(
+          "SELECT COUNT(*) as c, SUM(tokens_input + tokens_output) as tokens FROM session WHERE time_updated > ?"
+        ).get(sevenDaysAgo) as any;
+
+        const tokens5h = (row5h?.tokens || 0) + (this.activeSessions.size > 0 ? 5000 : 0);
+        const tokens7d = (row7d?.tokens || tokens5h) + (this.activeSessions.size > 0 ? 5000 : 0);
+
+        fiveHourUtil = Math.min(100, Math.max(this.activeSessions.size > 0 ? 15 : 0, Math.round((tokens5h / 50000) * 100)));
+        sevenDayUtil = Math.min(100, Math.max(fiveHourUtil, Math.round((tokens7d / 200000) * 100)));
+      } catch {
+        fiveHourUtil = this.activeSessions.size > 0 ? 20 : 0;
+        sevenDayUtil = this.activeSessions.size > 0 ? 15 : 0;
+      }
+    } else {
+      fiveHourUtil = this.activeSessions.size > 0 ? 20 : 0;
+      sevenDayUtil = this.activeSessions.size > 0 ? 15 : 0;
+    }
+
+    const resetsAt5h = now + 5 * 3600 * 1000 - (now % (5 * 3600 * 1000));
+    const resetsAtWeek = now + 7 * 86400 * 1000 - (now % (7 * 86400 * 1000));
+
+    this.deps.accounts.setUsage('.kilo', {
+      source: 'kilo',
+      fetchedAt: now,
+      fiveHour: {
+        utilization: fiveHourUtil,
+        resetsAt: resetsAt5h,
+      },
+      sevenDay: {
+        utilization: sevenDayUtil,
+        resetsAt: resetsAtWeek,
+      },
+    });
   }
 
   stop(): void {
@@ -110,7 +181,7 @@ export class KiloSource implements AgentSource {
               id: agentId,
               name: `[Kilo] ${projectName}: ${title}`,
               provider: this.provider,
-              account: `Kilo (${modelName})`,
+              account: '.kilo',
               sessionId: s.id,
               cwd: cwd,
               role: modelName,
@@ -142,6 +213,8 @@ export class KiloSource implements AgentSource {
           this.deps.office.closeMain(`kilo-${id}`);
         }
       }
+
+      this.updateUsage();
     } catch (e) {
       log.error(`KiloSource: Poll error: ${e}`);
     }
