@@ -2,14 +2,14 @@
 // de progresso.
 import type { AccountInfo, Activity, AgentInfo, AgentStatus, Provider } from '../../../shared/types';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
-import { WORDMARK } from './icons';
+import { ANTIGRAVITY_CHIP_SVG, KILO_CHIP_SVG, WORDMARK } from './icons';
 import { shellDoneKind, shellLine, shellStage, statusLabel, type ShellWait } from './model';
 import { accountChipLabel, accountProvider, fallbackShort, showsProviderTag } from './provider';
 import { tr } from '../../../shared/i18n';
 
 /**
- * Chip quadrado com a letra curta da conta ("C", "D") na cor da conta. Conta do Codex: o chip fica vazado (fundo
- * escuro, borda e letra na cor da conta, cantos em degrau): `data-provider="codex"`.
+ * Chip quadrado com a letra curta da conta ("C", "D") na cor da conta, ou o logotipo oficial (Antigravity, Kilo).
+ * Conta do Codex: o chip fica vazado (fundo escuro, borda e letra na cor da conta, cantos em degrau): `data-provider="codex"`.
  */
 export function createAccountChip(size: 'sm' | 'md' | 'lg' = 'sm'): HTMLElement {
   return h('span', { class: `ui-acc-chip ui-acc-chip--${size}` });
@@ -18,9 +18,15 @@ export function createAccountChip(size: 'sm' | 'md' | 'lg' = 'sm'): HTMLElement 
 /** `provider` = dica para quando a conta não está no snapshot (ex.: a sessão do histórico diz de que ferramenta é). */
 export function updateAccountChip(chip: HTMLElement, account: AccountInfo | undefined, fallbackId = '', provider?: Provider): void {
   const p = accountProvider(account, fallbackId, provider);
-  setText(chip, account?.short ?? fallbackShort(fallbackId, p));
-  setStyleVar(chip, '--acc', account?.color ?? '#8b98b3');
-  setAttr(chip, 'data-provider', p === 'codex' ? 'codex' : null);
+  if (p === 'antigravity') {
+    chip.innerHTML = ANTIGRAVITY_CHIP_SVG;
+  } else if (p === 'kilo') {
+    chip.innerHTML = KILO_CHIP_SVG;
+  } else {
+    setText(chip, account?.short ?? fallbackShort(fallbackId, p));
+  }
+  setStyleVar(chip, '--acc', account?.color ?? (p === 'antigravity' ? '#2563eb' : p === 'kilo' ? '#7c3aed' : '#8b98b3'));
+  setAttr(chip, 'data-provider', p === 'codex' ? 'codex' : p === 'antigravity' ? 'antigravity' : p === 'kilo' ? 'kilo' : null);
   const label = accountChipLabel(account, fallbackId, p);
   setTitle(chip, label);
   setAttr(chip, 'aria-label', label);

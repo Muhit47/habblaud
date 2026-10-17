@@ -30,7 +30,10 @@ export function looksLikeCodexId(id: string): boolean {
 /** Ferramenta da conta: a do snapshot; sem ela, a dica de quem chamou ou o jeito do id. */
 export function accountProvider(account: Pick<AccountInfo, 'provider'> | undefined, fallbackId = '', hint?: Provider): Provider {
   if (account) return providerOf(account);
-  return hint ?? (looksLikeCodexId(fallbackId) ? 'codex' : 'claude');
+  if (hint) return hint;
+  if (/antigravity/i.test(fallbackId)) return 'antigravity';
+  if (/kilo/i.test(fallbackId)) return 'kilo';
+  return looksLikeCodexId(fallbackId) ? 'codex' : 'claude';
 }
 
 /**
