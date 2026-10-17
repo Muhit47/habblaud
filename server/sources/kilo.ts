@@ -213,7 +213,7 @@ export class KiloSource implements AgentSource {
       this.deps.office.setStatus(agentId, status);
     }
 
-    this.syncParts(agentId, s.id);
+    this.syncParts(agentId, s.id, status === 'working');
   }
 
   private poll(): void {
@@ -227,7 +227,6 @@ export class KiloSource implements AgentSource {
 
       const now = Date.now();
       const currentLive = new Set<string>();
-      let hasActiveWorking = false;
 
       for (const s of sessions) {
         const lockExists = fs.existsSync(path.join(this.locksDir, `${s.id}.lock`));
@@ -250,7 +249,7 @@ export class KiloSource implements AgentSource {
     }
   }
 
-  private syncParts(agentId: string, sessionId: string): void {
+  private syncParts(agentId: string, sessionId: string, isWorking: boolean): void {
     if (!this.db) return;
     try {
       const parts = this.db.prepare(
@@ -259,9 +258,6 @@ export class KiloSource implements AgentSource {
 
       for (const p of parts) {
         const data = JSON.parse(p.data);
-        
-        if (data.type === 'step-start') this.deps.office.setStatus(agentId, 'working');
-        else if (data.type === 'step-finish') this.deps.office.setStatus(agentId, 'idle');
         
         if (data.type === 'tool' || data.tool_name || data.action) {
           const toolName = data.tool || data.tool_name || 'Tool';
@@ -272,7 +268,7 @@ export class KiloSource implements AgentSource {
             tool: toolName === 'bash' ? 'Bash' : toolName,
             text: summary,
             at: p.time_updated
-          }, true);
+          }, isWorking);
         }
       }
     } catch (e) {
