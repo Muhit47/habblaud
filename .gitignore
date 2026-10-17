@@ -6,5 +6,5 @@ dist/
 docker-compose.override.yml
 scripts/assets/.cache/
 
-# Configurações locais do Claude Code e caches de geração
+# Local Claude Code settings and generation caches
 .claude/

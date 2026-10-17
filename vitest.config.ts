@@ -1,3 +1,4 @@
+// Vitest configuration for Habblaud test suites
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({

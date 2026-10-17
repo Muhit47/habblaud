@@ -1,13 +1,13 @@
-// Grava dist/build.json com o commit do Habblaud e se a cópia estava modificada (`npm run build:server` chama). O
-// server/build.ts lê o arquivo (readBuildInfo), e o `hello` do Habblaud World manda {commit, dirty} para o servidor
-// saber se é uma release oficial (shared/world/protocol.ts, BuildInfo).
+// Records dist/build.json with the Habblaud commit and whether the copy was modified (called by `npm run build:server`). The
+// server/build.ts reads the file (readBuildInfo), and the Habblaud World `hello` sends {commit, dirty} so the server
+// knows if it is an official release (shared/world/protocol.ts, BuildInfo).
 //
-// - commit: `git rev-parse HEAD`; sem git (pasta baixada como .zip, build do Docker, que não leva o .git) = "unknown".
-// - dirty: algum arquivo VERSIONADO modificado (`git status --porcelain --untracked-files=no`). Arquivos fora do git
-//   (.env, node_modules como link simbólico, rascunhos) não contam: o build só leva o que o código versionado importa.
-// - HABBLAUD_BUILD_COMMIT e HABBLAUD_BUILD_DIRTY (1/true) substituem a leitura do git (para builds sem o .git).
+// - commit: `git rev-parse HEAD`; without git (folder downloaded as .zip, Docker build, which doesn't carry .git) = "unknown".
+// - dirty: any VERSIONED file modified (`git status --porcelain --untracked-files=no`). Files outside git
+//   (.env, node_modules as symbolic link, drafts) do not count: the build only takes what the versioned code imports.
+// - HABBLAUD_BUILD_COMMIT and HABBLAUD_BUILD_DIRTY (1/true) replace the git read (for builds without .git).
 //
-// Uso direto: node scripts/build-info.mjs [arquivo]   (padrão: dist/build.json, a partir da pasta atual)
+// Direct usage: node scripts/build-info.mjs [file]   (default: dist/build.json, from current directory)
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const COMMIT_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
-/** {commit, dirty} da pasta `cwd`. */
+/** {commit, dirty} of the `cwd` directory. */
 export function gitBuildInfo(cwd = process.cwd(), env = process.env) {
   const fromEnv = env.HABBLAUD_BUILD_COMMIT?.trim().toLowerCase();
   if (fromEnv) return { commit: COMMIT_RE.test(fromEnv) ? fromEnv : 'unknown', dirty: /^(1|true)$/i.test(env.HABBLAUD_BUILD_DIRTY?.trim() ?? '') };

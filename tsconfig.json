@@ -1,4 +1,5 @@
 {
+  // TypeScript configuration for Habblaud client and shared modules
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
