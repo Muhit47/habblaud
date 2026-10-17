@@ -133,6 +133,14 @@ export class KiloSource implements AgentSource {
 
   private formatModelName(rawModel: string | undefined): string {
     if (!rawModel) return 'Kilo Default';
+    try {
+      if (rawModel.startsWith('{')) {
+        const parsed = JSON.parse(rawModel);
+        if (parsed.id) {
+          return parsed.id.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+        }
+      }
+    } catch {}
     if (rawModel.startsWith('openrouter/')) {
       return `OpenRouter: ${rawModel.replace('openrouter/', '')}`;
     }
@@ -207,16 +215,7 @@ export class KiloSource implements AgentSource {
         const lockExists = fs.existsSync(path.join(this.locksDir, `${s.id}.lock`));
         const isWorking = lockExists || (now - s.time_updated <= ACTIVE_THRESHOLD_MS);
 
-        if (isWorking) {
-          hasActiveWorking = true;
-          this.handleSession(s, 'working', currentLive);
-        }
-      }
-
-      // If no session is actively working, keep the most recent session in 'idle'
-      // so Kilo visits the lounge, kitchen, restroom, and reception!
-      if (!hasActiveWorking && sessions.length > 0) {
-        this.handleSession(sessions[0], 'idle', currentLive);
+        this.handleSession(s, isWorking ? 'working' : 'idle', currentLive);
       }
 
       // Automatically remove any project no longer in currentLive
