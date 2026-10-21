@@ -1,15 +1,15 @@
-// O conteúdo da janela "Habblaud World" (world-dialog.ts, o botão próprio da barra do topo): conta (cadastro com
-// aceite dos termos e o resumo de privacidade, código do e-mail, login, esqueci a senha), lista de espera, personagem
-// (o editor de aparência da gaveta do agente, mais nome, traços e frase de apresentação), o cartão "Seu prédio" com
-// Pausar/Retomar e "Ver o que foi enviado" (building.ts), visibilidade do prédio, dispositivos e sair. Também a dica
-// do tema em Configurações › Aparência, quando a escolha vai para o prédio. Fase 6: "Conta e dados" (o aviso de
-// inatividade, "Baixar meus dados" e "Excluir conta" em três etapas: o que some e quando, a confirmação e o código do
-// e-mail), o aviso da manutenção do mundo e o da conta excluída. Fala com as rotas locais /api/world/* (net/world.ts);
-// as regras puras estão em world-model.ts.
+// Habblaud World dialog contents (world-dialog.ts, dedicated top bar button): account (registration with
+// terms consent and privacy summary, email verification code, login, password recovery), waitlist, character
+// (appearance editor from agent drawer, plus name, traits, and intro phrase), "Your building" card with
+// Pause/Resume and "View sent payload" (building.ts), building visibility, registered devices, and sign out.
+// Appearance theme integration in Settings › Appearance when theme choice synchronizes to world building.
+// "Account and data" (inactivity notice, data export, three-step account deletion: impact overview,
+// confirmation, email verification code), maintenance notice, and deleted account notice.
+// Connects via local endpoints /api/world/* (net/world.ts); pure state logic resides in world-model.ts.
 //
-// A janela chama render() a cada quadro sujo: o miolo só é refeito quando a tela muda (senão o que foi digitado e o
-// foco se perderiam); o status é buscado ao abrir a janela, depois de cada ação e quando o meta.world do snapshot
-// muda, nunca dentro do render.
+// Dialog executes render() per dirty frame: view content rebuilds only on screen transition
+// (preserving input values and focus); status is refetched on dialog open, after user actions, and when
+// snapshot meta.world changes, never during render execution.
 import { getLocale, intlLocale, tr } from '../../../../shared/i18n';
 import type { Appearance } from '../../art/api';
 import { access } from '../../net/access';
@@ -73,14 +73,14 @@ import { extLink, WORLD_PRIVACY_URL, WORLD_TERMS_URL } from './links';
 
 export { extLink, WORLD_PRIVACY_URL, WORLD_TERMS_URL } from './links';
 
-/** Depois de reenviar o código, o botão espera este tempo (o servidor também limita: 3 por hora). */
+/** Resend verification code cooldown duration (server also limits to 3 per hour). */
 const RESEND_COOLDOWN_MS = 30_000;
 
-// ------------------------------------------------------------------ pedaços de DOM
+// ------------------------------------------------------------------ DOM snippets
 
 /**
- * Frase traduzida com elementos no meio: as lacunas {0}, {1}... de `text` (já passado por tr(), sem argumentos) viram
- * os nós de `nodes`. Assim a tradução decide onde o link entra na frase.
+ * Translated sentence with embedded DOM elements: placeholders {0}, {1}... in `text`
+ * map to `nodes`. Allows translations to control link and element placement.
  */
 export function rich(text: string, nodes: readonly Node[]): (Node | string)[] {
   return text.split(/(\{\d+\})/).map((part) => {
@@ -121,7 +121,7 @@ function textInput(type: string, autocomplete: string, extra: Record<string, str
   return h('input', { class: 'ui-world__input', type, attrs: { autocomplete, spellcheck: 'false', autocapitalize: 'off', ...extra } });
 }
 
-/** Senha com "Mostrar senha" (a senha longa é a regra: dá vontade de conferir o que digitou). */
+/** Password field with "Show password" visibility toggle. */
 function passwordField(labelText: string, autocomplete: 'new-password' | 'current-password', hint?: string): FieldRefs {
   const input = textInput('password', autocomplete, { maxlength: 256 });
   const f = field(labelText, input, hint);
@@ -151,7 +151,7 @@ function codeField(): FieldRefs {
   return field(tr('Código de 6 dígitos'), input);
 }
 
-/** Formulário de uma tela: botão principal com estado de "enviando" e a linha de erro. */
+/** Screen form: primary button with "submitting" state and error line. */
 class Form {
   readonly el: HTMLFormElement;
   readonly error: HTMLElement;
@@ -191,13 +191,13 @@ function toMillis(v: number | string | undefined): number | null {
   return null;
 }
 
-/** "Dispositivo 2" chega em português do servidor: aqui vira o texto do idioma da interface. */
+/** "Device 2" localized from server response to UI language. */
 export function deviceLabel(label: string): string {
   const m = /^Dispositivo (\d+)$/.exec(label);
   return m ? tr('Dispositivo {0}', [m[1]]) : label;
 }
 
-/** Nome do país no idioma da interface ("BR" → "Brasil"). */
+/** Country name in UI language ("BR" → "Brazil"). */
 function countryName(code: string): string {
   try {
     return new Intl.DisplayNames([intlLocale()], { type: 'region' }).of(code.toUpperCase()) ?? code;
@@ -244,30 +244,30 @@ function visibilityText(key: VisibilitySwitch): { label: string; hint: string } 
   }
 }
 
-/** As travas da seção nesta página (celular, endereço local, trava do terminal, modo demonstração). */
+/** Section accessibility guards on current host (mobile, local binding, terminal lock, demo mode). */
 export function worldGate(ctx: UiContext, src: WorldSource): WorldGate {
   const a = access();
   return { remote: a.remote, local: a.local, terminal: !!ctx.store.liveSnapshot?.meta.terminal, fake: src.fake };
 }
 
-/** Tela montada: o elemento e, se precisar, o que atualizar sem refazer (texto, estado dos botões). */
+/** Mounted screen container: root element and optional dynamic update function. */
 interface View {
   el: HTMLElement;
   sync?(): void;
 }
 
-// ------------------------------------------------------------------ a seção
+// ------------------------------------------------------------------ settings section
 
 export class WorldSettingsGroup {
   readonly el: HTMLElement;
-  /** O estado da conta ("Sem conta", "Na lista de espera", "Liberado"), no cabeçalho da janela. */
+  /** Account state chip ("No account", "Waitlist", "Approved") in modal header. */
   readonly chip: HTMLElement;
   private readonly flashEl: HTMLElement;
   private readonly body: HTMLElement;
   private ui: WorldUi = initialWorldUi();
   private mode: WorldSectionMode = 'hidden';
   private status: WorldStatus | null = null;
-  /** Sobe quando o status muda de fato: as telas que mostram dados da conta se refazem. */
+  /** Increments on meaningful status change: triggers re-render of account views. */
   private statusRev = 0;
   private statusSig = '';
   private statusError: WorldErrorCode | null = null;
@@ -278,23 +278,23 @@ export class WorldSettingsGroup {
   private wasOpen = false;
   private builtKey = '';
   private view: View | null = null;
-  /** Sobe a cada tela montada: a resposta de um pedido feito em outra tela não mexe na atual. */
+  /** Screen sequence counter: prevents asynchronous responses from previous screens modifying active view. */
   private epoch = 0;
   private lastFlash: WorldFlash | null = null;
   private resendUntil = 0;
-  /** `meta.world.building` da última vez: quando muda (remessa nova, pausa), o status é relido com a seção aberta. */
+  /** Previous `meta.world.building` signature: status refetched on change while dialog is open. */
   private metaBuildingSig = '';
   private readonly sent: SentDialog;
-  /** Dica em Aparência › Tema do escritório (só quando a escolha também vai para o prédio). */
+  /** Tooltip hint in Appearance › Theme (only when theme selection synchronizes to world building). */
   readonly themeNote: HTMLElement;
   private readonly themeError: HTMLElement;
   private themeLinked = false;
   private themeReq = 0;
-  /** Um PUT do tema a caminho (o status que chegar no meio não decide o tema). */
+  /** In-flight theme PUT request (intervening status responses do not override optimistic choice). */
   private themeInflight = 0;
-  /** Quando a última escolha de tema foi feita aqui (um status pedido antes dela não a desfaz). */
+  /** Timestamp of latest theme selection here (stale status responses cannot revert it). */
   private themePickedAt = 0;
-  /** Relógio lógico das escolhas de tema e dos pedidos de status (qual veio antes). */
+  /** Logical sequence clock for theme choices vs status responses. */
   private themeClock = 0;
 
   constructor(
@@ -318,7 +318,7 @@ export class WorldSettingsGroup {
     return this.src.client;
   }
 
-  /** A cada render da janela, aberta ou não (barato: só refaz o miolo quando a tela muda). */
+  /** Renders dialog content, open or closed (cheap: rebuilds DOM only on screen change). */
   render(open: boolean): void {
     const meta = this.src.meta();
     const gate = worldGate(this.ctx, this.src);
@@ -330,7 +330,7 @@ export class WorldSettingsGroup {
       if (meta.state !== this.metaState) {
         this.metaState = meta.state;
         this.stale = true;
-        // Antes do primeiro status, a tela segue o snapshot.
+        // Prior to first status response, screen falls back to snapshot state.
         if (!this.status) this.ui = worldReduce(this.ui, { type: 'server', state: meta.state });
       }
       const buildingSig = JSON.stringify(meta.building ?? null);
@@ -345,15 +345,15 @@ export class WorldSettingsGroup {
     this.paint();
   }
 
-  /** Vai para uma tela (os popups de lançamento pedem o cadastro ou o personagem; o chip do topo, o prédio). */
+  /** Navigates to a screen (launch popups request registration or character; top chip requests the building). */
   show(screen?: WorldScreen): void {
     if (screen) this.ui = worldReduce(this.ui, { type: 'go', screen });
     this.ctx.invalidate();
   }
 
   /**
-   * A escolha de Aparência › Tema do escritório também vai para o prédio (PUT /api/world/theme), quando o World está
-   * ligado e a conta aprovada. Se não der, a dica do tema mostra o erro (o escritório troca de tema do mesmo jeito).
+   * The Appearance › Office theme choice is also sent to the building (PUT /api/world/theme) when World is
+   * enabled and account is approved. If it fails, the theme hint shows the error (office switches theme anyway).
    */
   async onThemePicked(theme: WorldThemeChoice): Promise<void> {
     const client = this.client;
@@ -368,10 +368,10 @@ export class WorldSettingsGroup {
   }
 
   /**
-   * O tema do escritório e o do prédio ficam iguais (o status traz o do prédio, guardado em world.json): uma escolha
-   * guardada neste computador (`theme` presente) vale também para o escritório desta página; sem escolha guardada (o
-   * automático, padrão), a escolha desta página vai para o prédio. Nada disso com um PUT do tema a caminho, nem com um
-   * status pedido antes da última escolha feita aqui.
+   * Office and building themes match (status brings the building's theme, stored in world.json): a saved choice
+   * on this computer (`theme` present) also applies to this page's office; without a saved choice (auto, default),
+   * this page's choice goes to the building. None of this applies if a PUT theme is in flight, or if status was
+   * requested before the last choice made here.
    */
   private syncTheme(st: WorldStatus, askedAt: number): void {
     if (!this.themeLinked || st.state !== 'approved' || this.themeInflight > 0 || askedAt < this.themePickedAt) return;
@@ -380,7 +380,7 @@ export class WorldSettingsGroup {
     else if (!st.theme && pref !== 'auto') void this.onThemePicked(pref);
   }
 
-  /** Volta ao topo do corpo rolável da janela (a cada tela nova, o começo dela é o que importa). */
+  /** Scrolls container to top (ensures initial content of newly mounted screens is visible). */
   private scrollToTop(): void {
     const host = this.el.parentElement;
     if (host) host.scrollTop = 0;
@@ -408,7 +408,7 @@ export class WorldSettingsGroup {
     if (r.ok) {
       this.status = r.data;
       this.syncTheme(r.data, askedAt);
-      // O prédio muda a cada remessa: o cartão se atualiza sozinho (BuildingCard.sync), sem refazer a tela.
+      // Building state updates on each uplink: card updates in-place (BuildingCard.sync) without full screen rebuild.
       const { building: _building, ...rest } = r.data;
       const sig = JSON.stringify(rest);
       if (sig !== this.statusSig) {
@@ -424,8 +424,8 @@ export class WorldSettingsGroup {
   }
 
   /**
-   * Roda uma ação da tela: trava o botão, mostra o erro traduzido. Devolve o resultado, ou null quando a tela mudou
-   * no meio (a resposta não vale mais para o que está na frente).
+   * Runs a screen action: disables the button, shows the translated error. Returns the result, or null when the screen changed
+   * in the middle (the response is no longer relevant for the current screen).
    */
   private async run<T>(form: Form, action: WorldAction, call: (c: WorldClient) => Promise<WorldResult<T>>, focus?: HTMLElement): Promise<WorldResult<T> | null> {
     const client = this.client;
@@ -440,7 +440,7 @@ export class WorldSettingsGroup {
     return r;
   }
 
-  // ---------------------------------------------------------------- montagem
+  // ---------------------------------------------------------------- mounting
 
   private viewKey(): string {
     if (this.mode !== 'active') return this.mode;
@@ -526,7 +526,7 @@ export class WorldSettingsGroup {
     };
   }
 
-  /** Frase de privacidade do cartão e das boas-vindas (2.1 do plano), com o link para a lista. */
+  /** Card and welcome privacy notice (Phase 2.1), with link to payload specification. */
   private privacyLine(): HTMLElement {
     return para(
       'ui-world__privacy',
@@ -539,7 +539,7 @@ export class WorldSettingsGroup {
   private buildWelcome(): View {
     const create = h('button', { class: 'ui-btn ui-btn--primary', type: 'button', text: tr('Criar conta'), on: { click: () => this.go('register') } });
     const login = h('button', { class: 'ui-btn', type: 'button', text: tr('Já tenho conta'), on: { click: () => this.go('login') } });
-    // A conta acabou de ser excluída (aqui ou em outro computador): o aviso fica até entrar de novo.
+    // Account was just deleted (here or on another machine): banner persists until next login.
     const deleted = this.status?.lastError === 'account_deleted' ? para('ui-world__notice', worldErrorText('account_deleted', 'status')) : null;
     return {
       el: h(
@@ -554,7 +554,7 @@ export class WorldSettingsGroup {
     };
   }
 
-  /** Resumo da seção 3 do plano (o que sai e o que nunca sai), na tela do aceite. */
+  /** Summary of privacy terms section 3 (transmitted vs local-only data) on consent screen. */
   private privacySummary(): HTMLElement {
     return h(
       'section',
@@ -579,9 +579,9 @@ export class WorldSettingsGroup {
   private buildRegister(): View {
     const email = emailField();
     email.input.value = this.ui.email;
-    // O nome de jogador (nickname) é escolhido no cadastro: fica reservado para a conta na lista de espera e vira o
-    // nome do personagem. Conferido aqui pelas mesmas regras do personagem; o servidor do mundo decide (e diz se já
-    // está em uso).
+    // Player name (nickname) is chosen during registration: reserved for the account on the waitlist and becomes
+    // the character name. Validated here by the same rules as character; world server decides (and reports if already
+    // in use).
     const name = field(
       tr('Nome de jogador'),
       textInput('text', 'nickname', { maxlength: PLAYER_NAME_LIMITS.max * 2 }),
@@ -602,7 +602,7 @@ export class WorldSettingsGroup {
       const r = await this.run(form, 'register', (c) => c.register({ email: mail, password: password.input.value.normalize('NFC'), name: parsed.name, locale: getLocale() }), email.input);
       if (!r) return;
       if (r.ok) return this.dispatch({ type: 'code_sent', email: mail, name: parsed.name });
-      // Os erros do nome vão para o campo do nome (o `run` já mostrou o texto genérico do código).
+      // Nickname validation errors attach to nickname field (after `run` reports code status).
       if (r.code === 'name_taken') form.setError(tr('Esse nome já está em uso. Escolha outro.'), name.input);
       else if (r.code === 'name_invalid' || r.code === 'name_blocked') form.setError(worldErrorText(r.code, 'register'), name.input);
     };
@@ -639,7 +639,7 @@ export class WorldSettingsGroup {
         this.dispatch({ type: 'signed_in' });
         return void this.refresh();
       }
-      // O servidor reenviou o código: segue para a confirmação do e-mail.
+      // Server resent code: proceed to email confirmation view.
       if (r.code === 'email_not_verified') this.dispatch({ type: 'code_sent', email: mail });
     };
     const forgot = h('button', {
@@ -665,12 +665,12 @@ export class WorldSettingsGroup {
     };
   }
 
-  /** "Demonstração: o código é 123456" (só com o FakeWorldApi). */
+  /** "Demo: code is 123456" (only with FakeWorldApi). */
   private demoCodeHint(): HTMLElement | null {
     return this.src.fake ? para('ui-world__demo', tr('Demonstração: o código é {0}.', [FAKE_CODE])) : null;
   }
 
-  /** Botão "Reenviar código", que espera um pouco depois de usado. */
+  /** "Resend code" button with cooldown timer. */
   private resendButton(form: Form, send: (c: WorldClient) => Promise<WorldResult>): { el: HTMLButtonElement; sync(): void } {
     const btn = h('button', { class: 'ui-btn', type: 'button', text: tr('Reenviar código') });
     const sync = () => {
@@ -774,7 +774,7 @@ export class WorldSettingsGroup {
     };
   }
 
-  // ---------------------------------------------------------------- com conta
+  // ---------------------------------------------------------------- with account
 
   private buildHome(): View {
     const wrap = h('div', { class: 'ui-world__stack' });
@@ -792,7 +792,7 @@ export class WorldSettingsGroup {
       accountId: () => this.status?.account?.id,
       maintenance: () => this.status?.lastError === 'maintenance',
     });
-    // "Avisar quando alguém visitar" (o aviso do primeiro visitante de cada conexão; ui/world/world-chip.ts)
+    // "Notify on visitor arrival" (first visitor per session alert; ui/world/world-chip.ts)
     const notify = switchRow(tr('Avisar quando alguém visitar'), tr('Um aviso quando o primeiro visitante entra no seu prédio. Você vê só quantos estão lá dentro, nunca quem.'), () =>
       this.ctx.updatePrefs({ worldVisitNotify: !this.ctx.prefs.worldVisitNotify }),
     );
@@ -819,11 +819,11 @@ export class WorldSettingsGroup {
         approved ? tr('Acesso liberado!') : tr('Você está na lista de espera. Estamos liberando o acesso aos poucos e avisamos por e-mail quando chegar a sua vez.'),
       ),
     );
-    // O mundo em manutenção (503 `maintenance`): o prédio tenta de novo sozinho, com espera. Com o cartão "Seu prédio",
-    // é ele que diz (no lugar do "Reconectando"); sem ele (lista de espera), um aviso próprio.
+    // World under maintenance (503 `maintenance`): building auto-retries with backoff.
+    // In "Your building" card it reports status; in waitlist view a custom notice displays.
     const maintenance = s?.lastError === 'maintenance';
     if (maintenance && !approved) out.push(para('ui-world__maint', worldErrorText('maintenance', 'status')));
-    // Aprovado: o cartão "Seu prédio" (conexão, contagens, pausar, o que foi enviado). Na espera, o lote vazio.
+    // Approved: the "Your building" card (connection, counts, pause, what was sent). On waitlist, the empty lot.
     if (approved) out.push(card.el);
     else
       out.push(
@@ -865,7 +865,7 @@ export class WorldSettingsGroup {
         ),
       );
     } else {
-      // O nome de jogador escolhido no cadastro, reservado enquanto o personagem não existe.
+      // Player nickname chosen during registration, reserved until character creation.
       const reserved = s?.account?.reservedName;
       if (reserved) out.push(para('ui-world__reserved', ...rich(tr('Seu nome de jogador: {0} (reservado)'), [h('strong', { class: 'ui-world__player-name', text: reserved })])));
       out.push(
@@ -905,7 +905,7 @@ export class WorldSettingsGroup {
     );
   }
 
-  /** "Sair da conta" em dois cliques (o segundo confirma). */
+  /** "Sign out" with two-click confirmation. */
   private signOutRow(): HTMLElement {
     let confirming = false;
     const btn = h('button', { class: 'ui-btn', type: 'button', text: tr('Sair da conta') });
@@ -946,10 +946,10 @@ export class WorldSettingsGroup {
     fields.set(player ? draftAppearance(look, player.parts) : draftAppearance(look, undefined, randomSeed()));
 
     const name = h('input', { class: 'ui-char__name', type: 'text', attrs: { maxlength: PLAYER_NAME_LIMITS.max * 2, autocomplete: 'nickname', spellcheck: 'false', 'aria-describedby': 'ui-world-name-hint' } });
-    // Nome trocado à força pela moderação ("???"): o campo começa vazio e recebe o foco.
+    // Name forcefully changed by moderation ("???"): field starts empty and receives focus.
     const rename = player?.mustRename === true;
-    // Criando com o nome reservado no cadastro: o campo mostra a reserva e não se edita (o pedido vai sem `name`; o
-    // servidor do mundo usa a reserva). Conta antiga, sem reserva, escolhe o nome aqui, como antes.
+    // Creating with name reserved during registration: field displays reservation and cannot be edited (request is sent without `name`; the
+    // world server uses reservation). Older account without reservation chooses name here, as before.
     const reserved = !player ? this.status?.account?.reservedName : undefined;
     name.value = rename ? '' : (player?.name ?? reserved ?? '');
     if (reserved) {
@@ -981,7 +981,7 @@ export class WorldSettingsGroup {
     lookSeg.set(look);
     lookSeg.row.append(h('span', { class: 'ui-set__hint', text: tr('Muda detalhes do rosto e o sorteio de cabelo e roupa; tudo dá para trocar nas peças abaixo.') }));
 
-    // Traços: 2 ou 3; os que não combinam com os escolhidos (e todos, com 3 escolhidos) ficam desabilitados.
+    // Personality traits: pick 2 or 3; incompatible traits (and remaining traits once 3 are chosen) disable.
     const count = h('span', { class: 'ui-world__count' });
     const chips = new Map<TraitId, HTMLButtonElement>();
     const syncTraits = () => {
@@ -1126,7 +1126,7 @@ export class WorldSettingsGroup {
     };
   }
 
-  /** Fase 5: quem a conta bloqueou, com Desbloquear (blocked.ts). A lista é relida do /v1/me ao abrir. */
+  /** Phase 5: blocked players list with Unblock actions (blocked.ts). Sourced from /v1/me on load. */
   private buildBlocked(): View {
     const epoch = this.epoch;
     return buildBlocked(screenHead(tr('Bloqueados'), () => this.go('home')), {
@@ -1220,12 +1220,12 @@ export class WorldSettingsGroup {
     return h('li', { class: 'ui-set ui-world__device' }, text, btn);
   }
 
-  // ---------------------------------------------------------------- conta e dados (Fase 6)
+  // ---------------------------------------------------------------- account and data (Phase 6)
 
   /**
-   * "Conta e dados": o aviso de inatividade (com o personagem: vai na visibilidade), "Baixar meus dados" (o JSON da
-   * conta, uma vez por dia) e "Excluir conta" em três etapas. A tela é montada uma vez: o status relido no meio não apaga
-   * o código digitado; `sync` só acompanha o interruptor.
+   * "Account and data": inactivity warning (with character: saves to visibility), "Download my data" (account
+   * JSON, once per day), and "Delete account" in three steps. Component mounted once: background status refetch
+   * preserves typed confirmation code; `sync` tracks toggle only.
    */
   private buildAccount(): View {
     const inactivity = this.inactivitySection();
@@ -1245,7 +1245,7 @@ export class WorldSettingsGroup {
     };
   }
 
-  /** O interruptor do aviso por e-mail antes de retirar o prédio por inatividade. */
+  /** Inactivity warning email notification toggle switch. */
   private inactivitySection(): { el: HTMLElement; sync(): void } {
     let pending: boolean | null = null;
     const error = h('p', { class: 'ui-world__error', role: 'alert', hidden: true });
@@ -1278,7 +1278,7 @@ export class WorldSettingsGroup {
         setText(error, worldErrorText(r.code, 'inactivity'));
         setHidden(error, false);
       } else {
-        // Até o status chegar, o interruptor fica no que foi salvo.
+        // Retains saved preference until status response arrives.
         const p = this.status?.player;
         if (p) p.visibility = { ...p.visibility, notifyInactivity: next };
         void this.refresh();
@@ -1289,7 +1289,7 @@ export class WorldSettingsGroup {
     return { el: h('section', { class: 'ui-world__acct' }, h('h4', { class: 'ui-world__acct-title', text: tr('Avisos') }), sw.row, noPlayer, error), sync };
   }
 
-  /** "Baixar meus dados": pede o JSON ao servidor local e salva como habblaud-world-dados.json. */
+  /** "Download my data": requests JSON from local server and saves as habblaud-world-dados.json. */
   private exportSection(): HTMLElement {
     const btn = h('button', { class: 'ui-btn', type: 'button', text: tr('Baixar meus dados') });
     const note = h('p', { class: 'ui-set__hint', role: 'status', hidden: true });
@@ -1329,7 +1329,7 @@ export class WorldSettingsGroup {
     );
   }
 
-  /** "Excluir conta" em três etapas: o que some e quando; a confirmação (manda o código); o código do e-mail. */
+  /** "Delete account" in three stages: impact overview, confirmation (triggers email code), code entry. */
   private deletionSection(): HTMLElement {
     const box = h('div', { class: 'ui-world__stack' });
     const email = () => this.status?.account?.emailMasked ?? '';
@@ -1391,7 +1391,7 @@ export class WorldSettingsGroup {
   }
 }
 
-/** Salva um texto como arquivo (o link temporário fica dentro da seção, para nada fora dela receber o clique). */
+/** Downloads text payload as file (temporary anchor appended inside section). */
 function saveFile(host: HTMLElement, text: string, filename: string): void {
   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
   const a = h('a', { hidden: true, attrs: { href: url, download: filename } });

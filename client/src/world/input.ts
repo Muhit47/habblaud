@@ -1,32 +1,32 @@
-// Entrada: arrastar (mouse/toque), roda/pinça (zoom no cursor), clique/duplo clique e teclado.
+// Input: drag (mouse/touch), wheel/pinch (cursor-centered zoom), click/double click, and keyboard.
 import type { Camera } from './camera';
 
 export type Hit = { type: 'agent'; id: string } | { type: 'room'; id: string } | null;
 
 export interface InputHandlers {
   pick(sx: number, sy: number): Hit;
-  /** Clique (ou toque) sem arrastar: o que foi tocado e onde (px CSS do canvas). */
+  /** Click (or tap) without dragging: targeted entity and coordinates (canvas CSS px). */
   click(hit: Hit, at: { x: number; y: number }): void;
   doubleClick(hit: Hit): void;
   hover(sx: number, sy: number, inside: boolean): void;
-  /** O usuário mexeu na câmera (cancela "seguir"). */
+  /** User moved camera manually (cancels "follow"). */
   interact(): void;
   overview(): void;
   zoomStep(steps: number, sx?: number, sy?: number): void;
-  /** (Opcional) O escritório está na tela? Com a cena da cidade aberta, o teclado não mexe na câmera escondida. */
+  /** (Optional) Is office on screen? With city scene open, keyboard does not move hidden camera. */
   active?(): boolean;
-  /** (Opcional) O teclado mexe na câmera? (Na visita, as setas e o WASD andam com o visitante.) Padrão: sim. */
+  /** (Optional) Does keyboard control camera? (During visits, arrows and WASD move visitor.) Default: yes. */
   keys?(): boolean;
 }
 
 const DRAG_THRESHOLD = 5;
 const PAN_KEY_STEP = 90;
 
-/** Há um diálogo modal/popover aberto, ou o foco do teclado está dentro de um? */
+/** Is a modal dialog/popover open, or is keyboard focus inside one? */
 export function modalOpen(target: HTMLElement | null): boolean {
   if (target?.closest?.('dialog, [popover], [role="dialog"], [aria-modal="true"]')) return true;
   if (typeof document === 'undefined') return false;
-  // Um <dialog> fechado continua no DOM (com os atributos que tiver): só o aberto conta.
+  // A closed <dialog> remains in the DOM: only open ones count.
   if (document.querySelector('dialog[open], :not(dialog)[aria-modal="true"]')) return true;
   try {
     return !!document.querySelector(':popover-open');
@@ -60,7 +60,7 @@ export function attachInput(canvas: HTMLCanvasElement, camera: Camera, h: InputH
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch {
-      // ponteiro já liberado
+      // pointer already released
     }
     if (pointers.size === 1) {
       downX = p.x;
@@ -152,7 +152,7 @@ export function attachInput(canvas: HTMLCanvasElement, camera: Camera, h: InputH
     h.interact();
     const delta = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
     if (e.ctrlKey) {
-      // pinça do trackpad: zoom contínuo, encaixa num nível nítido ao parar
+      // trackpad pinch: continuous zoom, snaps to crisp level on stop
       camera.zoomAt(camera.zoom * Math.exp(-delta * 0.012), p.x, p.y, Date.now(), false);
       if (wheelSettle) clearTimeout(wheelSettle);
       wheelSettle = setTimeout(() => camera.settle(Date.now()), 180);
@@ -170,9 +170,9 @@ export function attachInput(canvas: HTMLCanvasElement, camera: Camera, h: InputH
     if (h.active && !h.active()) return;
     if (h.keys && !h.keys()) return;
     const t = e.target as HTMLElement | null;
-    // Campo ou rádio em foco (velocidade do replay): as setas são do controle, não da câmera.
+    // Input field or radio focused (replay speed): arrow keys belong to control, not camera.
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.getAttribute?.('role') === 'radio')) return;
-    // modal/popover aberto (ajuda, configurações...): o teclado é dele, não da câmera
+    // modal/popover open (help, settings...): keyboard belongs to it, not camera
     if (modalOpen(t)) return;
     let dx = 0;
     let dy = 0;

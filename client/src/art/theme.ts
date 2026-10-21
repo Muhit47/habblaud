@@ -1,5 +1,5 @@
 // Temas de sala (puros): paletas claras e bem distintas. Sementes consecutivas (slots vizinhos)
-// recebem temas diferentes; a ordem da lista alterna famílias de cor de propósito.
+// receive distinct themes; list ordering deliberately alternates color families.
 import type { RoomTheme } from './api';
 
 const THEMES: readonly RoomTheme[] = [

@@ -1,16 +1,16 @@
-// Novo agente pelo escritório. Do jeito que roda sozinho: uma sessão em segundo plano do Claude Code
-// (`claude --bg -n <nome> -- <pedido>`, na pasta escolhida), que começa na hora, aparece no escritório como qualquer
-// sessão e recebe mensagens e pedidos de permissão pelo Habblaud (`claude attach <id>` abre no terminal do Mac).
-// O Claude Code só faz isso numa pasta que já é confiável para ele (o aviso de confiança foi aceito no terminal); se
-// a pasta não é, ou o `claude` não está aqui, cai no link `claude://code/new?folder=<pasta>&q=<pedido>` (o do "New
-// Claude Code Session Here" do Finder), que abre a tela de sessão nova do app preenchida: aí ela começa quando a
-// pessoa aperta Enter lá. Quem roda precisa estar no computador do app:
-// - modo Node: o próprio servidor;
-// - Docker: o auxiliar do host (scripts/codex-bridge.ts, npm run codex:bridge) busca os pedidos em
-//   POST /api/host/spawn/poll, confere a pasta, roda e confirma em POST /api/host/spawn/ack.
-// Anexos (spawn/attachments.ts): quem roda grava os arquivos em ~/.habblaud/attachments/ e põe os caminhos no fim
-// do pedido. Sem shell (execFile), com prazo, e o pedido vai depois de `--` (nunca vira opção nem subcomando).
-// Node puro e sem dependências: também é importado pelo auxiliar do host (via tsx).
+// Spawn new agent via office UI. Fully automated execution: background Claude Code session
+// (`claude --bg -n <name> -- <prompt>` in chosen directory), starting immediately, appearing in office like
+// any session, receiving messages and permission prompts via Habblaud (`claude attach <id>` opens in Mac terminal).
+// Claude Code only permits this in trusted folders (trust prompt accepted in terminal); if folder
+// is untrusted or `claude` binary unavailable, falls back to deep link `claude://code/new?folder=<dir>&q=<prompt>`
+// (matching Finder's "New Claude Code Session Here"), opening prefilled session modal in desktop app:
+// user starts it by pressing Enter on Mac. Runner must execute on machine hosting desktop app:
+// - Node mode: server directly;
+// - Docker: host helper (scripts/codex-bridge.ts, npm run codex:bridge) polls requests via
+//   POST /api/host/spawn/poll, checks folder, executes, and confirms via POST /api/host/spawn/ack.
+// Attachments (spawn/attachments.ts): persisted to ~/.habblaud/attachments/ with paths appended to prompt.
+// Shell-less execution (execFile), with timeout, prompt appended after `--` (never a sub-command flag).
+// Pure Node zero-dependency: also imported by host helper (via tsx).
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
@@ -18,24 +18,24 @@ import { isAbsolute } from 'node:path';
 import { tr } from '../../shared/i18n';
 import { attachmentsRoot, promptWithAttachments, writeAttachments, type Attachment, type AttachmentStore } from './attachments';
 
-/** Tamanho máximo do pedido (o link inteiro vai pela linha de comando do `open`). */
+/** Maximum prompt size (entire link passed via command line to `open`). */
 export const PROMPT_MAX = 8_000;
 export const FOLDER_MAX = 1_024;
 /** Prazo do `open`. */
 export const OPEN_TIMEOUT_MS = 10_000;
-/** Prazo do `claude --bg` (ele sobe o serviço de segundo plano na primeira vez e volta). */
+/** Timeout for `claude --bg` (initializes background daemon on first run and returns). */
 export const CLI_TIMEOUT_MS = 30_000;
 const NAME_MAX = 48;
-/** O auxiliar conta como presente até este tempo depois da última rodada. */
+/** Helper considered present until this window after latest poll round. */
 export const HOST_PRESENCE_MS = 10_000;
 /**
- * Pedido buscado e não confirmado vira falha; pedido que ninguém buscou também. Quem roda pode levar o `claude --bg`
- * mais o `open` (CLI_TIMEOUT_MS + OPEN_TIMEOUT_MS): o prazo de "buscado" cobre os dois com folga, e a página espera
- * mais que a soma dos dois prazos (client/src/ui/spawn.ts), para nunca dizer "não confirmou" de algo que ainda abre.
+ * Fetched unacknowledged request fails; unfetched request also times out. Execution may take `claude --bg`
+ * plus `open` (CLI_TIMEOUT_MS + OPEN_TIMEOUT_MS): fetched timeout covers both comfortably, and UI waits
+ * longer than both combined (client/src/ui/spawn.ts) to avoid premature timeout reports.
  */
 export const SENT_TIMEOUT_MS = CLI_TIMEOUT_MS + OPEN_TIMEOUT_MS + 10_000;
 export const QUEUED_TIMEOUT_MS = 30_000;
-/** Pedidos resolvidos ficam este tempo para o GET. */
+/** Resolved requests retained for this duration for GET queries. */
 export const KEEP_MS = 10 * 60_000;
 const MAX_OPEN = 5;
 const ERROR_MAX = 300;
@@ -47,7 +47,7 @@ export interface SpawnRequest {
 
 export type SpawnStatus = 'queued' | 'sent' | 'opened' | 'failed';
 
-/** Como abriu: `cli` = já está rodando em segundo plano; `app` = tela do app preenchida, esperando o Enter no Mac. */
+/** Spawn method: `cli` = backgrounded daemon session; `app` = desktop app prefilled awaiting Enter. */
 export type SpawnHow = 'cli' | 'app';
 
 export interface SpawnInfo {
@@ -56,18 +56,18 @@ export interface SpawnInfo {
   status: SpawnStatus;
   error?: string;
   how?: SpawnHow;
-  /** Com how `app` depois de tentar o `claude --bg`: por que não rodou sozinho. */
+  /** For `app` method following `claude --bg` attempt: reason why backgrounding failed. */
   note?: string;
 }
 
 export type OpenResult = { ok: true } | { ok: false; error: string };
 export type Opener = (url: string) => Promise<OpenResult>;
 export type CliResult = { ok: true; id: string } | { ok: false; error: string };
-/** Roda o pedido como sessão em segundo plano do Claude Code. */
+/** Runs request as background Claude Code session. */
 export type CliRunner = (req: SpawnRequest) => Promise<CliResult>;
 export type LaunchResult = { ok: true; how: SpawnHow; note?: string } | { ok: false; error: string };
 
-/** Confere o corpo de POST /api/spawn; devolve o pedido ou o motivo da recusa. */
+/** Validates POST /api/spawn body; returns parsed request or rejection reason. */
 export function parseSpawn(raw: unknown): SpawnRequest | { error: string } {
   const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const folder = typeof r.folder === 'string' ? r.folder.trim() : '';
@@ -79,7 +79,7 @@ export function parseSpawn(raw: unknown): SpawnRequest | { error: string } {
   return { folder, prompt };
 }
 
-/** O link que o app do Claude entende (claude://code/new; `q` = pedido já escrito). */
+/** Deep link parsed by Claude desktop app (claude://code/new; `q` = pre-filled prompt). */
 export function spawnUrl(req: SpawnRequest): string {
   const q = new URLSearchParams();
   q.set('folder', req.folder);
@@ -88,20 +88,20 @@ export function spawnUrl(req: SpawnRequest): string {
   return `claude://code/new?${q.toString().replace(/\+/g, '%20')}`;
 }
 
-/** Nome da sessão em segundo plano: "Habblaud: " + começo da 1ª linha do pedido. */
+/** Background session label: "Habblaud: " + first line snippet of prompt. */
 export function sessionName(prompt: string): string {
   const line = prompt.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
   const cut = line.length > NAME_MAX ? `${line.slice(0, NAME_MAX - 1)}…` : line;
   return cut ? `Habblaud: ${cut}` : 'Habblaud';
 }
 
-/** Argumentos do `claude`: o pedido depois de `--` (um pedido "doctor" ou "-x" continua sendo pedido). */
+/** Arguments to `claude`: prompt after `--` (a prompt "doctor" or "-x" is still a prompt). */
 export function cliArgs(req: SpawnRequest): string[] {
   const args = ['--bg', '-n', sessionName(req.prompt)];
   return req.prompt.trim() ? [...args, '--', req.prompt] : args;
 }
 
-/** `claude --bg` na pasta do pedido; devolve o id curto que ele imprime ("backgrounded · 7eacc670 · nome"). */
+/** `claude --bg` in target folder; returns short ID ("backgrounded · 7eacc670 · name"). */
 export function createCliRunner(bin: string, timeoutMs = CLI_TIMEOUT_MS): CliRunner {
   return (req) =>
     new Promise((ok) => {
@@ -115,14 +115,14 @@ export function createCliRunner(bin: string, timeoutMs = CLI_TIMEOUT_MS): CliRun
     });
 }
 
-/** Frase para a tela quando o `claude --bg` não rodou. */
+/** User-facing UI notice when `claude --bg` failed to execute directly. */
 export function cliNote(error: string): string {
   return /not trusted/i.test(error)
     ? tr('a pasta ainda não é confiável para o Claude Code: rode `claude` nela uma vez no computador e aceite o aviso')
     : error;
 }
 
-/** Roda em segundo plano; se não der, abre a tela do app preenchida (e diz por quê). */
+/** Runs in background; fallback opens prefilled desktop app (explaining why). */
 export async function launch(req: SpawnRequest, open: Opener, cli?: CliRunner): Promise<LaunchResult> {
   let note: string | undefined;
   if (cli) {
@@ -135,7 +135,7 @@ export async function launch(req: SpawnRequest, open: Opener, cli?: CliRunner): 
   return note ? { ok: true, how: 'app', note } : { ok: true, how: 'app' };
 }
 
-/** A pasta existe neste computador (o auxiliar confere antes de abrir; o Docker não enxerga as pastas do host). */
+/** Verifies folder exists on this computer (helper verifies on host; Docker cannot inspect host paths). */
 export function folderProblem(folder: string, stat: (p: string) => { isDirectory(): boolean } = statSync): string | undefined {
   try {
     return stat(folder).isDirectory() ? undefined : tr('não é uma pasta');
@@ -164,22 +164,22 @@ interface Entry {
   at: number;
 }
 
-/** Um pedido para o auxiliar do host, com os anexos em base64. */
+/** Request dispatched to host helper with base64 attachments. */
 export interface PolledSpawn extends SpawnRequest {
   id: string;
   files: Array<{ name: string; type: string; data: string }>;
 }
 
 export interface SpawnServiceOptions {
-  /** Modo Node: abre aqui mesmo. Ausente (Docker): fica na fila para o auxiliar do host. */
+  /** Node mode: executes locally. Missing (Docker): queued for host helper. */
   opener?: Opener;
-  /** Modo Node: roda em segundo plano antes de cair no app (ausente = só o app). */
+  /** Node mode: attempts background execution before desktop app fallback (missing = desktop app only). */
   cli?: CliRunner;
-  /** Confere a pasta antes de abrir no modo direto (padrão: statSync). */
+  /** Folder existence check before direct execution (default: statSync). */
   folderProblem?: (folder: string) => string | undefined;
-  /** Anexos enviados antes do pedido (POST /api/spawn/attachments); ausente = pedidos sem anexos. */
+  /** Pre-uploaded attachments (POST /api/spawn/attachments); missing = attachment-less requests. */
   attachments?: AttachmentStore;
-  /** Modo direto: grava os anexos e devolve os caminhos (padrão: ~/.habblaud/attachments/). */
+  /** Direct mode: persists attachments to disk and returns paths (default: ~/.habblaud/attachments/). */
   writeFiles?: (spawnId: string, files: readonly Attachment[]) => string[];
   now?: () => number;
   newId?: () => string;
@@ -196,7 +196,7 @@ export class SpawnService {
     this.now = opts.now ?? Date.now;
   }
 
-  /** Dá para abrir agora: modo direto, ou o auxiliar do host passou há pouco. */
+  /** Available for dispatch now: direct mode or active host helper recently polled. */
   available(): boolean {
     return !!this.opts.opener || this.now() - this.hostSeenAt <= HOST_PRESENCE_MS;
   }
@@ -236,7 +236,7 @@ export class SpawnService {
     return e && { ...e.info };
   }
 
-  /** Rodada do auxiliar: marca presença e entrega os pedidos na fila (ele monta o link: não abre um vindo de fora). */
+  /** Host helper poll round: refreshes presence and delivers queued requests (helper constructs link safely). */
   poll(): PolledSpawn[] {
     this.hostSeenAt = this.now();
     this.prune();
@@ -284,7 +284,7 @@ export class SpawnService {
     this.resolve(e, await launch(req, opener, this.opts.cli));
   }
 
-  /** Os anexos do pedido saem da memória (e do teto do AttachmentStore). */
+  /** Request attachments are evicted from memory (and deducted from AttachmentStore ceiling). */
   private dropFiles(e: Entry): void {
     this.opts.attachments?.release(e.files.reduce((n, f) => n + f.data.length, 0));
     e.files = [];

@@ -1,15 +1,15 @@
-// Migração do nome antigo do projeto (CodeTown, até a 0.3.2) para Habblaud. O que ainda precisa conhecer o
-// nome antigo fica aqui, para sair de uma vez quando ninguém mais vier de uma instalação da 0.3.
+// Migration from the project's old name (CodeTown, up to 0.3.2) to Habblaud. What still needs to recognize the
+// old name stays here, to be cleanly removed once nobody upgrades from a 0.3 installation.
 import { existsSync, readdirSync, renameSync, rmdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tr } from '../shared/i18n';
 
-/** Nome antigo em minúsculas: pasta de estado, plugins, marketplace, projeto e volume do Docker. */
+/** Old name in lowercase: state directory, plugins, marketplace, project, and Docker volume. */
 export const LEGACY_NAME = 'codetown';
 const LEGACY_ENV_PREFIX = 'CODETOWN_';
 const ENV_PREFIX = 'HABBLAUD_';
 
-/** Variáveis do nome antigo (CODETOWN_*) presentes em `keys`, com o nome novo de cada uma. */
+/** Old name environment variables (CODETOWN_*) present in `keys`, with the new name for each. */
 export function legacyEnvVars(keys: Iterable<string>): Array<{ from: string; to: string }> {
   const out: Array<{ from: string; to: string }> = [];
   for (const k of keys) {
@@ -18,7 +18,7 @@ export function legacyEnvVars(keys: Iterable<string>): Array<{ from: string; to:
   return out.sort((a, b) => a.from.localeCompare(b.from));
 }
 
-/** Aviso para as variáveis antigas (que não valem mais), ou undefined se não houver nenhuma. */
+/** Warning for old variables (no longer valid), or undefined if none present. */
 export function legacyEnvWarning(keys: Iterable<string>, where = tr('no ambiente')): string | undefined {
   const vars = legacyEnvVars(keys);
   if (!vars.length) return undefined;
@@ -40,7 +40,7 @@ const isFile = (p: string) => {
   }
 };
 
-/** Move de `from` para `to` o que falta lá (pastas em comum são mescladas); em arquivos dos dois lados, vence o mais recente. */
+/** Moves missing items from `from` to `to` (shared folders are merged); for files existing on both sides, newer wins. */
 function mergeInto(from: string, to: string, moved: string[], rel: string): void {
   for (const name of readdirSync(from)) {
     const src = join(from, name);
@@ -51,7 +51,7 @@ function mergeInto(from: string, to: string, moved: string[], rel: string): void
       moved.push(relName);
     } else if (isDir(src) && isDir(dst)) mergeInto(src, dst, moved, relName);
     else if (isFile(src) && isFile(dst) && statSync(src).mtimeMs > statSync(dst).mtimeMs) {
-      // Ex.: o mod antigo seguiu gravando o uso em ~/.codetown depois de a pasta nova existir.
+      // E.g. legacy mod kept recording usage in ~/.codetown after new folder was created.
       renameSync(src, dst);
       moved.push(relName);
     }
@@ -59,14 +59,14 @@ function mergeInto(from: string, to: string, moved: string[], rel: string): void
   try {
     rmdirSync(from);
   } catch {
-    // sobrou algo que já existia no destino: a pasta antiga fica, com só esses itens
+    // remaining items already existed at destination: keep old folder with only those items
   }
 }
 
 /**
- * Leva o estado de ~/.codetown para ~/.habblaud (uso capturado pelo mod/tap e, fora do Docker, nomes, linha do
- * tempo e estatísticas). Sem a pasta nova, é um rename; se ela já existe (o mod gravou o uso antes), move o que
- * falta lá e o que for mais recente. Devolve o que foi movido (vazio = nada a fazer) e nunca lança.
+ * Migrates state from ~/.codetown to ~/.habblaud (usage captured by mod/tap and, outside Docker, names, timeline,
+ * and stats). Without the new folder, it performs a rename; if it already exists (mod recorded usage earlier), moves missing
+ * and newer files. Returns moved items (empty = nothing to do) and never throws.
  */
 export function migrateLegacyStateDir(home: string): { moved: string[]; error?: string } {
   const from = join(home, `.${LEGACY_NAME}`);
@@ -85,7 +85,7 @@ export function migrateLegacyStateDir(home: string): { moved: string[]; error?: 
   }
 }
 
-/** Frase curta para o log de quem migrou (undefined se nada mudou). */
+/** Short log message for migrated installation (undefined if nothing changed). */
 export function describeStateMigration(r: { moved: string[]; error?: string }): string | undefined {
   if (r.error) return tr('não consegui levar ~/.{0} para ~/.habblaud ({1}); mova a pasta à mão.', [LEGACY_NAME, r.error]);
   if (!r.moved.length) return undefined;

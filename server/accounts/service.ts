@@ -1,9 +1,9 @@
-// Contas observadas + uso de cada uma: tap de statusline (recomendado) e cache do /usage
-// gravado no .claude.json. Só arquivos locais: nada de credenciais nem chamadas de rede.
+// Monitored accounts + usage tracking: statusline tap (recommended) and /usage cache
+// written in .claude.json. Strictly local files: zero credentials, zero network requests.
 //
-// As contas do Claude Code saem dos config dirs (detectAccounts). As de outras ferramentas (Codex) chegam de fora,
-// descobertas pela fonte delas (setProviderAccounts), com ids únicos entre todas as contas; o uso delas também é
-// empurrado pela fonte (setUsage), ao lado do statusline e do cache do /usage do Claude Code.
+// Claude Code accounts originate from config dirs (detectAccounts). Other provider accounts (Codex) arrive externally,
+// discovered by their source (setProviderAccounts), with unique IDs across all accounts; usage metrics are
+// pushed by source (setUsage) alongside Claude Code statusline tap and /usage cache.
 import { basename, resolve } from 'node:path';
 import type { AccountInfo, AccountUsage, Provider } from '../../shared/types';
 import { log } from '../log';
@@ -14,20 +14,20 @@ import { tr } from '../../shared/i18n';
 
 export interface AccountEntry {
   id: string;
-  /** Ferramenta da conta. */
+  /** Account tool provider. */
   provider: Provider;
-  /** Config dir lido por este processo (no Docker, o caminho montado). */
+  /** Config dir read by this process (mount path inside Docker). */
   dir: string;
   detected: DetectedAccount;
 }
 
-/** Conta de outra ferramenta (ex.: um CODEX_HOME), descoberta pela fonte dela. */
+/** Non-Claude account (e.g. CODEX_HOME), discovered by its provider source. */
 export interface ProviderAccountInput {
-  /** Pasta lida por este processo (no Docker, o caminho montado). */
+  /** Directory path read by this process (mount path inside Docker). */
   dir: string;
   /**
-   * Metadados para exibição. `id` é o desejado (ex.: ".codex"): se outra conta já usa esse id, ganha "~2", "~3"...
-   * (o id final volta em setProviderAccounts). `provider` é preenchido pelo serviço.
+   * Display metadata. `id` is requested id (e.g. ".codex"): if another account already uses it, appended with "~2", "~3"...
+   * (final id returned in setProviderAccounts). `provider` is populated by service.
    */
   detected: DetectedAccount;
 }
@@ -38,24 +38,24 @@ export interface AccountsServiceOptions {
   env: NodeJS.ProcessEnv;
   onChange: () => void;
   now?: () => number;
-  /** Intervalo de releitura do .claude.json (cache de uso). */
+  /** Polling interval for .claude.json (usage cache). */
   refreshMs?: number;
-  /** Pasta com o uso capturado do statusline (scripts/statusline-tap.mjs). Sem ela, a fonte fica desligada. */
+  /** Directory with statusline-captured usage (scripts/statusline-tap.mjs). Without it, source is disabled. */
   usageDir?: string;
-  /** Intervalo de releitura da pasta do statusline (padrão 5 s). */
+  /** Polling interval for statusline directory (default 5 s). */
   statuslineMs?: number;
 }
 
 export class AccountsService {
   readonly usage = new UsageStore();
-  /** Contas do Claude Code (config dirs). */
+  /** Claude Code accounts (config dirs). */
   private list_: AccountEntry[] = [];
-  /** Contas das outras ferramentas, por ferramenta (setProviderAccounts). */
+  /** Accounts from other providers, per provider (setProviderAccounts). */
   private external = new Map<Provider, AccountEntry[]>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private statuslineTimer: ReturnType<typeof setInterval> | null = null;
   private readonly statusline: StatuslineUsageReader | null;
-  /** Assinatura do uso exibido (o status muda sozinho com o tempo: ok -> stale, janelas reiniciam). */
+  /** Fingerprint of displayed usage (status changes autonomously over time: ok -> stale, windows reset). */
   private usageSig = '';
   private readonly now: () => number;
 
@@ -66,7 +66,7 @@ export class AccountsService {
     this.refreshStatusline();
   }
 
-  /** Relê metadados e o cache de uso (barato: dois ou três JSONs pequenos). */
+  /** Re-reads metadata and usage cache (lightweight: two or three small JSONs). */
   refresh(): void {
     let detected: DetectedAccount[];
     try {
@@ -89,8 +89,8 @@ export class AccountsService {
   }
 
   /**
-   * Relê os arquivos do tap de statusline e aplica a cada conta o mais recente que casar
-   * (pelo config dir; senão pelo id/basename). Conta sem arquivo perde a fonte 'statusline'.
+   * Re-reads statusline tap files and applies most recent match to each account
+   * (by config dir; fallback by id/basename). Account without file loses 'statusline' source.
    */
   refreshStatusline(): void {
     if (!this.statusline) return;
@@ -116,7 +116,7 @@ export class AccountsService {
     if (f.configDir) {
       const dir = resolve(f.configDir);
       if (dir === resolve(e.detected.configDir) || dir === resolve(e.dir)) return true;
-      // Mesmo nome de pasta mas caminho diferente: só vale se nenhuma outra conta tiver esse caminho.
+      // Same folder name but different path: only valid if no other account shares this path.
       if (this.list_.some((o) => resolve(o.detected.configDir) === dir || resolve(o.dir) === dir)) return false;
       return basename(dir) === e.id;
     }
@@ -124,10 +124,10 @@ export class AccountsService {
   }
 
   /**
-   * Substitui as contas de uma ferramenta que não é o Claude Code (a fonte dela chama a cada descoberta). Ids
-   * únicos entre todas as contas: um id já usado (por uma conta do Claude Code, de outra ferramenta ou repetido
-   * na lista) ganha "~2", "~3"... na ordem da lista. Devolve as entradas com os ids finais, na mesma ordem: são
-   * eles que vão em AgentInfo.account. Conta que saiu perde o uso guardado.
+   * Replaces accounts for a non-Claude Code tool (called on each discovery). IDs
+   * are unique across all accounts: already used id (by Claude Code, another tool, or duplicate
+   * in list) gets "~2", "~3"... in list order. Returns entries with final IDs in identical order:
+   * these populate AgentInfo.account. Removed accounts lose cached usage.
    */
   setProviderAccounts(provider: Exclude<Provider, 'claude'>, list: readonly ProviderAccountInput[]): readonly AccountEntry[] {
     const taken = new Set(this.list_.map((e) => e.id));
@@ -150,8 +150,8 @@ export class AccountsService {
   }
 
   /**
-   * Uso empurrado por uma fonte (ex.: a do Codex, lido dos arquivos de sessão): guardado pela origem
-   * (`usage.source`), ao lado das outras; vale a mais recente (maior fetchedAt). Devolve true se algo mudou.
+   * Usage pushed by a source (e.g. Codex, parsed from session files): stored by origin
+   * (`usage.source`) alongside others; most recent (highest fetchedAt) wins. Returns true if changed.
    */
   setUsage(accountId: string, usage: AccountUsage): boolean {
     const changed = this.usage.set(accountId, usage);
@@ -160,7 +160,7 @@ export class AccountsService {
     return changed;
   }
 
-  /** Esquece o uso de uma origem da conta (ex.: a fonte não tem mais números). Devolve true se algo mudou. */
+  /** Forgets usage from an account origin (e.g. source has no more data). Returns true if changed. */
   clearUsage(accountId: string, source: UsageSource): boolean {
     const changed = this.usage.clear(accountId, source);
     const viewChanged = this.usageViewChanged();
@@ -168,7 +168,7 @@ export class AccountsService {
     return changed;
   }
 
-  /** O uso exibido mudou (inclusive sozinho, com o tempo: ok -> stale, janelas reiniciam)? */
+  /** Did displayed usage change (including autonomously over time: ok -> stale, windows reset)? */
   private usageViewChanged(): boolean {
     const now = this.now();
     const sig = JSON.stringify(this.allEntries().map((e) => this.usage.view(e.id, now)));
@@ -194,17 +194,17 @@ export class AccountsService {
     this.statuslineTimer = null;
   }
 
-  /** Contas do Claude Code (o watcher, o histórico e o statusline são só delas). */
+  /** Claude Code accounts (watcher, history, and statusline belong strictly to them). */
   entries(): readonly AccountEntry[] {
     return this.list_;
   }
 
-  /** Contas de uma ferramenta. */
+  /** Accounts belonging to a specific tool. */
   entriesOf(provider: Provider): readonly AccountEntry[] {
     return provider === 'claude' ? this.list_ : (this.external.get(provider) ?? []);
   }
 
-  /** Contas de todas as ferramentas: as do Claude Code primeiro. */
+  /** Accounts across all tools: Claude Code first. */
   allEntries(): readonly AccountEntry[] {
     if (!this.external.size) return this.list_;
     return [...this.list_, ...[...this.external.values()].flat()];
@@ -223,7 +223,7 @@ export class AccountsService {
     return this.usage.view(id, this.now());
   }
 
-  /** Contas (de todas as ferramentas) no formato do protocolo; `sessions` = sessões abertas por conta. */
+  /** Accounts (across all tools) in protocol format; `sessions` = open sessions per account. */
   list(sessions: ReadonlyMap<string, number>): AccountInfo[] {
     const now = this.now();
     return this.allEntries().map((e) => {
@@ -238,7 +238,7 @@ export class AccountsService {
         sessions: sessions.get(e.id) ?? 0,
         usageStatus: view.status,
       };
-      // Ausente = 'claude' (o snapshot das contas do Claude Code não muda).
+      // Absent = 'claude' (Claude Code account snapshot remains unchanged).
       if (e.provider !== 'claude') info.provider = e.provider;
       if (d.email) info.email = d.email;
       if (d.organization) info.organization = d.organization;

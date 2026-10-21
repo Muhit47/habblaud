@@ -1,28 +1,28 @@
-// Carteiras dos personagens (moedinhas fictícias 🪙). Quem chega ao escritório já entra com um
-// saldo; ganha mais a cada tarefa concluída e perde ou ganha nas apostas com os colegas.
+// Character wallets (fictional coins 🪙). Agents arriving at the office start with an
+// initial balance; earn more for completed tasks, and gain or lose bets with colleagues.
 //
-// Fica no navegador (localStorage), por agente: cada navegador tem a sua economia (as apostas são
-// sorteadas na simulação local). Sem localStorage (testes, aba anônima bloqueada), só em memória.
-// Os agentes de um prédio do mundo visitado (ids `world:`, shared/world/office-from-world.ts) ficam numa chave à
-// parte (WORLD_STORAGE_KEY), apagada ao sair da visita: a visita não mexe na economia do escritório local.
+// Persisted in browser (localStorage) per agent: each browser maintains its own economy (bets are
+// resolved in local simulation). Without localStorage (tests, incognito restrictions), held in memory only.
+// Agents in visited world buildings (ids `world:`, shared/world/office-from-world.ts) use a separate
+// key (WORLD_STORAGE_KEY), cleared upon leaving visit: visits never perturb local office economy.
 import { tr } from '../../../../shared/i18n';
 import { isWorldId } from '../../../../shared/world/office-from-world';
 
-/** Saldo de quem chega ao escritório. */
+/** Initial balance for newly arrived agents. */
 export const START_COINS: Readonly<Record<'main' | 'sub', number>> = { main: 100, sub: 30 };
-/** Item da lista de tarefas concluído. */
+/** Reward for completed task list item. */
 export const TASK_REWARD = 10;
-/** Subagente entregou o resultado ao agente que o chamou (a tarefa dele). */
+/** Subagent delivered result to calling agent (assigned task). */
 export const DELIVERY_REWARD = 15;
-/** Pedido do usuário atendido (fim de turno). */
+/** Reward for fulfilled user request (turn completion). */
 export const TURN_REWARD = 5;
 
 const STORAGE_KEY = 'habblaud.wallets.v1';
-/** Carteiras da visita a um prédio do mundo (ids `world:`). */
+/** Wallets for visited world building (ids `world:`). */
 export const WORLD_STORAGE_KEY = 'habblaud:world-wallet';
 const LEDGER_MAX = 12;
 const PAID_MAX = 300;
-/** Carteiras de agentes que não aparecem há mais que isso são esquecidas. */
+/** Wallets for agents absent longer than this threshold are pruned. */
 const FORGET_MS = 3 * 24 * 3_600_000;
 const MAX_WALLETS = 400;
 
@@ -36,21 +36,21 @@ export interface LedgerEntry {
 export interface WalletEntry {
   name: string;
   coins: number;
-  /** Total ganho trabalhando (saldo inicial, tarefas, entregas, pedidos). */
+  /** Total earned working (initial balance, tasks, deliveries, requests). */
   earned: number;
   wins: number;
   losses: number;
-  /** Retrospecto por adversário (id): [vitórias, derrotas]. */
+  /** Head-to-head record per opponent (id): [wins, losses]. */
   vs: Record<string, [number, number]>;
-  /** Tarefas já pagas ("id|título"). */
+  /** Already rewarded tasks ("id|title"). */
   paid: string[];
-  /** Extrato: movimentações mais recentes primeiro. */
+  /** Statement: most recent transactions first. */
   ledger: LedgerEntry[];
   createdAt: number;
   seenAt: number;
 }
 
-/** O mínimo de AgentInfo que a carteira usa. */
+/** Minimal AgentInfo subset required by wallet. */
 export interface WalletAgent {
   id: string;
   name: string;
@@ -64,15 +64,15 @@ export interface StorageLike {
   removeItem?(key: string): void;
 }
 
-/** De que economia é a carteira: a do escritório local ou a da visita a um prédio do mundo. */
+/** Economy partition: local office or visited world building. */
 type Part = 'office' | 'world';
 const PARTS: readonly Part[] = ['office', 'world'];
 const KEYS: Readonly<Record<Part, string>> = { office: STORAGE_KEY, world: WORLD_STORAGE_KEY };
 const partOf = (id: string): Part => (isWorldId(id) ? 'world' : 'office');
 
 /**
- * Apaga as carteiras da visita guardadas no navegador (ao sair do prédio). Chame depois de descartar o `Sim` da
- * visita: ele grava as carteiras ao ser trocado.
+ * Clears stored visit wallets from browser (upon leaving building). Call after destroying visit `Sim`:
+ * it writes wallets when unmounted.
  */
 export function clearWorldWallets(storage: StorageLike | null): void {
   if (!storage) return;
@@ -80,11 +80,11 @@ export function clearWorldWallets(storage: StorageLike | null): void {
     if (storage.removeItem) storage.removeItem(WORLD_STORAGE_KEY);
     else storage.setItem(WORLD_STORAGE_KEY, '');
   } catch {
-    // bloqueado: o que ficou é esquecido pelo prune (FORGET_MS)
+    // storage blocked: residual entries pruned after FORGET_MS
   }
 }
 
-/** localStorage, se existir e funcionar (aba anônima/bloqueada lança ao acessar). */
+/** Safe localStorage reference (incognito/restricted throws on access). */
 export function browserStorage(): StorageLike | null {
   try {
     const s = (globalThis as { localStorage?: StorageLike }).localStorage;
@@ -102,7 +102,7 @@ function taskKey(t: { id: string; title: string }): string {
 
 export class Wallets {
   private map = new Map<string, WalletEntry>();
-  /** O que mudou desde a última gravação, por economia: cada uma só regrava a própria chave. */
+  /** Dirty tracking per economy partition: each only rewrites its designated key. */
   private dirty: Record<Part, boolean> = { office: false, world: false };
 
   constructor(private readonly storage: StorageLike | null) {
@@ -118,8 +118,8 @@ export class Wallets {
   }
 
   /**
-   * Garante a carteira do agente. Na primeira vez: saldo inicial e as tarefas que já estavam
-   * concluídas pagas em silêncio (quem já trabalhou antes de a página abrir não perde o que fez).
+   * Ensures agent wallet exists. On first creation: initial balance and silently rewards tasks
+   * already completed (work done before page was opened is credited).
    */
   ensure(a: WalletAgent, now: number): { entry: WalletEntry; created: boolean } {
     let w = this.map.get(a.id);
@@ -147,7 +147,7 @@ export class Wallets {
     return { entry: w, created: true };
   }
 
-  /** Paga as tarefas concluídas que ainda não foram pagas. Retorna quanto pagou agora. */
+  /** Rewards unpaid completed tasks. Returns newly credited amount. */
   payTasks(a: WalletAgent, now: number): number {
     const w = this.map.get(a.id);
     if (!w) return 0;
@@ -167,7 +167,7 @@ export class Wallets {
     return total;
   }
 
-  /** Crédito por trabalho (pedido atendido, entrega de subagente). */
+  /** Work credit (fulfilled user request, subagent task delivery). */
   credit(id: string, amount: number, icon: string, text: string, now: number): number {
     const w = this.map.get(id);
     if (!w || amount <= 0) return 0;
@@ -179,8 +179,8 @@ export class Wallets {
   }
 
   /**
-   * Aposta paga: tira até `amount` de quem perdeu (nunca deixa negativo) e dá a quem ganhou.
-   * Retorna o valor que de fato mudou de mãos.
+   * Bet settlement: transfers up to `amount` from loser (non-negative floor) to winner.
+   * Returns actual transferred amount.
    */
   transfer(fromId: string, toId: string, amount: number, icon: string, what: string, now: number): number {
     const from = this.map.get(fromId);
@@ -197,7 +197,7 @@ export class Wallets {
     return v;
   }
 
-  /** Placar de uma partida/aposta (vale também sem dinheiro em jogo). */
+  /** Match/bet record update (also applies to zero-stake matches). */
   recordMatch(winnerId: string, loserId: string): void {
     const w = this.map.get(winnerId);
     const l = this.map.get(loserId);
@@ -211,8 +211,8 @@ export class Wallets {
   }
 
   /**
-   * Grava no navegador o que mudou (chamado com baixa frequência), cada economia na sua chave: a visita a um prédio
-   * do mundo nunca regrava a do escritório (nem com uma cópia velha dela) e vice-versa.
+   * Flushes dirty wallets to browser storage (low-frequency cadence), partitioned per key: world visits
+   * never overwrite office storage (even with stale snapshot), and vice versa.
    */
   save(now: number): void {
     for (const part of PARTS) {
@@ -224,12 +224,12 @@ export class Wallets {
       try {
         this.storage.setItem(KEYS[part], JSON.stringify({ v: 1, wallets }));
       } catch {
-        // cota cheia/bloqueado: segue só em memória
+        // quota exceeded / storage blocked: continues in-memory only
       }
     }
   }
 
-  /** Esquece carteiras de quem não aparece há dias (e limita o total de cada economia). */
+  /** Prunes wallets absent for days (and caps total entries per economy partition). */
   prune(now: number, only?: Part): void {
     for (const part of only ? [only] : PARTS) {
       const entries = [...this.map].filter(([id]) => partOf(id) === part);
@@ -261,7 +261,7 @@ export class Wallets {
       if (!raw) return;
       const j = JSON.parse(raw) as { v?: number; wallets?: Record<string, Partial<WalletEntry>> };
       for (const [id, w] of Object.entries(j.wallets ?? {})) {
-        if (partOf(id) !== part) continue; // cada chave só com a sua economia
+        if (partOf(id) !== part) continue; // each key scoped strictly to its economy
         if (!w || typeof w.coins !== 'number' || !Number.isFinite(w.coins)) continue;
         this.map.set(id, {
           name: typeof w.name === 'string' ? w.name : id,
@@ -277,7 +277,7 @@ export class Wallets {
         });
       }
     } catch {
-      // ilegível: começa do zero
+      // unreadable: start fresh
     }
   }
 }

@@ -1,8 +1,8 @@
-// Anexos do "Novo agente" (imagens e arquivos que o celular manda junto com o pedido). O link do app do Claude só leva
-// texto, então os arquivos são gravados no computador do app, em ~/.habblaud/attachments/<data>-<id>/, e o pedido ganha
-// a lista dos caminhos para o agente ler. Quem grava é quem abre o link: o servidor no modo Node, o auxiliar do host
-// (scripts/codex-bridge.ts) no Docker. Os arquivos chegam como JSON base64 (o guard exige JSON em todo POST: CSRF).
-// Node puro e sem dependências: também é importado pelo auxiliar do host (via tsx).
+// "New agent" attachments (images and files sent from mobile/web with request). Desktop app deep link only
+// supports text, so files are persisted on host at ~/.habblaud/attachments/<date>-<id>/, and prompt receives
+// file list for agent to read. Persisted by dispatcher: server in Node mode, host helper (scripts/codex-bridge.ts)
+// in Docker. Files uploaded as base64 JSON (guard requires JSON on all POSTs: CSRF protection).
+// Pure Node zero-dependency: also imported by host helper (via tsx).
 import { randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -11,11 +11,11 @@ import { tr } from '../../shared/i18n';
 
 export const ATTACHMENT_MAX_BYTES = 15 * 1024 * 1024;
 export const ATTACHMENTS_PER_SPAWN = 8;
-/** Corpo de POST /api/spawn/attachments: o arquivo em base64 (4/3) e um pouco de folga para o JSON. */
+/** POST /api/spawn/attachments body: base64 payload (4/3) plus JSON framing overhead. */
 export const ATTACHMENT_BODY_MAX = Math.ceil((ATTACHMENT_MAX_BYTES * 4) / 3) + 64 * 1024;
-/** Anexos enviados e ainda não usados expiram; o total guardado em memória tem teto. */
+/** Uploaded attachments expire if unused; total buffered in memory is capped. */
 export const ATTACHMENT_TTL_MS = 30 * 60_000;
-/** Teto da memória dos anexos: os esperando o pedido e os já tirados por pedidos que ainda não abriram (`held`). */
+/** Attachment memory ceiling: uploads awaiting spawn plus attachments held by pending requests (`held`). */
 export const STORE_MAX_BYTES = 120 * 1024 * 1024;
 const NAME_MAX = 120;
 
@@ -25,7 +25,7 @@ export interface Attachment {
   data: Buffer;
 }
 
-/** Nome seguro para gravar: só a última parte, sem controles nem separadores, sem começar com ponto. */
+/** Safe filename for disk: basename only, no control chars or path separators, no leading dot. */
 export function safeFileName(raw: string): string {
   const base = raw.split(/[\\/]/).pop() ?? '';
   let name = base
@@ -56,10 +56,10 @@ export function parseAttachment(raw: unknown): Attachment | { error: string } {
   return { name, type, data };
 }
 
-/** Anexos enviados, esperando o pedido do agente novo (em memória; o id volta para o navegador). */
+/** Uploaded attachments held in memory awaiting spawn request (ID returned to client). */
 export class AttachmentStore {
   private readonly items = new Map<string, Attachment & { at: number }>();
-  /** Bytes tirados por take() e ainda em memória (pedido na fila); quem tirou devolve com release(). */
+  /** Bytes claimed by take() and retained in memory (queued request); released via release(). */
   private held = 0;
 
   constructor(
@@ -78,7 +78,7 @@ export class AttachmentStore {
     return { id };
   }
 
-  /** Tira os anexos do depósito (cada um só serve a um pedido). Ids desconhecidos ou vencidos = erro. */
+  /** Claims attachments from store (each attachment serves one request). Unknown or expired IDs throw. */
   take(ids: unknown): Attachment[] | { error: string } {
     this.prune();
     if (ids === undefined) return [];
@@ -95,7 +95,7 @@ export class AttachmentStore {
     return out;
   }
 
-  /** Os anexos tirados por take() saíram da memória (gravados, entregues ao auxiliar ou descartados). */
+  /** Attachments retrieved by take() are evicted from memory (saved to disk, delivered to helper, or discarded). */
   release(bytes: number): void {
     this.held = Math.max(0, this.held - bytes);
   }
@@ -115,7 +115,7 @@ function stamp(at: Date): string {
   return `${at.getFullYear()}${p(at.getMonth() + 1)}${p(at.getDate())}-${p(at.getHours())}${p(at.getMinutes())}${p(at.getSeconds())}`;
 }
 
-/** Grava os anexos numa pasta nova (700; arquivos 600), com nomes únicos. Devolve os caminhos, na ordem. */
+/** Writes attachments into fresh folder (mode 700; files 600) with unique names. Returns paths in order. */
 export function writeAttachments(root: string, spawnId: string, files: readonly Attachment[], at = new Date()): string[] {
   if (!files.length) return [];
   const dir = join(root, `${stamp(at)}-${spawnId.replace(/[^\w-]/g, '').slice(0, 8) || 'pedido'}`);
@@ -138,7 +138,7 @@ export function writeAttachments(root: string, spawnId: string, files: readonly 
   });
 }
 
-/** O pedido com a lista dos anexos no fim (o agente lê os arquivos pelos caminhos). */
+/** Prompt formatted with appended attachment paths (agent inspects files via filesystem paths). */
 export function promptWithAttachments(prompt: string, paths: readonly string[]): string {
   if (!paths.length) return prompt;
   const list = paths.map((p) => `- ${p}`).join('\n');

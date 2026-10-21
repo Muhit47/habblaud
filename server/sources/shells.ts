@@ -1,32 +1,32 @@
-// Shells que os agentes de uma sessão estão esperando: Bash em segundo plano (run_in_background, ou
-// mandado para o fundo no meio da execução), Bash em primeiro plano ainda sem resultado e Monitor.
+// Shells awaited by agents in a session: background Bash (run_in_background, or
+// backgrounded mid-execution), foreground Bash still pending results, and Monitor.
 //
-// Um rastreador por sessão (principal + subagentes): a notificação de término de um shell disparado
-// por um subagente pode chegar no transcript do principal, e vice-versa. Os jobs são indexados pelo
-// id do tool_use; o id da tarefa em segundo plano ("bo0ov3q3l") chega no tool_result.
+// One tracker per session (main + subagents): termination notification of a shell triggered
+// by a subagent may arrive in the main transcript, and vice versa. Jobs are indexed by
+// tool_use id; background task id ("bo0ov3q3l") arrives in tool_result.
 //
-// Término: <task-notification> (queue-operation 'enqueue', mensagem user ou anexo) casando task-id
-// ou tool-use-id; TaskStop/KillShell/KillBash com o id; fim de turno/interrupção (só os em primeiro
-// plano); /clear ou sessão encerrada (rastreador descartado); idade.
+// Termination: <task-notification> (queue-operation 'enqueue', user message or attachment) matching task-id
+// or tool-use-id; TaskStop/KillShell/KillBash with id; turn end/interruption (foreground
+// only); /clear or closed session (tracker discarded); age.
 import type { ShellJob } from '../../shared/types';
 import type { ShellOutcome } from '../../shared/activity';
 
-/** Jobs mais velhos que isso são descartados (o processo certamente já morreu ou a notificação se perdeu). */
+/** Jobs older than this are discarded (process has certainly died or notification was lost). */
 export const SHELL_MAX_AGE_MS = 24 * 3_600_000;
-/** Registro "idle" + shell em segundo plano sem notificação há menos disso = status 'shell' (CLIs antigas). */
+/** Registry "idle" + background shell with no notification for less than this = 'shell' status (older CLIs). */
 export const SHELL_FALLBACK_MAX_AGE_MS = 12 * 3_600_000;
-/** Monitor: expira sozinho depois do timeout_ms (padrão 5 min, teto 1 h) + esta folga. */
+/** Monitor: self-expires after timeout_ms (default 5 min, ceiling 1 h) + this margin. */
 const MONITOR_DEFAULT_TIMEOUT_MS = 300_000;
 const MONITOR_MAX_TIMEOUT_MS = 3_600_000;
 const EXPIRY_GRACE_MS = 60_000;
-/** Tolerância entre o relógio do transcript e o início do processo no registro. */
+/** Tolerance between transcript clock and process start in registry. */
 const PROCESS_START_SLACK_MS = 2_000;
-/** Ids já encerrados guardados (para não ressuscitar um job ao reler o transcript ou mesclar o começo do arquivo). */
+/** Retained terminated ids (to avoid reviving a job when re-reading transcript or merging head of file). */
 const MAX_ENDED = 2_000;
-/** Uma notificação repetida (fila -> mensagem) até este tempo depois do fim ainda é "do mesmo término". */
+/** Repeated notification (queue -> message) up to this duration after termination is still "same termination". */
 const RECENT_END_MS = 120_000;
 
-/** Início de um Bash/Monitor visto no transcript. */
+/** Start of a Bash/Monitor command observed in transcript. */
 export interface ShellStart {
   toolUseId: string;
   label: string;
@@ -36,7 +36,7 @@ export interface ShellStart {
   kind: 'shell' | 'monitor';
   /** Epoch ms do tool_use. */
   at: number;
-  /** timeout_ms do Monitor (expiração). */
+  /** Monitor timeout_ms (expiration). */
   timeoutMs?: number;
 }
 
@@ -48,12 +48,12 @@ export interface TrackedShell {
   command?: string;
   background: boolean;
   kind: 'shell' | 'monitor';
-  /** Início mostrado (o lançamento real, quando o tool_result de um job em segundo plano chega). */
+  /** Displayed start (actual launch, when background job tool_result arrives). */
   startedAt: number;
-  /** Quando o tool_use foi escrito (base do filtro "anterior ao processo atual"). */
+  /** When tool_use was written (basis of "prior to current process" filter). */
   requestedAt: number;
   timeoutMs?: number;
-  /** Primeiro plano esperando aprovação: não aparece e o relógio dele não anda. */
+  /** Foreground awaiting approval: hidden and clock does not tick. */
   held?: boolean;
 }
 
@@ -74,8 +74,8 @@ const FAILED = /^(failed|failure|error|errored|timeout|timed[_ -]?out)$/i;
 const KILLED = /^(killed|stopped|cancell?ed|aborted|interrupted|terminated)$/i;
 
 /**
- * Resultado de uma notificação: undefined = não terminal (ex.: evento de um Monitor). Sem status,
- * um shell (Bash) só manda uma notificação — a do fim; um Monitor manda uma por evento.
+ * Notification outcome: undefined = non-terminal (e.g. Monitor event). Without status,
+ * a shell (Bash) sends only one notification — termination; a Monitor sends one per event.
  */
 export function notificationOutcome(kind: 'shell' | 'monitor', status: string | undefined, summary: string | undefined): ShellOutcome | undefined {
   const s = status?.trim();
@@ -92,18 +92,18 @@ export function notificationOutcome(kind: 'shell' | 'monitor', status: string | 
 export class ShellTracker {
   private jobs = new Map<string, TrackedShell>();
   private taskToTool = new Map<string, string>();
-  /** tool_use id / task id já encerrados -> quando. */
+  /** Terminated tool_use id / task id -> timestamp. */
   private ended = new Map<string, number>();
-  /** Lançamentos cujo tool_use não está na janela lida (casados ao mesclar o começo do arquivo). */
+  /** Launches whose tool_use is not in read window (matched when merging head of file). */
   private orphanLaunches = new Map<string, { taskId?: string; at: number }>();
-  /** Ids de shells cujo término já foi informado (notificação/TaskStop) -> quando. */
+  /** Shell ids whose termination was already reported (notification/TaskStop) -> timestamp. */
   private reported = new Map<string, number>();
 
   get size(): number {
     return this.jobs.size;
   }
 
-  /** Bash/Monitor chamado. Ignora o que já terminou (releitura do transcript). */
+  /** Bash/Monitor invoked. Ignores already terminated processes (transcript re-reading). */
   start(owner: string, s: ShellStart): void {
     if (this.jobs.has(s.toolUseId) || this.ended.has(s.toolUseId)) return;
     const job: TrackedShell = {
@@ -126,8 +126,8 @@ export class ShellTracker {
   }
 
   /**
-   * tool_result do Bash/Monitor. Com id de tarefa em segundo plano (ou se já era em segundo plano), o job
-   * passa a esperar a notificação; senão (primeiro plano terminou, erro, recusa) sai da lista.
+   * Bash/Monitor tool_result. With background task id (or if already backgrounded), job
+   * begins awaiting notification; otherwise (foreground finished, error, rejection) removed from list.
    */
   result(toolUseId: string, opts: { taskId?: string; error: boolean; at: number }): void {
     const job = this.jobs.get(toolUseId);
@@ -150,8 +150,8 @@ export class ShellTracker {
       this.remove(job, at);
       return;
     }
-    // Pedido em segundo plano: começa de fato no lançamento (depois de uma eventual aprovação). Mandado
-    // para o fundo no meio da execução (primeiro plano): continua contando desde o início.
+    // Background requested: actually starts at launch (after eventual approval). Sent
+    // to background mid-execution (foreground): continues counting from initial start.
     if (job.background) job.startedAt = Math.max(job.startedAt, at);
     job.background = true;
     delete job.held;
@@ -187,11 +187,11 @@ export class ShellTracker {
     this.markEnded(job.taskId, at);
   }
 
-  /** <task-notification>: devolve o término (uma vez só) de um job conhecido. */
+  /** <task-notification>: returns termination (once only) for a known job. */
   notify(ref: ShellRef & { status?: string; summary?: string; at: number }): ShellFinish | undefined {
     const job = this.find(ref);
     if (!job) {
-      // Desconhecido (subagente, ou o tool_use ficou antes da janela lida): lembra para não ressuscitar.
+      // Unknown (subagent, or tool_use preceded read window): remember to avoid reviving.
       if (!ref.status || OK.test(ref.status) || FAILED.test(ref.status) || KILLED.test(ref.status)) {
         this.markEnded(ref.toolUseId, ref.at);
         this.markEnded(ref.taskId, ref.at);
@@ -227,14 +227,14 @@ export class ShellTracker {
     return { job, outcome: 'killed', at };
   }
 
-  /** Fim de turno ou interrupção: nenhum comando em primeiro plano continua rodando. */
+  /** Turn end or interruption: no foreground command continues running. */
   endForeground(owner: string | undefined, at: number): void {
     for (const job of [...this.jobs.values()]) if (!job.background && (owner === undefined || job.owner === owner)) this.remove(job, at);
   }
 
   /**
-   * A sessão espera aprovação (registro 'waiting'): comandos em primeiro plano ainda não começaram —
-   * somem da lista e o relógio deles recomeça quando a espera acabar.
+   * Session awaiting approval (registry 'waiting'): foreground commands have not started yet —
+   * hidden from list and their clock restarts once waiting ends.
    */
   holdForeground(waiting: boolean, now: number): void {
     for (const job of this.jobs.values()) {
@@ -247,8 +247,8 @@ export class ShellTracker {
   }
 
   /**
-   * O término deste shell já foi informado há pouco (ex.: a fila avisou e agora a mesma notificação é
-   * entregue ao agente)? Só vale para shells rastreados (não para subagentes).
+   * Was termination of this shell reported recently (e.g. queue notified and now same notification is
+   * delivered to agent)? Only applicable to tracked shells (not subagents).
    */
   reportedRecently(ref: ShellRef, at: number): boolean {
     for (const id of [ref.toolUseId, ref.taskId]) {
@@ -259,8 +259,8 @@ export class ShellTracker {
   }
 
   /**
-   * Descarta o que não pode estar rodando: mais de 24 h, anterior ao processo atual do Claude Code
-   * (shells morrem com ele — ex.: sessão retomada) e monitores além do próprio timeout.
+   * Discards jobs that cannot be running: > 24 h, preceding current Claude Code process
+   * (shells die with it — e.g. resumed session), and monitors beyond their own timeout.
    */
   prune(now: number, processStart?: number): boolean {
     let changed = false;
@@ -279,15 +279,15 @@ export class ShellTracker {
     return changed;
   }
 
-  /** Há Bash em segundo plano rodando (iniciado há menos de `maxAgeMs`)? Monitores não contam (como no Claude Code). */
+  /** Any background Bash running (started within `maxAgeMs`)? Monitors excluded (as in Claude Code). */
   hasBackgroundShell(now: number, maxAgeMs = SHELL_FALLBACK_MAX_AGE_MS): boolean {
     for (const job of this.jobs.values()) if (job.background && job.kind === 'shell' && now - job.startedAt < maxAgeMs) return true;
     return false;
   }
 
   /**
-   * O registro (versão que grava "shell") diz que não há shell em segundo plano rodando: o que sobrou aqui
-   * perdeu a notificação. Descarta os Bash em segundo plano (monitores não entram nessa conta do Claude Code).
+   * Registry (version recording "shell") indicates no background shell running: remaining jobs
+   * missed their notification. Discard background Bash (monitors excluded from Claude Code check).
    */
   dropBackgroundShells(now: number): boolean {
     let changed = false;
@@ -299,14 +299,14 @@ export class ShellTracker {
     return changed;
   }
 
-  /** Jobs visíveis (sem os em primeiro plano aguardando aprovação), do mais antigo para o mais novo. */
+  /** Visible jobs (excluding foreground awaiting approval), from oldest to newest. */
   list(): TrackedShell[] {
     return [...this.jobs.values()].filter((j) => !j.held).sort((a, b) => a.startedAt - b.startedAt || a.toolUseId.localeCompare(b.toolUseId));
   }
 
   /**
-   * Jobs em segundo plano que ficaram abertos no começo do arquivo (lido depois da janela do fim): entram,
-   * a não ser que a janela já tenha mostrado o término deles.
+   * Background jobs left open at head of file (read after tail window): included,
+   * unless window already indicated their termination.
    */
   merge(jobs: readonly TrackedShell[]): boolean {
     let changed = false;
@@ -324,13 +324,13 @@ export class ShellTracker {
     return changed;
   }
 
-  /** Jobs em segundo plano ainda abertos (para mesclar o começo do arquivo). */
+  /** Background jobs still open (to merge head of file). */
   openBackground(): TrackedShell[] {
     return [...this.jobs.values()].filter((j) => j.background).map((j) => ({ ...j }));
   }
 }
 
-/** ShellJob publicado (sem os campos internos). */
+/** Published ShellJob (omitting internal fields). */
 export function toShellJob(j: TrackedShell): ShellJob {
   const job: ShellJob = { id: j.taskId ?? j.toolUseId, label: j.label, startedAt: j.startedAt, background: j.background, kind: j.kind };
   if (j.command) job.command = j.command;

@@ -1,14 +1,14 @@
-// O social leve DENTRO do prédio de alguém (Fase 5), ligado pela cena Visita (world/visit/index.ts):
-//   const social = mountVisitSocial(painel, { building, mine, send, toast });
-//   ...a cada mensagem do stream: if (social.message(msg)) return;   // like.update e os avisos do like e do carimbo
-//   ...com o prédio novo (`building`, ou o `building` de um patch): social.sync();  ao sair: social.destroy();
-// - Botão Like (❤️ Curtir / 💔 Descurtir, com o total): de dentro do prédio o servidor aceita sem a distância da porta.
-// - "Deixar um carimbo": os 8 carimbos da portaria (só ids), um por prédio por dia (dia UTC, como o servidor). O que
-//   foi deixado hoje fica neste navegador (localStorage) para o botão e para o quadro da recepção; o servidor guarda só
-//   a contagem por carimbo e dia, nunca quem carimbou.
-// - O quadro de carimbos da recepção é desenho da cena Visita: `stampBoard` dá o modelo (onde cada carimbo fica no
-//   quadro, inclinação e ícone), puro e determinístico; o dono vendo o próprio prédio pode passar os carimbos do
-//   "Enquanto você estava fora" para os agentes "acharem" na recepção.
+// Lightweight social features INSIDE a visited building (Phase 5), wired by Visit scene (world/visit/index.ts):
+//   const social = mountVisitSocial(panel, { building, mine, send, toast });
+//   ...on each stream message: if (social.message(msg)) return;   // like.update and like/stamp notices
+//   ...with new building (`building`, or patch `building`): social.sync(); on exit: social.destroy();
+// - Like button (❤️ Like / 💔 Unlike, with total): from inside building, server accepts without doorstep distance check.
+// - "Leave a stamp": 8 lobby stamps (ids only), one per building per UTC day (matching server). Stamp left
+//   today is saved in this browser (localStorage) for button and reception board; server retains only
+//   aggregate counts per stamp and day, never identity of who stamped.
+// - Reception stamp board rendered in Visit scene: `stampBoard` provides pure deterministic model (stamp
+//   placements on board, tilt, and icons); owners visiting own building can pass "While you were away"
+//   stamps for agents to "find" at reception.
 import { tr } from '../../../shared/i18n';
 import type { WorldSceneCommand } from '../../../shared/world/api';
 import type { StampId, WorldBuildingPublic } from '../../../shared/world/protocol';
@@ -18,20 +18,20 @@ import { RateGate } from './city/greetings';
 import { browserStorage } from './social/wallet';
 import './visit-social.css';
 
-/** Um aviso do mundo logo depois de um comando é a resposta a ele. */
+/** World notice immediately following command is its response. */
 const PENDING_MS = 4_000;
 
-/** O dia UTC ("2026-10-15") de um instante: o carimbo é um por prédio por dia UTC. */
+/** UTC date ("2026-10-15") of an instant: stamps are limited to one per building per UTC day. */
 export function utcDay(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
 }
 
-/** Chave do carimbo de hoje deste navegador num prédio. */
+/** Key for today's stamp left by this browser on a building. */
 export function stampKey(buildingId: string): string {
   return `habblaud:world-stamp:${buildingId}`;
 }
 
-/** O carimbo que este navegador deixou hoje no prédio (ou null), lido do que foi gravado. */
+/** Stamp this browser left today on building (or null), read from storage. */
 export function stampedToday(raw: string | null, day: string): StampId | null {
   if (!raw) return null;
   try {
@@ -43,20 +43,20 @@ export function stampedToday(raw: string | null, day: string): StampId | null {
 }
 
 /**
- * O aviso que responde a um carimbo: `stamped` = valeu (o servidor confirma; o toast já saiu ao carimbar),
- * `already_done` = já havia um hoje, qualquer outro (longe, prédio que saiu, limite) = não ficou.
+ * Notice responding to a stamp action: `stamped` = confirmed (server confirmed; toast shown on stamp),
+ * `already_done` = already stamped today, any other (too far, departed building, rate limit) = rejected.
  */
 export function stampReply(text: string): 'ok' | 'already' | 'failed' {
   return text === 'stamped' ? 'ok' : text === 'already_done' ? 'already' : 'failed';
 }
 
-/** Um carimbo no quadro da recepção: posição (0..1 do quadro), inclinação (graus), ícone e rótulo. */
+/** Stamp on reception board: position (0..1 on board), tilt (degrees), icon, and label. */
 export interface StampPin {
   stampId: StampId;
   icon: string;
   label: string;
   count: number;
-  /** O carimbo deste navegador (destaque). */
+  /** Browser stamp (highlight). */
   mine: boolean;
   x: number;
   y: number;
@@ -64,8 +64,8 @@ export interface StampPin {
 }
 
 /**
- * O quadro de carimbos da recepção (modelo puro): até `max` carimbos numa grade de 4 colunas, cada um com um tremido
- * e uma inclinação fixos pela semente (o mesmo quadro a cada quadro desenhado), o meu primeiro.
+ * Reception stamp board (pure model): up to `max` stamps in a 4-column grid, each with jitter
+ * and tilt seeded deterministically (consistent board across frames), user's stamp placed first.
  */
 export function stampBoard(entries: ReadonlyArray<{ stampId: StampId; count?: number; mine?: boolean }>, seed = 0, max = 8): StampPin[] {
   const sorted = [...entries].filter((e) => (STAMP_IDS as readonly string[]).includes(e.stampId)).sort((a, b) => Number(!!b.mine) - Number(!!a.mine) || (b.count ?? 1) - (a.count ?? 1));
@@ -95,24 +95,24 @@ export function stampBoard(entries: ReadonlyArray<{ stampId: StampId; count?: nu
 // ====================================================================== DOM
 
 export interface VisitSocialApi {
-  /** O prédio visitado (o `building` do interior), ou null fora de um prédio. */
+  /** Visited building (interior `building`), or null when outside. */
   building(): WorldBuildingPublic | null;
-  /** É o meu prédio (o dono vendo como os outros veem): sem like nem carimbo. */
+  /** Is user's own building (owner preview mode): no like or stamp actions. */
   mine(): boolean;
-  /** Manda comandos pelo stream da cena (like, unlike, stamp). */
+  /** Dispatches scene stream commands (like, unlike, stamp). */
   send(cmds: WorldSceneCommand[]): void;
-  /** O aviso rápido da cena. */
+  /** Scene toast notice. */
   toast(text: string): void;
   now?(): number;
 }
 
 export interface VisitSocialHandle {
   readonly el: HTMLElement;
-  /** Uma mensagem do mundo: `like.update` do prédio e os avisos que respondem a um like ou carimbo. true = tratada. */
+  /** World message: building `like.update` and notices responding to likes/stamps. true = handled. */
   message(msg: unknown): boolean;
-  /** Outro prédio (ou o mesmo, atualizado): refaz os botões. */
+  /** Different building (or updated instance): rebuilds buttons. */
   sync(): void;
-  /** O carimbo que este navegador deixou hoje neste prédio (o quadro da recepção). */
+  /** Stamp this browser left today in this building (reception board). */
   stampedToday(): StampId | null;
   destroy(): void;
 }
@@ -120,13 +120,13 @@ export interface VisitSocialHandle {
 /** Monta o Like e o "Deixar um carimbo" em `container` (o painel da cena Visita). */
 export function mountVisitSocial(container: HTMLElement, api: VisitSocialApi): VisitSocialHandle {
   const now = () => api.now?.() ?? Date.now();
-  // o localStorage (sem ui/prefs.ts: a cena Visita não importa nada da interface do escritório)
+  // localStorage (without ui/prefs.ts: Visit scene does not import office UI)
   const store = browserStorage();
   let likes = 0;
   let liked = false;
   let id = '';
   let pending: { kind: 'like' | 'stamp'; at: number; stampId?: StampId } | null = null;
-  // um pouco abaixo dos 10 por minuto do servidor (os comandos saem em lotes e podem chegar mais juntos)
+  // slightly below server 10/min rate limit (commands batch and may arrive concurrently)
   const likeGate = new RateGate(9, 400);
 
   const likeBtn = h('button', { class: 'ui-visit-social__like', type: 'button', on: { click: () => toggleLike() } });
@@ -164,7 +164,7 @@ export function mountVisitSocial(container: HTMLElement, api: VisitSocialApi): V
       if (s) store?.setItem(stampKey(bid), JSON.stringify({ day: utcDay(now()), stampId: s }));
       else store?.removeItem?.(stampKey(bid));
     } catch {
-      // sem localStorage: vale só até fechar a página
+      // no localStorage: lasts only until page is closed
     }
   }
 
@@ -256,7 +256,7 @@ export function mountVisitSocial(container: HTMLElement, api: VisitSocialApi): V
         api.toast(tr('Você já deixou um carimbo aqui hoje.'));
         return true;
       }
-      // não valeu (longe, prédio que saiu): o carimbo não ficou
+      // rejected (too far, building departed): stamp was not recorded
       writeStamp(id, null);
       paint();
       api.toast(m.text === 'too_far' ? tr('Entre no prédio ou chegue mais perto da porta para carimbar.') : tr('O carimbo não foi deixado. Tente de novo.'));
@@ -265,7 +265,7 @@ export function mountVisitSocial(container: HTMLElement, api: VisitSocialApi): V
     if (m.text === 'daily_limit') api.toast(tr('Você já deu os 50 likes de hoje. Amanhã tem mais!'));
     else if (m.text === 'rate_limited') api.toast(tr('Devagar com os likes: espere um pouquinho.'));
     else return false;
-    // o like não valeu: volta ao que era
+    // like rejected: revert to previous state
     liked = !liked;
     likes = Math.max(0, likes + (liked ? 1 : -1));
     paint();
@@ -282,7 +282,7 @@ export function mountVisitSocial(container: HTMLElement, api: VisitSocialApi): V
   };
 }
 
-/** O texto curto do carimbo para o quadro (leitores de tela e dicas). */
+/** Short stamp text for bulletin board (screen readers and tooltips). */
 export function stampPinTitle(p: StampPin): string {
   return p.count > 1 ? `${p.label} ×${p.count}` : p.label;
 }

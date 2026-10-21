@@ -166,9 +166,9 @@ Now open Claude Code in any project and watch your agent arrive by elevator. �
 ### 3. Install the Habblaud mod in Claude Code (recommended)
 
 ```bash
-npm run mod:install                        # o mod e os plugins de permissões e de mensagens, em cada conta
-npm run mod:install -- --sem-permissoes    # sem responder permissões e perguntas pelo escritório
-npm run mod:install -- --sem-mensagens     # sem mandar mensagens aos agentes pelo escritório
+npm run mod:install                        # the mod and permissions and messages plugins, on each account
+npm run mod:install -- --sem-permissoes    # without answering permissions and questions from the office
+npm run mod:install -- --sem-mensagens     # without sending messages to agents from the office
 ```
 
 Habblaud ships a [mod](https://code.claude.com/docs/en/plugins/mods/overview) (a plugin that runs inside
@@ -198,8 +198,8 @@ Without mods, live usage and answering from the office come from two installers 
 `settings.json` (with a backup first):
 
 ```bash
-npm run usage:install    # põe um "tap" na frente do statusline de cada conta, que captura o uso de 5h/semanal
-npm run hooks:install    # acrescenta o hook PermissionRequest, para responder permissões pelo escritório
+npm run usage:install    # places a "tap" before each account's statusline to capture 5h/weekly usage
+npm run hooks:install    # adds PermissionRequest hook to answer permissions from the office
 ```
 
 Your statusline keeps looking the same. To undo: `npm run usage:uninstall` and `npm run hooks:uninstall`.
@@ -218,8 +218,8 @@ reads the conversations, without installing anything. To see Codex **live** (wha
 approve commands from the office, install the hooks:
 
 ```bash
-npm run codex:install      # acrescenta os hooks do Habblaud em ~/.codex/hooks.json (backup antes; os outros ficam)
-npm run codex:status       # confere
+npm run codex:install      # adds Habblaud hooks to ~/.codex/hooks.json (backup first; others remain)
+npm run codex:status       # check / verify
 ```
 
 Then **open Codex and approve the Habblaud hooks in `/hooks`**: Codex only runs a new hook after you
@@ -250,7 +250,7 @@ every request on it requires a login. What separates the two is the port the con
 header. Nothing of this exists until you run the setup: without it, no extra port is published.
 
 ```bash
-npm run remote:setup   # usuário, senha, nome do endereço e (opcional) um endereço próprio
+npm run remote:setup   # username, password, address hostname, and (optional) custom address
 npm run docker:up
 ```
 
@@ -324,8 +324,8 @@ Habblaud was called **CodeTown** up to 0.3.2. After `git pull`, run once:
 
 ```bash
 npm install
-npm run mod:install      # troca o marketplace e os plugins codetown pelos habblaud, em cada conta
-npm run docker:up        # tira o container codetown e copia os dados do volume antigo para o novo
+npm run mod:install      # replaces codetown marketplace and plugins with habblaud, on each account
+npm run docker:up        # removes codetown container and copies data from old volume to new
 ```
 
 - **Mod:** until you run `mod:install`, the accounts' Claude Code complains about the `codetown` marketplace (the
@@ -344,12 +344,12 @@ npm run docker:up        # tira o container codetown e copia os dados do volume 
 ### Uninstalling
 
 ```bash
-npm run mod:uninstall                       # tira o mod, os plugins de permissões e de mensagens e o marketplace
-npm run codex:uninstall                     # tira os hooks do Habblaud do Codex (os outros ficam)
-npm run docker:down                         # para o container
-docker volume rm habblaud_habblaud-data     # apaga os dados do container (nomes, salas, linha do tempo e estatísticas)
-docker image rm habblaud:local              # apaga a imagem
-rm -rf ~/.habblaud                          # apaga os dados locais (uso capturado, nomes, salas, linha do tempo e estatísticas)
+npm run mod:uninstall                       # removes mod, permissions/messages plugins, and marketplace
+npm run codex:uninstall                     # removes Habblaud hooks from Codex (others remain)
+npm run docker:down                         # stops container
+docker volume rm habblaud_habblaud-data     # deletes container data (names, rooms, timeline, and stats)
+docker image rm habblaud:local              # deletes image
+rm -rf ~/.habblaud                          # deletes local data (captured usage, names, rooms, timeline, and stats)
 ```
 
 Then just delete the project folder — run `mod:uninstall` **first**, or the accounts' Claude Code will start
@@ -844,9 +844,9 @@ How the section looks, in demo mode (`?mock=1&world=logged_out`, `waiting` or `a
 ## How it works
 
 ```
- ~/.claude*/sessions/<pid>.json ─────────────────┐
- ~/.claude*/projects/<projeto>/<sessão>.jsonl ───┼──▶ servidor Node ──▶ modelo do escritório ──▶ SSE ──▶ navegador
- .../<sessão>/subagents/**/agent-*.jsonl ────────┘    (polling de 1 s)                                 (canvas + interface)
+ <~/.claude*/sessions/<pid>.json ─────────────────┐
+ ~/.claude*/projects/<project>/<session>.jsonl ───┼──▶ Node server ──▶ office model ──▶ SSE ──▶ browser
+ .../<session>/subagents/**/agent-*.jsonl ────────┘    (1s polling)                                 (canvas + interface)
 ```
 
 - **Who's in the office:** while a session is open, Claude Code keeps `sessions/<pid>.json` with the
@@ -871,11 +871,11 @@ How the section looks, in demo mode (`?mock=1&world=logged_out`, `waiting` or `a
 <summary><b>Code structure and API</b></summary>
 
 ```
-shared/   protocolo (types.ts), atividades em PT-BR, nomes, simulador de demonstração
-server/   servidor HTTP + SSE: contas e uso, leitura das sessões e transcripts, modelo do escritório
-client/   Vite: src/art (pixel art procedural), src/world (o escritório no canvas), src/ui (interface)
-scripts/  build do servidor, docker-up, instaladores (mod, tap de statusline e hook de permissão) e screenshots
-mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins do Claude Code; marketplace em .claude-plugin/)
+shared/   protocol (types.ts), activities in PT-BR, names, demo simulator
+server/   HTTP + SSE server: accounts and usage, reading sessions and transcripts, office model
+client/   Vite: src/art (procedural pixel art), src/world (office in canvas), src/ui (interface)
+scripts/  server build, docker-up, installers (mod, statusline tap, and permission hook), and screenshots
+mod/      Habblaud mod and permissions/messages plugins (Claude Code plugins; marketplace in .claude-plugin/)
 ```
 
 | Route | Description |

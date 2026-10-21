@@ -1,6 +1,6 @@
-// Habblaud World › Bloqueados (Fase 5): quem esta conta bloqueou (pelo cartão da pessoa, na cidade) e
-// "Desbloquear" (POST /api/world/unblock, pela conexão com o mundo). Bloquear vale nos dois sentidos: um não vê o outro
-// na rua, nos prédios, nos cumprimentos e nos carimbos. A lista vem do /v1/me (o status relido ao abrir a tela).
+// Habblaud World › Blocked (Phase 5): players blocked by this account (via player card in city) and
+// "Unblock" (POST /api/world/unblock via world bridge). Blocking is bidirectional: neither party sees
+// each other on streets, in buildings, greetings, or stamps. List sourced from /v1/me.
 import { tr } from '../../../../shared/i18n';
 import type { WorldBlockedPlayer, WorldClient } from '../../net/world';
 import { h, setAttr, setHidden, setText } from '../dom';
@@ -8,21 +8,21 @@ import { worldErrorText } from './world-model';
 
 export interface BlockedHost {
   readonly client: WorldClient | null;
-  /** A lista do último status (undefined antes de chegar). */
+  /** Blocked list from latest status (undefined before initial response). */
   list(): WorldBlockedPlayer[] | undefined;
-  /** Relê o status com /v1/me (a lista pode ter mudado na cidade). */
+  /** Refetches status via /v1/me (list may have changed in city). */
   refresh(): Promise<void>;
-  /** A tela ainda é esta (uma resposta que chega depois de sair dela não mexe em nada). */
+  /** Verifies view is still active (responses received after navigating away are ignored). */
   current(): boolean;
   announce(text: string): void;
 }
 
-/** A tela: o cabeçalho (com o voltar) vem de settings-world.ts. */
+/** Blocked view: header (with back navigation) supplied by settings-world.ts. */
 export function buildBlocked(head: HTMLElement, host: BlockedHost): { el: HTMLElement; sync(): void } {
   const list = h('ul', { class: 'ui-world__blocked' });
   const note = h('p', { class: 'ui-set__hint', text: tr('Carregando…') });
   const error = h('p', { class: 'ui-world__error', role: 'alert', hidden: true });
-  /** Ids desbloqueados nesta tela (somem da lista na hora, antes do status novo). */
+  /** Player IDs unblocked in current view (removed immediately prior to status refresh). */
   const gone = new Set<string>();
   let key = '';
   let loaded = false;

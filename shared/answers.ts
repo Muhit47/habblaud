@@ -1,22 +1,22 @@
-// Respostas às perguntas do AskUserQuestion pelo escritório (decisão `answer` de POST /api/permissions/:id/decision):
-// conferência contra as perguntas do pedido e o resumo para a linha do tempo. Código puro, usado pelo servidor
-// (server/permissions/registry.ts), pelo simulador do demo e pela página (cartão de resposta).
+// Answers to AskUserQuestion questions from the office (`answer` decision in POST /api/permissions/:id/decision):
+// validation against request questions and summary for timeline. Pure code, used by server
+// (server/permissions/registry.ts), demo simulator, and page (response card).
 import { maskSecrets, truncate } from './activity';
 import type { AskQuestion, PermissionAnswer } from './types';
 import { tr } from './i18n';
 
-/** Texto livre ("Outro") mais longo aceito numa resposta. */
+/** Longest free text ("Other") accepted in an answer. */
 export const ANSWER_OTHER_MAX = 2_000;
-/** Ferramenta das perguntas ao usuário. */
+/** Tool for user questions. */
 export const ASK_TOOL = 'AskUserQuestion';
 
 const SUMMARY_MAX = 300;
 
 /**
- * Confere as respostas contra as perguntas do pedido e as devolve normalizadas (na ordem das perguntas, opções em
- * ordem crescente, texto livre aparado, sem campos vazios). undefined = não servem: pergunta sem resposta ou
- * respondida duas vezes, pergunta ou opção que o pedido não tem, sem multiSelect algo diferente de exatamente uma
- * opção OU o texto livre, com multiSelect nenhuma escolha.
+ * Validates answers against request questions and returns them normalized (in question order, options in
+ * ascending order, trimmed free text, without empty fields). undefined = invalid: unanswered question or
+ * answered twice, question or option not in request, without multiSelect anything other than exactly one
+ * option OR free text, with multiSelect no selection.
  */
 export function checkAnswers(questions: readonly AskQuestion[], answers: readonly PermissionAnswer[] | undefined): PermissionAnswer[] | undefined {
   if (!questions.length || !Array.isArray(answers) || answers.length !== questions.length) return undefined;
@@ -42,8 +42,8 @@ export function checkAnswers(questions: readonly AskQuestion[], answers: readonl
 }
 
 /**
- * Resumo curto das escolhas para a linha do tempo, com os textos já mascarados das perguntas (o texto livre é
- * mascarado aqui): "Banco: Redis · Testes: Unidade, E2E".
+ * Short summary of choices for timeline, with questions' texts already masked (free text is
+ * masked here): "Database: Redis · Tests: Unit, E2E".
  */
 export function answerSummary(questions: readonly AskQuestion[], answers: readonly PermissionAnswer[]): string {
   const parts = answers.flatMap((a) => {

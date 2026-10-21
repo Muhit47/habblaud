@@ -8,7 +8,7 @@ describe('access', () => {
     expect(fallbackAccess('localhost')).toMatchObject({ local: true, permissions: true });
     expect(fallbackAccess('habblaud.localhost').permissions).toBe(true);
     expect(fallbackAccess('192.168.1.10')).toMatchObject({ local: false, permissions: false, messages: false });
-    // O Novo agente é opt-in no servidor: sem resposta, nunca aparece.
+    // New Agent is opt-in on server: without response, never appears.
     expect(fallbackAccess('localhost').spawn).toBe(false);
     const failing = (() => Promise.reject(new Error('rede'))) as unknown as typeof fetch;
     expect((await loadAccess(failing)).remote).toBe(false);

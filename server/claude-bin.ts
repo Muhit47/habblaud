@@ -1,9 +1,9 @@
-// Onde está o `claude` do Claude Code neste computador. Usado pelo terminal interativo (pty/manager.ts), pelo Novo
-// agente (spawn/spawn.ts) e pelo auxiliar do host (scripts/codex-bridge.ts). Node puro e sem dependências.
+// Location of Claude Code `claude` executable on this computer. Used by interactive terminal (pty/manager.ts),
+// New Agent (spawn/spawn.ts), and host helper (scripts/codex-bridge.ts). Pure Node with no external dependencies.
 import { accessSync, constants, statSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 
-/** O arquivo existe e pode ser executado (no Windows basta existir: lá não há permissão de execução). */
+/** File exists and can be executed (on Windows existence is sufficient: no execute permission bits). */
 export function isExecutableFile(file: string, platform: NodeJS.Platform = process.platform): boolean {
   try {
     if (!statSync(file).isFile()) return false;
@@ -14,7 +14,7 @@ export function isExecutableFile(file: string, platform: NodeJS.Platform = proce
   }
 }
 
-/** Procura um executável no PATH (no Windows, também com as extensões de PATHEXT, se o nome não tiver uma). */
+/** Looks up an executable in PATH (on Windows, also checks PATHEXT extensions if name lacks one). */
 export function findExecutable(name: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | undefined {
   const sep = platform === 'win32' ? ';' : ':';
   const exts =
@@ -30,8 +30,8 @@ export function findExecutable(name: string, env: NodeJS.ProcessEnv = process.en
 }
 
 /**
- * O executável do Claude Code: HABBLAUD_CLAUDE_BIN (um caminho, ou um nome procurado
- * no PATH) ou o `claude` do PATH. undefined se não achar.
+ * Claude Code executable: HABBLAUD_CLAUDE_BIN (path or executable name found
+ * in PATH) or `claude` from PATH. undefined if not found.
  */
 export function claudeBinFrom(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | undefined {
   const set = env.HABBLAUD_CLAUDE_BIN?.trim();
@@ -39,7 +39,7 @@ export function claudeBinFrom(env: NodeJS.ProcessEnv = process.env, platform: No
   return /[\\/]/.test(set) ? resolve(set) : findExecutable(set, env, platform);
 }
 
-/** O `claude` que dá para rodar: o de claudeBinFrom, se o arquivo existe e é executável. */
+/** Runnable `claude`: executable from claudeBinFrom if file exists and is executable. */
 export function runnableClaudeBin(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | undefined {
   const bin = claudeBinFrom(env, platform);
   return bin && isExecutableFile(bin, platform) ? bin : undefined;

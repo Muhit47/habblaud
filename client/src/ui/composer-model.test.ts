@@ -47,7 +47,7 @@ describe('caixa de mensagem (peças puras)', () => {
   it('composerMode: pronta só para principal presente com o plugin, recurso ligado e página local', () => {
     expect(composerMode(agent(), ON)).toEqual({ kind: 'ready' });
     for (const status of ['working', 'waiting', 'shell'] as const) expect(composerMode(agent({ status }), ON).kind).toBe('ready');
-    // Recurso ligado, mas a sessão sem o plugin: a dica de instalação.
+    // Feature enabled, but session without plugin: installation hint displayed.
     expect(composerMode(agent({ canMessage: undefined }), ON)).toEqual({ kind: 'hint', text: PLUGIN_HINT });
     expect(PLUGIN_HINT).toBe('Para mandar mensagens daqui: npm run mod:install (plugin habblaud-mensagens)');
   });
@@ -74,7 +74,7 @@ describe('caixa de mensagem (peças puras)', () => {
     expect(canSend(' \n\t ')).toBe(false);
     expect(canSend('x'.repeat(20_000))).toBe(true);
     expect(canSend('x'.repeat(20_001))).toBe(false);
-    // Espaços no fim não contam para o limite (são cortados antes).
+    // Trailing whitespace excluded from limit (trimmed beforehand).
     expect(canSend(`${'x'.repeat(20_000)}\n\n`)).toBe(true);
   });
 
@@ -115,7 +115,7 @@ describe('caixa de mensagem (peças puras)', () => {
     expect(sendStatusText({ phase: 'delivered', at: 0 }, 1_000, 'codex')).toBe('Entregue ✓ na fila da sessão: entra quando o Codex terminar o que está fazendo (até ~10 s)');
     expect(sendStatusText({ phase: 'delivered', at: 0 }, DELIVERED_SHOW_MS, 'codex')).toBe('');
     expect(sendStatusText({ phase: 'queued', at: 0 }, 0, 'codex')).toBe('Na fila: entregando ao Codex…');
-    // O Claude Code continua como antes.
+    // Claude Code continues as before.
     expect(sendStatusText({ phase: 'delivered', at: 0 }, 1_000, 'claude')).toBe(sendStatusText({ phase: 'delivered', at: 0 }, 1_000));
     expect(composerTip('codex')).toMatch(/^Entra na fila da sessão e vira o próximo prompt quando o Codex terminar/);
     expect(composerTip()).toBe('Entra na sessão como se você tivesse digitado. Enter manda; Shift+Enter quebra a linha.');

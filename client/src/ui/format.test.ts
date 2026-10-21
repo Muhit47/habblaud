@@ -64,7 +64,7 @@ describe('formatDuration / formatCountdown', () => {
 });
 
 describe('formatResetAt', () => {
-  const now = new Date(2026, 9, 6, 9, 15).getTime(); // terça, 06/10/2026
+  const now = new Date(2026, 9, 6, 9, 15).getTime(); // Tuesday, 10/06/2026
   it('mesmo dia: "às HH:MM"', () => {
     expect(formatResetAt(new Date(2026, 9, 6, 14, 30).getTime(), now)).toBe('às 14:30');
   });
@@ -149,7 +149,7 @@ describe('textos', () => {
 });
 
 describe('reinício das janelas de uso', () => {
-  const now = new Date(2026, 9, 6, 9, 15).getTime(); // terça, 06/10/2026
+  const now = new Date(2026, 9, 6, 9, 15).getTime(); // Tuesday, 10/06/2026
   const H = 3_600_000;
   const D = 24 * H;
 
@@ -179,7 +179,7 @@ describe('reinício das janelas de uso', () => {
   it('janela que já renovou depois da leitura: sem percentual', () => {
     const v = usageWindowView({ utilization: 35, resetsAt: now - H }, now - 3 * H, now, FIVE_HOURS_MS)!;
     expect(v).toMatchObject({ pct: null, renewed: true, reset: 'renovada' });
-    // Sem horário de reinício: números mais velhos que a janela também não valem.
+    // Without reset time: values older than window are also invalid.
     expect(usageWindowView({ utilization: 10 }, now - 6 * H, now, FIVE_HOURS_MS)!.renewed).toBe(true);
     expect(usageWindowView({ utilization: 10 }, now - 6 * H, now, WEEK_MS)!.pct).toBe(10);
     expect(usageWindowView(undefined, now, now, WEEK_MS)).toBeNull();

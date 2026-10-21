@@ -1,4 +1,4 @@
-// Terminal do Codex: linhas sintéticas de rollout (paginated e legacy) viram as entradas do terminal.
+// Codex terminal: synthetic rollout lines (paginated and legacy) convert into terminal entries.
 import { describe, expect, it } from 'vitest';
 import type { TerminalEntry } from '../../../shared/types';
 import { R, threadId } from '../../test/codex-fixtures';

@@ -1,4 +1,4 @@
-// Agendador dos sons (puro): preferência geral, categorias, volume, aba oculta e limites de frequência.
+// Sound scheduler (pure): global preference, categories, volume, hidden tab, and rate limiting.
 import { describe, expect, it } from 'vitest';
 import { CATEGORY_OF, DEFAULT_SOUND_SETTINGS, masterGain, MAX_PER_SECOND, MIN_GAP_MS, sanitizeSoundSettings, SoundScheduler, type SoundKind } from './scheduler';
 
@@ -28,7 +28,7 @@ describe('agendador de sons', () => {
     expect(s.decide('chime', 0)).not.toBeNull();
     expect(s.allowed('keys')).toBe(false);
     expect(on({ alerts: false }).decide('pop', 0)).toBeNull();
-    // toda categoria existe nas preferências
+    // every category exists in preferences
     for (const k of Object.keys(CATEGORY_OF) as SoundKind[]) expect(DEFAULT_SOUND_SETTINGS[CATEGORY_OF[k]]).toBe(true);
   });
 

@@ -1,5 +1,5 @@
-// Integração: eventos do GitHub vindos dos transcripts viram aviso + efeito na sala só ao vivo
-// (nunca na carga inicial). Transcripts SINTÉTICOS num config dir temporário.
+// Integration: GitHub events parsed from transcripts produce notifications and room effects strictly live
+// (never during initial load). SYNTHETIC transcripts in temporary config directory.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -124,7 +124,7 @@ describe('GitHub no escritório (watcher + office)', () => {
     c.poll();
     expect(c.room()?.effect).toMatchObject({ kind: 'alarm', text: 'CI falhou (feat/x)', agentId: id });
     expect(c.notices.filter((n) => n.text === '🚨 CI falhou em loja (feat/x)')).toHaveLength(1);
-    // o mesmo vermelho visto de novo logo depois (gh run view): sem aviso repetido, alarme segue
+    // same red seen again shortly after (gh run view): no duplicate warning, alarm continues
     c.advance(20_000);
     appendLines(c.transcript('sess-a'), [
       L.assistant([L.tool('v1', 'Bash', { command: 'gh run view 55' })], { at: c.now() }),

@@ -1,6 +1,6 @@
-// Instalador dos hooks do Codex (scripts/codex-install.ts): planos puros e o comando de verdade sobre hooks.json em
-// pastas temporárias (HOME e CODEX_HOME FALSOS: nunca toca em ~/.codex). O ponto principal: os grupos de outros apps
-// (ex.: o Orca) nunca mudam de posição nem de conteúdo — a confiança do Codex é guardada pela posição do grupo.
+// Codex hook installer (scripts/codex-install.ts): pure plans and real execution over hooks.json in
+// temporary folders (mock HOME and CODEX_HOME: never touches ~/.codex). Key guarantee: other app groups
+// (e.g. Orca) never mutate position or content — Codex trust index relies on group position.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -29,7 +29,7 @@ import { posixShell, tempDir } from './fixtures';
 const CMD = hookCommand('/repo/habblaud/mod/habblaud-codex/hook.mjs');
 const SH = posixShell();
 
-/** hooks.json (sintético) com grupos de outro app em alguns eventos, inclusive um que o Habblaud não usa. */
+/** Synthetic hooks.json with external app groups across events, including an event unused by Habblaud. */
 const ORCA = {
   description: 'Hooks de outro app',
   hooks: {
@@ -78,7 +78,7 @@ describe('codex-install.ts (funções puras)', () => {
     const first = planInstall(ORCA, CMD, 25);
     if (first.action !== 'install') throw new Error('esperado install');
     const installed = first.file as { hooks: Record<string, unknown[]> };
-    // Outro app acrescenta um grupo DEPOIS do do Habblaud.
+    // Another app appends a group AFTER Habblaud group.
     const later = { hooks: [{ type: 'command', command: 'orca-hook depois' }] };
     installed.hooks.PermissionRequest = [...installed.hooks.PermissionRequest, later];
     const before = JSON.parse(JSON.stringify(installed));
@@ -107,7 +107,7 @@ describe('codex-install.ts (funções puras)', () => {
     const u = planUninstall(withLater);
     expect(u.action === 'uninstall' && u.shifted).toEqual(['Stop']);
     expect(planUninstall(ORCA)).toEqual({ action: 'none', message: 'não estava instalado' });
-    // Arquivo que só tinha o Habblaud: volta a {}.
+    // File that only contained Habblaud hooks reverts to {}.
     const only = planInstall({}, CMD, 25);
     expect(only.action === 'install' && planUninstall(only.file)).toMatchObject({ action: 'uninstall', file: {} });
   });
@@ -143,7 +143,7 @@ describe('codex-install.ts (funções puras)', () => {
     expect(chooseNode(probe, ['/usr/local/bin/node', '/opt/homebrew/bin/node'])).toEqual({ bin: '/opt/homebrew/bin/node', login: 'v18.12.1', chosen: 'v25.8.2' });
     versions.login = 'v22.12.0';
     expect(chooseNode(probe, ['/opt/homebrew/bin/node'])).toEqual({ login: 'v22.12.0' });
-    // Nenhum 22+: `node` mesmo (o instalador avisa).
+    // No Node 22+: falls back to `node` (installer emits notice).
     expect(chooseNode(() => undefined, ['/x/node'])).toEqual({ login: undefined });
     expect(hookCommand('/repo/mod/habblaud-codex/hook.mjs', '/opt/homebrew/bin/node')).toBe('"/opt/homebrew/bin/node" "/repo/mod/habblaud-codex/hook.mjs"');
     expect(scriptPathOf('"/opt/homebrew/bin/node" "/repo/mod/habblaud-codex/hook.mjs"')).toBe('/repo/mod/habblaud-codex/hook.mjs');
@@ -160,7 +160,7 @@ describe('codex-install.ts (arquivos, HOME falso)', () => {
     tmp = tempDir();
     home = join(tmp.dir, 'home');
     out = [];
-    // ~/.codex com hooks de outro app; ~/.codex-trabalho sem hooks.json; ~/.claude (do Claude Code) nunca entra.
+    // ~/.codex with other app hooks; ~/.codex-work without hooks.json; ~/.claude (Claude Code) ignored.
     mkdirSync(join(home, '.codex', 'sessions', '2026'), { recursive: true });
     writeFileSync(join(home, '.codex', 'config.toml'), configToml);
     writeFileSync(join(home, '.codex', 'hooks.json'), `${JSON.stringify(ORCA, null, 2)}\n`);
@@ -181,7 +181,7 @@ describe('codex-install.ts (arquivos, HOME falso)', () => {
     expect(discoverCodexHomes({}, home).dirs).toEqual([join(home, '.codex'), join(home, '.codex-trabalho')]);
     const extra = join(tmp.dir, 'outra-conta');
     mkdirSync(extra);
-    // As mesmas pastas que o servidor acompanha: um CODEX_HOME sem cara de Codex (vazio) fica de fora.
+    // Same folders tracked by server: empty CODEX_HOME without Codex layout is ignored.
     expect(discoverCodexHomes({ CODEX_HOME: extra }, home).dirs).toEqual([join(home, '.codex'), join(home, '.codex-trabalho')]);
     mkdirSync(join(extra, 'thread-writer-locks'));
     expect(discoverCodexHomes({ CODEX_HOME: extra }, home).dirs).toEqual([extra, join(home, '.codex'), join(home, '.codex-trabalho')]);

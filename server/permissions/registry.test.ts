@@ -1,7 +1,7 @@
-// Registro dos pedidos de permissão (responder pelo escritório): desvio só com páginas abertas e sessão
-// conhecida, snapshot (status 'waiting', sem os argumentos), decisões, esperas do hook, órfãos, expiração,
-// agente que saiu, resposta no terminal (tool_result no transcript), sugestões "sempre permitir" e as
-// perguntas do AskUserQuestion (respostas por posição). Tudo com dados sintéticos.
+// Permission request registry (answering via office UI): diversion only with open pages and recognized
+// session, snapshot ('waiting' status without arguments), decisions, hook waiters, orphans, expiration,
+// departed agent, direct terminal response (tool_result in transcript), "always allow" suggestions, and
+// AskUserQuestion questions (positional answers). Synthetic test data.
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
@@ -67,8 +67,8 @@ function registered(r: ReturnType<PermissionRegistry['register']>): string {
 }
 
 /**
- * tool_input de um AskUserQuestion: a entrada 1 é inválida (pulada; as posições contam no original), um segredo
- * na primeira pergunta e uma opção sem rótulo na segunda.
+ * tool_input of an AskUserQuestion: entry 1 is invalid (skipped; positions indexed against original), a secret
+ * on first question and an unlabelled option on second.
  */
 const ASK_INPUT = {
   questions: [
@@ -88,7 +88,7 @@ describe('PermissionRegistry: registro', () => {
     expect(registry.register(hookInput({ session_id: 'outra' }))).toEqual({ skip: 'unknown-session' });
     expect(registry.register(hookInput({ tool_name: 'AskUserQuestion' }))).toEqual({ skip: 'unsupported-tool' });
     expect(registry.register(askInput({ tool_input: { questions: [] } }))).toEqual({ skip: 'unsupported-tool' });
-    // Mais perguntas do que o escritório mostra: o hook não conseguiria responder todas.
+    // More questions than office UI supports: hook cannot reliably map all.
     const five = Array.from({ length: 5 }, (_, i) => ({ question: `Pergunta ${i}?`, options: [{ label: 'Sim' }, { label: 'Não' }] }));
     expect(registry.register(askInput({ tool_input: { questions: five } }))).toEqual({ skip: 'unsupported-tool' });
     expect(registry.size).toBe(0);
@@ -116,7 +116,7 @@ describe('PermissionRegistry: registro', () => {
     expect(a.permission!.title).not.toContain('abcdef123456');
     expect(a.permission!.input).toBeUndefined();
     expect(a.permission!.suggestions).toEqual([{ index: 0, rules: ['Bash(npm test:*)'], destination: 'localSettings' }]);
-    // Detalhe (com acesso local): os argumentos, mascarados.
+    // Detail (with local access): arguments, masked.
     const d = registry.detail(id)!;
     expect(d.inputKind).toBe('command');
     expect(d.input).toContain('Authorization: ***');
@@ -157,7 +157,7 @@ describe('PermissionRegistry: registro', () => {
   it('pedidos do mesmo agente no mesmo milissegundo: só o primeiro tem outros esperando', () => {
     const { registry } = setup();
     const first = registered(registry.register(hookInput()));
-    const second = registered(registry.register(hookInput({ tool_input: { command: 'npm run build' } }))); // sem avançar o relógio
+    const second = registered(registry.register(hookInput({ tool_input: { command: 'npm run build' } }))); // without advancing clock
     expect(registry.detail(first)!.queued).toBe(1);
     expect(registry.detail(second)!.queued).toBeUndefined();
   });
@@ -270,17 +270,17 @@ describe('PermissionRegistry: perguntas (AskUserQuestion)', () => {
     const answer = (answers: unknown) => registry.decide(id, parseDecision({ behavior: 'answer', answers })!);
     const multi = { question: 2, options: [0] };
     expect(registry.decide(id, { behavior: 'allow' })).toBe('invalid-answer');
-    expect(answer([{ question: 0, options: [0] }])).toBe('invalid-answer'); // falta uma pergunta
-    expect(answer([{ question: 0, options: [0, 1] }, multi])).toBe('invalid-answer'); // escolha única com duas
+    expect(answer([{ question: 0, options: [0] }])).toBe('invalid-answer'); // missing question
+    expect(answer([{ question: 0, options: [0, 1] }, multi])).toBe('invalid-answer'); // single choice with two answers
     expect(answer([{ question: 0, options: [0], other: 'e mais' }, multi])).toBe('invalid-answer');
-    expect(answer([{ question: 0, options: [0] }, { question: 2, options: [1] }])).toBe('invalid-answer'); // opção sem rótulo
+    expect(answer([{ question: 0, options: [0] }, { question: 2, options: [1] }])).toBe('invalid-answer'); // unlabelled option
     expect(answer([{ question: 0, options: [0] }, { question: 2, options: [7] }])).toBe('invalid-answer');
-    expect(answer([{ question: 0, options: [0] }, { question: 1, options: [0] }])).toBe('invalid-answer'); // entrada inválida
-    expect(answer([{ question: 0, options: [0] }, { question: 2 }])).toBe('invalid-answer'); // várias, mas nenhuma
+    expect(answer([{ question: 0, options: [0] }, { question: 1, options: [0] }])).toBe('invalid-answer'); // invalid entry
+    expect(answer([{ question: 0, options: [0] }, { question: 2 }])).toBe('invalid-answer'); // multiple, but none selected
     expect(registry.size).toBe(1);
     const bash = registered(registry.register(hookInput()));
     expect(registry.decide(bash, { behavior: 'answer', answers: [{ question: 0, options: [0] }] })).toBe('invalid-answer');
-    // Recusar (não responder) e devolver ao terminal valem para a pergunta.
+    // Deny (without answer) and return to terminal are valid for questions.
     expect(registry.decide(id, { behavior: 'deny', message: 'decida você' })).toBe('ok');
   });
 
@@ -345,7 +345,7 @@ describe('PermissionRegistry: pedidos órfãos', () => {
     clock.advance(2_000);
     registry.tick();
     await expect(w.result).resolves.toEqual({ status: 'released', reason: 'unwatched' });
-    // O pedido com a espera padrão (5 min) segue até o tempo dele.
+    // Request with default timeout (5 min) remains active until expiry.
     await expect(registry.wait(short, 10)!.result).resolves.not.toEqual({ status: 'released', reason: 'unwatched' });
   });
 
@@ -373,7 +373,7 @@ describe('PermissionRegistry: pedidos órfãos', () => {
     try {
       const file = join(tmp.dir, 'sess-1.jsonl');
       const at = 1_000_000;
-      // Uma chamada igual, antiga e já respondida, não conta.
+      // An identical, historical call already answered is ignored.
       writeLines(file, [
         L.assistant([L.tool('toolu_old', 'Bash', { command: 'npm test' })], { at: at - 60_000 }),
         L.result('toolu_old', 'ok', { at: at - 59_000 }),
@@ -402,7 +402,7 @@ describe('PermissionRegistry: pedidos órfãos', () => {
     const { office, registry, clock } = setup();
     const id = registered(registry.register(hookInput()));
     const w = registry.wait(id, 25_000)!;
-    // Ainda não esperou: "trabalhando" não conta.
+    // Not yet entered waiting state: "working" status does not qualify.
     clock.advance(4_000);
     registry.tick();
     expect(registry.size).toBe(1);
@@ -511,7 +511,7 @@ describe('peças puras', () => {
       expect(scanToolCall(file, { tool: 'Bash', signature: sig, createdAt: at })).toEqual({ toolUseId: 't2', answered: false });
       appendLines(file, [L.result('t2', 'ok', { at: at + 2 })]);
       expect(scanToolCall(file, { tool: 'Bash', signature: sig, knownId: 't2', createdAt: at })).toEqual({ toolUseId: 't2', answered: true });
-      // Muito antes do pedido: não é candidata.
+      // Significantly predates prompt: not an eligible match.
       expect(scanToolCall(file, { tool: 'Bash', signature: sig, createdAt: at + 3_600_000 })).toEqual({ answered: false });
     } finally {
       tmp.cleanup();

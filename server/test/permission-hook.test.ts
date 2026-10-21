@@ -1,8 +1,7 @@
-// Hook PermissionRequest (mod/habblaud-permissoes/hooks/permission-hook.mjs) rodado como processo de verdade contra o servidor
-// de teste: stdin JSON → saída esperada (aprovar, recusar, "sempre permitir", terminal, responder as perguntas
-// do AskUserQuestion), saída rápida e sem decisão quando o Habblaud está fora do ar, desligado ou sem páginas
-// abertas, e o tempo limite.
-// Os processos são assíncronos (spawn): o servidor roda neste mesmo processo.
+// PermissionRequest hook (mod/habblaud-permissoes/hooks/permission-hook.mjs) executed as real process against
+// test server: stdin JSON → expected output (allow, deny, "always allow", terminal fallback, answering
+// AskUserQuestion options), immediate exit without decision when Habblaud is offline, disabled, or without open pages, and timeout.
+// Asynchronous child processes (spawn): test server runs in same process.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
@@ -15,7 +14,7 @@ setQuiet(true);
 
 const HOOK = resolve(__dirname, '../../mod/habblaud-permissoes/hooks/permission-hook.mjs');
 
-/** Funções exportadas pelo hook (JavaScript puro, sem tipos). */
+/** Hook exported functions (pure JavaScript, untyped). */
 interface HookModule {
   parseOptions(argv: string[], env: NodeJS.ProcessEnv): { port: number; timeoutMs: number };
   requestBody(input: Record<string, unknown>, timeoutMs: number): Record<string, unknown>;
@@ -25,8 +24,8 @@ interface HookModule {
 const { decisionOutput, parseOptions, requestBody, trimInput } = (await import(pathToFileURL(HOOK).href)) as HookModule;
 
 /**
- * tool_input de um AskUserQuestion. Os textos que voltam em `answers` são os ORIGINAIS (o escritório só vê os
- * mascarados): um segredo no rótulo prova isso. A entrada 1 é inválida (pulada; as posições contam no original).
+ * tool_input of AskUserQuestion. Returned `answers` are the ORIGINAL values (office only sees
+ * masked representations): secret token in label confirms this. Entry 1 is invalid (skipped; positions indexed in original).
  */
 const ASK = {
   questions: [
@@ -63,7 +62,7 @@ function runHook(stdin: string, args: string[], env: NodeJS.ProcessEnv = {}): Pr
   });
 }
 
-/** Espera até o pedido aparecer no registro e devolve o id dele. */
+/** Waits until request appears in registry and returns its ID. */
 async function pendingId(s: PermissionServer): Promise<string> {
   for (let i = 0; i < 200; i++) {
     const id = s.registry!.snapshot().get(MAIN)?.id;
@@ -73,7 +72,7 @@ async function pendingId(s: PermissionServer): Promise<string> {
   throw new Error('o hook não registrou o pedido');
 }
 
-/** Porta livre sem ninguém escutando (Habblaud "fora do ar"). */
+/** Free unallocated port (Habblaud "offline"). */
 async function deadPort(): Promise<number> {
   const s = createServer();
   await new Promise<void>((ok) => s.listen(0, '127.0.0.1', ok));
@@ -121,7 +120,7 @@ describe('permission-hook.mjs (processo)', () => {
     srv = await servePermissions();
     const run = runHook(JSON.stringify(askJson()), ['--port', String(srv.port)]);
     const id = await pendingId(srv);
-    // O escritório só viu o rótulo mascarado.
+    // Office only saw masked label.
     expect(JSON.stringify(srv.registry!.detail(id)!.questions)).not.toContain('abcdef123456');
     const answers = [{ question: 0, options: [1] }, { question: 2, options: [2, 0], other: 'e o build' }];
     expect(srv.registry!.decide(id, { behavior: 'answer', answers })).toBe('ok');
@@ -205,7 +204,7 @@ describe('permission-hook.mjs (funções)', () => {
     expect(Object.keys(body).sort()).toEqual(['agent_id', 'agent_type', 'cwd', 'permission_suggestions', 'session_id', 'timeout_ms', 'tool_input', 'tool_name']);
     expect((body.tool_input as { content: string }).content.length).toBe(8_000);
     expect(trimInput({ a: [{ b: 'y'.repeat(9_000) }] })).toEqual({ a: [{ b: 'y'.repeat(8_000) }] });
-    // Muitas edições de uma vez: corta mais curto para caber no limite do servidor.
+    // Bulk edits: truncated shorter to respect server payload limits.
     const edits = Array.from({ length: 60 }, () => ({ old_string: 'o'.repeat(10_000), new_string: 'n'.repeat(10_000) }));
     const big = requestBody(hookJson({ tool_name: 'MultiEdit', tool_input: { file_path: '/a.ts', edits } }), 60_000);
     expect(JSON.stringify(big).length).toBeLessThan(200_000);
@@ -234,24 +233,24 @@ describe('permission-hook.mjs (funções)', () => {
     for (const bad of [
       [single], // falta a pergunta 2
       [single, { question: 2, options: [0] }, { question: 2, options: [1] }],
-      [single, { question: 1, options: [0] }], // entrada inválida no original
+      [single, { question: 1, options: [0] }], // invalid entry in original
       [single, { question: 2, options: [3] }],
       [single, { question: 2, options: [-1] }],
       [single, { question: 2, options: ['0'] }],
       [single, { question: 2 }],
-      [{ question: 0, options: [0, 1] }, { question: 2, options: [0] }], // escolha única com duas
+      [{ question: 0, options: [0, 1] }, { question: 2, options: [0] }], // single choice with two selections
       [{ question: 0, options: [0], other: 'e mais' }, { question: 2, options: [0] }],
       [],
       undefined,
     ]) {
       expect(out(bad), JSON.stringify(bad)).toBeUndefined();
     }
-    // Entrada sem perguntas, outra ferramenta, perguntas com o mesmo texto.
+    // Input without questions, other tool, questions sharing same text.
     expect(out([single], askJson({ tool_input: {} }))).toBeUndefined();
     expect(out([single], hookJson())).toBeUndefined();
     const twin = { questions: [{ question: 'Igual?', options: [{ label: 'A' }] }, { question: 'Igual?', options: [{ label: 'B' }] }] };
     expect(out([single, { question: 1, options: [0] }], askJson({ tool_input: twin }))).toBeUndefined();
-    // Aprovar sem respostas não responde a pergunta: sem decisão. Recusar vale.
+    // Approving without answers does not resolve question: no decision. Deny is valid.
     expect(decisionOutput({ status: 'decided', behavior: 'allow' }, askJson())).toBeUndefined();
     expect(decisionOutput({ status: 'decided', behavior: 'deny' }, askJson())).toMatchObject({ hookSpecificOutput: { decision: { behavior: 'deny' } } });
   });

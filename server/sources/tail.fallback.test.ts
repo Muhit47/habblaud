@@ -1,6 +1,6 @@
-// FileTail com um stat que não ajuda: o Linux sem statx (WSL1, seccomp antigo), em que o Node devolve o ctime como
-// birthtime, e um sistema de arquivos que reaproveita o inode de um arquivo apagado (ext4). O node:fs é trocado só
-// neste arquivo, para simular os dois em qualquer sistema.
+// FileTail with unhelpful stat: Linux without statx (WSL1, legacy seccomp) where Node returns ctime as
+// birthtime, and a filesystem reusing inodes of deleted files (ext4). node:fs is mocked solely in
+// this test file to simulate both behaviors portably.
 import { appendFileSync, rmSync, writeFileSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,7 +19,7 @@ vi.mock('node:fs', async (importOriginal) => {
   return { ...fs, fstatSync: (fd: number) => fake(fs.fstatSync(fd)), statSync: (path: string) => fake(fs.statSync(path)) };
 });
 
-/** Espera o relógio do sistema de arquivos andar (o ext4 grava os tempos em ticks de alguns ms). */
+/** Waits for filesystem clock progression (ext4 records timestamps in multi-millisecond ticks). */
 const tick = () => new Promise((ok) => setTimeout(ok, 15));
 
 describe('FileTail com stat que não ajuda', () => {
@@ -50,9 +50,9 @@ describe('FileTail com stat que não ajuda', () => {
 
   it('inode reaproveitado: a troca aparece pelo começo do arquivo, com ou sem birthtime de verdade', async () => {
     sim.sameIno = true;
-    // No NTFS, o arquivo recriado com o mesmo nome em menos de 15 s herda o birthtime do apagado ("tunneling"): com o
-    // inode simulado igual, o FileTail não tem por onde notar a troca. Lá o inode não se repete (o id do arquivo muda),
-    // então só a variante com birthtime = ctime vale.
+    // On NTFS, a file recreated under same name within 15s inherits deleted file birthtime ("tunneling"): with
+    // identical simulated inode, FileTail has no means to detect replacement. There inodes do not collide (file ID changes),
+    // so only the birthtime = ctime variant is tested.
     for (const birthIsCtime of process.platform === 'win32' ? [true] : [false, true]) {
       sim.birthIsCtime = birthIsCtime;
       writeFileSync(file, 'velho-1\n');

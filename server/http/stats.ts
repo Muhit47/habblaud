@@ -1,6 +1,6 @@
-// Rotas do "Meu dia": GET /api/stats?day=AAAA-MM-DD&tz=<IANA>&source=real|demo e GET /api/stats/days?tz=<IANA>.
-// Só números agregados e nomes de projeto, conta e agente — a mesma exposição do /api/snapshot, então valem com
-// a porta exposta (sem a trava de bind local do terminal). Os parâmetros são validados com rigor (400).
+// "Where did my day go" routes: GET /api/stats?day=YYYY-MM-DD&tz=<IANA>&source=real|demo and GET /api/stats/days?tz=<IANA>.
+// Only aggregated numbers and project/account/agent names — same exposure as /api/snapshot, so available on
+// exposed ports (without local bind lock required by terminal). Parameters are strictly validated (400).
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { addDays, canonicalTimeZone, parseDayKey, RETENTION_DAYS, type StatsSource } from '../../shared/daystats';
 import type { DayStatsService } from '../history/daystats';
@@ -10,7 +10,7 @@ type Send = (res: ServerResponse, status: number, body: unknown) => void;
 
 export type StatsQuery = { ok: true; day: string; tz: string; source?: StatsSource } | { ok: false; status: number; error: string };
 
-/** Um parâmetro aparece no máximo uma vez (o valor é validado por quem chama). */
+/** Parameter appears at most once (value is validated by caller). */
 function single(url: URL, name: string): { value?: string; error?: string } {
   const all = url.searchParams.getAll(name);
   if (all.length > 1) return { error: tr('parâmetro "{0}" repetido', [name]) };
@@ -18,7 +18,7 @@ function single(url: URL, name: string): { value?: string; error?: string } {
   return { value: all[0] };
 }
 
-/** Lê e valida `tz` (padrão: o fuso do servidor). */
+/** Parses and validates `tz` (default: server timezone). */
 function parseTz(url: URL, fallback: string): { tz?: string; error?: string } {
   const p = single(url, 'tz');
   if (p.error) return { error: p.error };
@@ -29,8 +29,8 @@ function parseTz(url: URL, fallback: string): { tz?: string; error?: string } {
 }
 
 /**
- * Valida a consulta de GET /api/stats. `today(tz)` dá o dia de hoje no fuso pedido. Erros: 400 (formato,
- * data que não existe, dia no futuro, parâmetro repetido, fuso ou fonte inválidos) e 404 (fora da retenção).
+ * Validates GET /api/stats query. `today(tz)` returns current date in requested timezone. Errors: 400 (format,
+ * non-existent date, future date, repeated parameter, invalid timezone or source) and 404 (beyond retention limit).
  */
 export function parseStatsQuery(url: URL, defaultTz: string, today: (tz: string) => string): StatsQuery {
   const t = parseTz(url, defaultTz);
@@ -50,7 +50,7 @@ export function parseStatsQuery(url: URL, defaultTz: string, today: (tz: string)
   return out;
 }
 
-/** Atende /api/stats e /api/stats/*. */
+/** Handles /api/stats and /api/stats/*. */
 export function handleStatsRoute(req: IncomingMessage, res: ServerResponse, url: URL, stats: DayStatsService | undefined, send: Send): void {
   const method = req.method ?? 'GET';
   const path = url.pathname;

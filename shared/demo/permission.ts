@@ -1,21 +1,21 @@
-// Pedidos de permissão (e perguntas) fictícios do modo demonstração (responder pelo escritório sem sessões reais),
-// do Claude Code e do Codex (só aprovação, sem "sempre permitir").
-// Puro: usado pelo simulador no servidor (HABBLAUD_DEMO=1) e no navegador (?mock=1).
+// Mock permission requests (and questions) for demo mode (answer via office without real sessions),
+// for Claude Code and Codex (approval only, no "always allow").
+// Pure: used by simulator on server (HABBLAUD_DEMO=1) and in browser (?mock=1).
 import type { PermissionRequestInfo } from '../types';
 import { describeTool } from '../activity';
 import { tr } from '../i18n';
 
 export interface DemoPermissionSource {
-  /** Arquivos do projeto fictício (relativos à raiz). */
+  /** Mock project files (relative to root). */
   files: readonly string[];
-  /** Comandos de terminal do projeto fictício. */
+  /** Mock project terminal commands. */
   commands: readonly string[];
 }
 
-/** Quanto tempo o "hook" fictício espera antes de devolver o pedido ao terminal. */
+/** How long mock "hook" waits before returning request to terminal. */
 export const DEMO_PERMISSION_MS = 5 * 60_000;
 
-/** Linhas de um diff fictício, no formato do terminal ("- antiga" / "+ nova"). */
+/** Lines of a mock diff, in terminal format ("- old" / "+ new"). */
 const DEMO_DIFFS: readonly string[][] = [
   ['- const total = items.reduce((s, i) => s + i.price, 0);', '+ const total = items.reduce((s, i) => s + i.price * i.qty, 0);', '+ if (total < 0) throw new Error("total inválido");'],
   ['- export const TIMEOUT = 5_000;', '+ export const TIMEOUT = 15_000;'],
@@ -29,7 +29,7 @@ interface DemoQuestion {
   options: Array<{ label: string; description?: string }>;
 }
 
-/** Perguntas fictícias do AskUserQuestion: uma de escolha única e uma em que dá para marcar várias. */
+/** Mock questions from AskUserQuestion: one single choice and one multiple choice. */
 const DEMO_QUESTIONS: readonly DemoQuestion[][] = [
   [
     {
@@ -71,18 +71,18 @@ const DEMO_QUESTIONS: readonly DemoQuestion[][] = [
   ],
 ];
 
-/** As perguntas em texto, como o terminal mostra os argumentos do AskUserQuestion. */
+/** Text questions, as terminal displays AskUserQuestion arguments. */
 function questionsText(qs: readonly DemoQuestion[]): string {
   return qs.map((q) => [q.question, ...q.options.map((o) => `  - ${o.label}${o.description ? `: ${o.description}` : ''}`)].join('\n')).join('\n\n');
 }
 
-/** Tipo de pedido fictício: permissão (comando, edição, página) ou pergunta do AskUserQuestion. */
+/** Mock request kind: permission (command, edit, page) or AskUserQuestion question. */
 export type DemoPermissionKind = 'permission' | 'question';
 
 /**
- * Um pedido fictício (comando no terminal, edição de arquivo, leitura de página ou pergunta do AskUserQuestion),
- * com a sugestão de "sempre permitir" que o Claude Code costuma oferecer para comandos. `kind` força o tipo
- * (testes e capturas de tela); sem ele, é sorteado.
+ * A mock request (terminal command, file edit, page fetch, or AskUserQuestion question),
+ * with "always allow" suggestion that Claude Code typically provides for commands. `kind` overrides
+ * type (tests and screenshots); without it, randomly chosen.
  */
 export function demoPermission(id: string, src: DemoPermissionSource, rng: () => number, now: number, kind?: DemoPermissionKind): PermissionRequestInfo {
   const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rng() * arr.length)];
@@ -128,27 +128,27 @@ export function demoPermission(id: string, src: DemoPermissionSource, rng: () =>
 }
 
 /**
- * Quanto o "hook" do Codex espera pela decisão do escritório (HABBLAUD_CODEX_PERMISSION_TIMEOUT, padrão 25 s). Depois
- * disso o Codex segue o fluxo normal e a aprovação aparece no terminal.
+ * How long Codex "hook" waits for office decision (HABBLAUD_CODEX_PERMISSION_TIMEOUT, default 25 s). Afterward
+ * Codex resumes standard flow and approval appears in terminal.
  */
 export const DEMO_CODEX_PERMISSION_MS = 25_000;
 
-/** Destinos de rede fictícios (o Codex pede acesso à rede como um Bash com a descrição "network-access <alvo>"). */
+/** Mock network targets (Codex requests network access as Bash with "network-access <target>" description). */
 const DEMO_NETWORK: ReadonlyArray<[host: string, command: string]> = [
   ['registry.npmjs.org', 'npm install'],
   ['pypi.org', 'pip install -r requirements.txt'],
   ['api.github.com', 'gh pr view --json title'],
 ];
 
-/** O diff de um apply_patch no formato do Codex (Begin/End Patch, linhas "-antiga" e "+nova"). */
+/** Diff of an apply_patch in Codex format (Begin/End Patch, "-old" and "+new" lines). */
 export function demoPatchText(file: string, lines: readonly string[], add = false): string {
   const body = lines.map((l) => (l.startsWith('- ') ? `-${l.slice(2)}` : l.startsWith('+ ') ? `+${l.slice(2)}` : add ? `+${l}` : ` ${l}`));
   return ['*** Begin Patch', `*** ${add ? 'Add' : 'Update'} File: ${file}`, ...(add ? [] : ['@@']), ...body, '*** End Patch'].join('\n');
 }
 
 /**
- * Um pedido de aprovação fictício do Codex (hook PermissionRequest): comando no terminal, apply_patch ou acesso à
- * rede. Sem sugestões de "sempre permitir" (o Codex não as aceita pelo hook) e nunca uma pergunta; o prazo é curto.
+ * A mock Codex approval request (PermissionRequest hook): terminal command, apply_patch, or network
+ * access. No "always allow" suggestions (Codex does not support them via hook) and never a question; short timeout.
  */
 export function demoCodexPermission(id: string, src: DemoPermissionSource, rng: () => number, now: number): PermissionRequestInfo {
   const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rng() * arr.length)];

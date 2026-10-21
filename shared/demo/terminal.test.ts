@@ -35,7 +35,7 @@ function agent(over: Partial<AgentInfo> = {}): AgentInfo {
   };
 }
 
-/** Atividades como o simulador as cria (mesmas funções de descrição). */
+/** Activities as simulator creates them (same description functions). */
 function history(): Activity[] {
   let seq = 0;
   let at = T0;
@@ -95,7 +95,7 @@ describe('demoTerminalEntries', () => {
       const r = e.find((x) => x.kind === 'result' && x.toolUseId === t.id);
       expect(r && r.kind === 'result' && r.text.length).toBeTruthy();
     }
-    // Ordem cronológica.
+    // Chronological order.
     expect(e.map((x) => x.at)).toEqual([...e.map((x) => x.at)].sort((x, y) => x - y));
   });
 
@@ -114,12 +114,12 @@ describe('demoTerminalEntries', () => {
     expect(tool(3)).toMatchObject({ tool: 'Grep', title: 'Grep(useCart)' });
     expect(result(3).text).toMatch(/^src\/\S+:\d+: .*useCart/);
     expect(tool(4)).toMatchObject({ tool: 'Glob', title: 'Glob(**/*.ts)' });
-    // Edit com diff.
+    // Edit with diff.
     expect(tool(5)).toMatchObject({ tool: 'Edit', title: 'Edit(src/components/Cart.tsx)', inputKind: 'diff' });
     expect(tool(5).input).toMatch(/^- .+\n\+ .+$/);
     expect(tool(6)).toMatchObject({ tool: 'Write', title: 'Write(src/api/orders.ts)', inputKind: 'diff' });
     expect(tool(6).input!.split('\n').every((l) => l.startsWith('+ '))).toBe(true);
-    // Bash com comando e saída.
+    // Bash with command and output.
     expect(tool(7)).toMatchObject({ tool: 'Bash', title: 'Bash(npm test)', input: 'npm test', inputKind: 'command' });
     expect(result(7).text).toMatch(/✓ \d+ testes passaram/);
     expect(result(8).text).toContain('On branch feat/checkout');
@@ -131,12 +131,12 @@ describe('demoTerminalEntries', () => {
     expect(tool(13)).toMatchObject({ tool: 'Agent', title: 'Agent(general-purpose: 3 frentes em paralelo)' });
     expect(kinds(14)).toEqual(['thinking']);
     expect(system(15)).toMatchObject({ text: 'Aguardando você: aprovar uma permissão', level: 'warn' });
-    // Shell em segundo plano: lançamento, espera e fim (ok e falha).
+    // Background shell: launch, wait, and finish (ok and failure).
     expect(result(16).text).toMatch(/segundo plano/);
     expect(groups[17]).toEqual([expect.objectContaining({ kind: 'assistant' })]);
     expect(system(18)).toMatchObject({ text: 'Tarefa em segundo plano concluída: npm test -- --runInBand (1min 35s)', level: 'info' });
     expect(system(19)).toMatchObject({ text: 'Tarefa em segundo plano falhou: npm run build -- --mode production', level: 'warn' });
-    // Fim do turno: resumo do assistant e a duração.
+    // Turn completion: assistant summary and duration.
     expect(kinds(20)).toEqual(['assistant', 'system']);
     expect(system(20).text).toBe('Turno concluído em 2min 10s');
     expect(system(21).text).toBe('Conversa compactada automaticamente');
@@ -151,7 +151,7 @@ describe('demoTerminalEntries', () => {
       const part = demoTerminalEntries(agent(), h.slice(0, n));
       expect(full.slice(0, part.length)).toEqual(part);
     }
-    // Janela deslizando (o histórico guarda só as últimas atividades): as entradas em comum continuam iguais.
+    // Sliding window (history keeps only latest activities): common entries remain identical.
     const slid = demoTerminalEntries(agent(), h.slice(8));
     expect(slid).toEqual(full.slice(full.length - slid.length));
     expect(slid.length).toBeGreaterThan(10);
@@ -178,7 +178,7 @@ describe('demoTerminalEntries', () => {
         expect(new Set(entries.map((x) => x.id)).size).toBe(entries.length);
         const prev = lists.get(a.id);
         if (prev) {
-          // O que já existia e continua na janela tem o mesmo conteúdo.
+          // What already existed and remains in window has identical content.
           const now = new Map(entries.map((x) => [x.id, x]));
           for (const old of prev) if (now.has(old.id)) expect(now.get(old.id)).toEqual(old);
           checked++;
@@ -207,7 +207,7 @@ describe('demoTerminalEntries: agente do Codex', () => {
     expect(result(2).text).toMatch(/^import /);
     expect(tool(3)).toMatchObject({ tool: 'Shell', title: 'Shell(rg -n "useCart")' });
     expect(tool(4)).toMatchObject({ tool: 'Shell', title: "Shell(rg --files -g '**/*.ts')" });
-    // Edição: o patch inteiro (Update File) e a resposta do apply_patch; arquivo novo: Add File.
+    // Editing: full patch (Update File) and apply_patch response; new file: Add File.
     expect(tool(5)).toMatchObject({ tool: 'apply_patch', title: 'apply_patch(src/components/Cart.tsx)', inputKind: 'diff' });
     expect(tool(5).input).toMatch(/^\*\*\* Begin Patch\n\*\*\* Update File: src\/components\/Cart\.tsx\n@@\n-.+\n\+.+\n\*\*\* End Patch$/);
     expect(result(5).text).toBe('Success. Updated the following files:\nM src/components/Cart.tsx');
@@ -220,7 +220,7 @@ describe('demoTerminalEntries: agente do Codex', () => {
     expect(tool(12)).toMatchObject({ tool: 'update_plan', title: 'update_plan(1/3 concluídas)' });
     expect(tool(13)).toMatchObject({ tool: 'spawn_agent', title: 'spawn_agent(worker: 3 frentes em paralelo)' });
     expect(result(16).text).toMatch(/segundo plano/);
-    // Nada do jeito do Claude Code.
+    // Nothing in Claude Code style.
     expect(e.some((x) => x.kind === 'tool' && ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash', 'TodoWrite', 'Agent', 'WebSearch', 'WebFetch'].includes(x.tool))).toBe(false);
   });
 

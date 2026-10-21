@@ -1,5 +1,5 @@
-// Simulação do escritório: concilia snapshots do servidor com os personagens e salas do mundo,
-// planeja comportamentos e executa as filas de passos a cada frame.
+// Office simulation: reconciles server snapshots with world characters and rooms,
+// plans behaviors, and executes step queues every frame.
 import { partsKey } from '../../../../shared/appearance';
 import type { AgentInfo, OfficeSnapshot, Provider, RoomInfo } from '../../../../shared/types';
 import type { ArtModule, Dir, RoomTheme } from '../../art/api';
@@ -39,8 +39,8 @@ import { EXIT_RADIUS, NO_INTENT, stepFree, tileAt, VISITOR_LANYARD, type Visitor
 import { tr } from '../../../../shared/i18n';
 
 /**
- * Efeito visual pontual pedido pela simulação ao render (drenado a cada frame): confete (shell
- * concluído), moedinhas voando de quem perdeu a aposta para quem ganhou e brilho (espelho).
+ * Transient visual effect requested by simulation to renderer (drained each frame): confetti (shell
+ * finished), coins flying from bet loser to winner, and sparkle (mirror).
  */
 export type WorldEffect =
   | { kind: 'confetti'; charId: string; at: number }
@@ -49,23 +49,23 @@ export type WorldEffect =
 
 export { SHELL_DONE_TOOL } from './shell';
 
-/** Como o `Sim` roda (fixo na criação). */
+/** How `Sim` operates (configured at instantiation). */
 export interface SimMode {
   /**
-   * Visita a um prédio do mundo (cena Visita): nenhum tempo desce do mundo (os `statusSince` são "agora", na entrada),
-   * então nada que dependa de há quanto tempo (pipoca, giros, teia, bocejos e cochilo de quem espera um shell, cochilo
-   * de quem está à toa há muito tempo, cronômetro do balão); mais o visitante e as luzes da visita.
+   * Visiting a world building (Visit scene): no timestamps sent from world (`statusSince` set to "now" on entry),
+   * so time-dependent escalation is disabled (popcorn, chair spins, cobwebs, yawns, and naps for shell waits, extended
+   * idle naps, bubble timer); plus visitor avatar and visit lighting.
    */
   visit?: boolean;
 }
 
-/** Luzes da visita: 'away' (pausado) apaga tudo; 'discreet' acende as salas vazias; 'live' é o `Sim` de sempre. */
+/** Visit lights: 'away' (paused) dims everything; 'discreet' lights empty rooms; 'live' is standard `Sim`. */
 export type VisitLight = 'live' | 'discreet' | 'away';
-/** Comemoração (shell concluído) e lamento (falhou/morto). */
+/** Celebration (shell completed) and lament (failed/killed). */
 const CHEER_MS = 2_200;
 const SULK_MS = 4_000;
 const MAX_EFFECTS = 32;
-/** Dono das reservas dos lugares de uma sala fantasma (endereço antigo de uma mudança). */
+/** Owner of spot reservations for a ghost room (former address during relocation). */
 const GHOST_OWNER = '@mudança';
 
 const FALLBACK_THEME: RoomTheme = {
@@ -78,15 +78,15 @@ const FALLBACK_THEME: RoomTheme = {
 };
 
 const LOUNGE_SEATS: SpotKind[] = ['sofa', 'armchair', 'beanbag'];
-/** Onde dá para sentar e mexer no celular. */
+/** Places suitable for sitting and browsing phone. */
 const PHONE_SEATS: SpotKind[] = ['beanbag', 'sofa', 'armchair', 'cafe_seat', 'bench'];
-/** Assentos de descanso possíveis já na carga inicial (bancos de corredor/banheiro não). */
+/** Rest seating eligible on initial load (hallway/bathroom benches excluded). */
 const INITIAL_LOUNGE_SEATS: SpotKind[] = ['sofa', 'armchair', 'beanbag', 'cafe_seat'];
-/** Fração dos ociosos elegíveis que começa fora da mesa. */
+/** Proportion of eligible idle agents starting away from desk. */
 const INITIAL_LOUNGE_SHARE = 0.15;
-/** Só quem está ocioso há pelo menos isto pode começar descansando (quem acabou de parar volta logo). */
+/** Only agents idle at least this long may start resting (newly stopped agents return promptly). */
 const INITIAL_LOUNGE_MIN_IDLE_MS = 90_000;
-/** Ninguém sai para passear nos primeiros segundos depois de abrir a página. */
+/** No agent departs for roaming during initial seconds after opening page. */
 const INITIAL_OUTING_DELAY_MS = 5_000;
 const ENTER_MS = 180;
 
@@ -94,7 +94,7 @@ function between(rng: () => number, a: number, b: number): number {
   return a + rng() * (b - a);
 }
 
-/** O que define a aparência de um personagem (muda quando o personagem é editado). */
+/** What defines character appearance (updates when character is edited). */
 const lookSig = (a: AgentInfo): string => `${a.seed}|${a.look}|${partsKey(a.parts)}`;
 
 export class Sim {
@@ -104,45 +104,45 @@ export class Sim {
   readonly elevators: Elevator[] = [];
   building: BuildingLayout;
   readonly finder: PathFinder;
-  /** Incrementa quando o prédio muda (salas surgem/somem, largura). */
+  /** Increments when building structure changes (rooms added/removed, width). */
   layoutVersion = 0;
   now = 0;
   initialized = false;
-  /** furnitureId -> até quando a máquina está em uso (cafeteira passando café). */
+  /** furnitureId -> timestamp until machine is in use (coffee maker brewing). */
   readonly machineUntil = new Map<string, number>();
   /** Cabines ocupadas (furnitureId). */
   readonly stallBusy = new Set<string>();
   /** Vida social: rodas dos ociosos, personalidades e carteiras (social/social.ts). */
   readonly social: Social;
-  /** Depuração: agentes forçados a encerrar e salas forçadas a sumir do snapshot. */
+  /** Debug: agents forced to depart and rooms forced out of snapshot. */
   readonly forcedOffline = new Set<string>();
   readonly hiddenRooms = new Set<string>();
-  /** Contas do snapshot (id -> cor/letra/ferramenta) para etiquetas: a do Codex ganha chip vazado e o selo. */
+  /** Snapshot accounts (id -> color/letter/tool) for badges: Codex accounts receive hollow chip and badge. */
   accounts = new Map<string, { short: string; color: string; name: string; provider?: Provider }>();
-  /** Depuração: salas/agentes extras mesclados a cada snapshot (sessões simuladas). */
+  /** Debug: extra rooms/agents merged into each snapshot (mock sessions). */
   injected: { rooms: RoomInfo[]; agents: AgentInfo[] } = { rooms: [], agents: [] };
-  /** Depuração: campos sobrepostos a agentes reais do snapshot (ex.: shells forçados). */
+  /** Debug: fields overlaid on real snapshot agents (e.g. forced shells). */
   readonly agentPatches = new Map<string, Partial<AgentInfo>>();
-  /** Efeitos pontuais (confete) para o render desenhar; o render esvazia a lista. */
+  /** One-off visual effects (confetti) for renderer; renderer drains list. */
   readonly effects: WorldEffect[] = [];
   /** Festa e alarme das salas (eventos do GitHub; sim/github.ts). */
   readonly roomFx = new RoomFxState();
   private lastSnapshot: OfficeSnapshot | null = null;
-  /** Desde quando há uma vaga livre antes da última sala (0 = não há). */
+  /** Timestamp since vacant slot opened before last room (0 = none). */
   private gapSince = 0;
   private moveSeq = 0;
   private shrinkPending = false;
   private nextHousekeeping = 0;
-  /** Visita a um prédio do mundo (SimMode.visit). */
+  /** Visiting a world building (SimMode.visit). */
   readonly visit: boolean;
-  /** Visita: o meu personagem (fora de `chars`: nem snapshot, nem vida social, nem lugar reservado). */
+  /** Visit: local character (outside `chars`: neither snapshot, social interaction, nor reserved spot). */
   visitor: Character | null = null;
-  /** Visita: para onde o teclado manda o visitante. */
+  /** Visit: direction keyboard dispatches visitor. */
   visitorIntent: VisitorIntent = { ...NO_INTENT };
-  /** Visita: as luzes do prédio (aplicadas a cada snapshot e a cada segundo). */
+  /** Visit: building lighting (applied per snapshot and every second). */
   visitLight: VisitLight = 'live';
 
-  /** `storage` das carteiras: null = só em memória (o timelapse não mexe nas moedinhas de verdade). */
+  /** Wallet `storage`: null = in-memory only (timelapse does not touch persistent coins). */
   constructor(
     private readonly art: ArtModule,
     private readonly options: () => WorldOptions,
@@ -174,7 +174,7 @@ export class Sim {
     // ---- salas
     let layoutDirty = false;
     const listed = new Set<string>();
-    // na ordem de chegada (slot do servidor): na carga inicial as salas ocupam as vagas 0, 1, 2... nessa ordem
+    // in arrival order (server slot): on initial load rooms occupy slots 0, 1, 2... in order
     for (const r of [...snap.rooms].sort((a, b) => a.slot - b.slot)) {
       if (this.hiddenRooms.has(r.id)) continue;
       listed.add(r.id);
@@ -213,7 +213,7 @@ export class Sim {
         continue;
       }
       if (a.status === 'offline' || this.forcedOffline.has(a.id) || this.hiddenRooms.has(a.roomId)) continue;
-      // subagente que nunca vimos trabalhar e já terminou, ou cujo pai está indo embora: não entra
+      // subagent never seen active that already finished, or whose parent is departing: do not admit
       if (a.status === 'done') continue;
       if (a.kind === 'sub' && a.parentId) {
         const parent = this.chars.get(a.parentId);
@@ -222,30 +222,30 @@ export class Sim {
       const nc = this.spawn(a, first, now);
       if (nc) {
         fresh.push(nc);
-        // chegou ao escritório: carteira com o saldo inicial (tarefas já concluídas pagas em silêncio)
+        // arrived at office: wallet initialized with start balance (existing tasks credited silently)
         this.social.syncAgent(nc, a, now, false);
       }
     }
     for (const ch of this.chars.values()) {
       if (!seen.has(ch.id) && !ch.leaving && ch.missingSince === null) ch.missingSince = now;
     }
-    // modos (depois de todos existirem, para subagentes acharem o pai)
+    // modes (after all exist, so subagents find parent)
     for (const ch of fresh) {
       ch.mode = this.modeOf(ch);
       this.refreshShell(ch, now);
     }
     if (first) {
-      // quem trabalha/espera senta primeiro; ociosos depois (assim nenhuma sala fica vazia)
+      // working/waiting agents seated first; idle agents later (ensures no empty rooms)
       const seated = new Set<string>();
       const order = [...fresh].sort((a, b) => Number(a.mode === 'idle') - Number(b.mode === 'idle'));
       for (const ch of order) this.placeInitial(ch, now, seated);
     }
     this.refreshRoomInfo();
-    // visita: na entrada, as luzes já como o prédio está (apagado entra escuro, sem a luz se apagando)
+    // visit: on entry, lighting initialized to building state (away starts dark, no gradual dimming)
     if (this.visit) this.applyVisitLight(now, first);
   }
 
-  /** Reaplica o último snapshot (depuração). */
+  /** Re-evaluates latest snapshot (debugging). */
   reapply(now: number): void {
     if (this.lastSnapshot) this.applySnapshot(this.lastSnapshot, now);
   }
@@ -257,7 +257,7 @@ export class Sim {
     } catch {
       theme = FALLBACK_THEME;
     }
-    // a primeira vaga livre do prédio (o slot do servidor só dá a ordem de chegada)
+    // first vacant slot in building (server slot only indicates arrival sequence)
     const slot = this.freeSlot();
     const layout = layoutProjectRoom({ id: r.id, slot, seed: r.seed }, theme);
     const rs = new RoomState(r, theme, layout, first ? 'ready' : 'building', now, first, slot);
@@ -265,7 +265,7 @@ export class Sim {
     return rs;
   }
 
-  /** Menor vaga sem sala (contando as que ainda estão desmontando). */
+  /** Lowest unoccupied slot (including slots currently dismantling). */
   private freeSlot(): number {
     const used = new Set<number>();
     for (const r of this.rooms.values()) if (r.phase !== 'gone') used.add(r.slot);
@@ -283,7 +283,7 @@ export class Sim {
       try {
         ch.appearance = this.art.appearanceFromSeed(a.seed, { look: a.look, sub: a.kind === 'sub', parts: a.parts });
       } catch {
-        // Arte com problema: fica a aparência que já estava.
+        // Art issue: fallback to previous appearance.
       }
     }
     ch.missingSince = null;
@@ -302,22 +302,22 @@ export class Sim {
         if (act.kind === 'done') ch.setIcon('check', 2600, now);
         if (act.kind === 'error') ch.setIcon('sweat', 2200, now);
         if (act.kind === 'delegate' && ch.info.kind === 'main' && a.status === 'working') this.planDelegate(ch, now);
-        // pedido atendido: moedinhas pelo trabalho
+        // request served: coins awarded for completed task
         if (act.kind === 'done' && ch.info.kind === 'main') this.social.turnDone(ch, now);
       }
     }
-    // fim de um shell: comemora ou lamenta (uma vez por notificação)
+    // shell completion: celebrate or lament (once per notification)
     const sd = latestShellDone(a);
     if (sd && sd.at > ch.shellDoneAt) {
       ch.shellDoneAt = sd.at;
       this.reactShellDone(ch, !sd.error, now);
     }
-    // shells mudam sem mudar o status (ex.: comando em primeiro plano começou/terminou)
+    // shells change without changing status (e.g. foreground command began/ended)
     if (prevStatus !== a.status || hadShells || !!a.shells?.length || ch.mode === 'shell' || this.forcedOffline.has(ch.id)) this.refreshMode(ch);
     this.refreshShell(ch, now);
   }
 
-  /** Recalcula o modo e interrompe o plano se mudou. */
+  /** Recomputes mode and interrupts plan if changed. */
   private refreshMode(ch: Character): void {
     if (ch.leaving) return;
     const mode = this.modeOf(ch);
@@ -359,9 +359,9 @@ export class Sim {
     return m;
   }
 
-  // =================================================================== espera de shell
+  // =================================================================== shell wait
 
-  /** Atualiza início/quantidade/rótulo da espera de shell (no snapshot e quando o modo muda). */
+  /** Updates shell wait onset/count/label (in snapshot and when mode changes). */
   private refreshShell(ch: Character, now: number): void {
     if (ch.mode !== 'shell') {
       ch.shellSince = 0;
@@ -372,7 +372,7 @@ export class Sim {
     }
     const a = ch.info;
     if (!ch.shellEnteredAt) ch.shellEnteredAt = now;
-    // relógios do servidor e do navegador podem divergir um pouco: nunca "no futuro"
+    // server and browser clocks may drift slightly: clamp against future timestamps
     ch.shellSince = Math.min(now, shellWaitSince(a));
     ch.shellCount = Math.max(1, countShells(a.shells, a.status !== 'shell'));
     const label = shellLabel(a);
@@ -380,19 +380,19 @@ export class Sim {
       ch.shellLabel = label;
       ch.shellTextKey = -1;
     }
-    // visita: nenhum tempo veio do mundo, então a gag não escala (sem pipoca, giro, teia nem cochilo)
+    // visit: no timestamps received from world, so gag does not escalate (no popcorn, spins, webs, naps)
     ch.shellStage = this.visit ? null : shellStage(now - ch.shellSince);
   }
 
   /**
-   * Um shell terminou (Activity 'ShellDone'): sucesso -> levanta e comemora com confete e ⭐;
-   * falha/morto -> nuvenzinha de chuva ('storm') e ombros caídos. Depois segue o status atual.
+   * A shell completed (Activity 'ShellDone'): success -> stands and celebrates with confetti and ⭐;
+   * failure/killed -> rain cloud ('storm') and slumped shoulders. Then follows current status.
    */
   private reactShellDone(ch: Character, ok: boolean, now: number): void {
     if (ch.leaving || ch.mode === 'leave' || ch.mode === 'deliver') return;
     ch.setIcon(ok ? 'star' : 'storm', ok ? CHEER_MS : SULK_MS, now);
     if (ok) this.pushEffect({ kind: 'confetti', charId: ch.id, at: now });
-    // só encena na própria mesa e parado; andando/passeando fica só o ícone (e o confete)
+    // acts out only at own desk and stationary; if walking/roaming displays only icon (and confetti)
     const home = this.spots.get(ch.homeSpot);
     if (!home || ch.atSpot !== home.id || ch.step || ch.queue.length || ch.gathering) return;
     if (ok) {
@@ -401,13 +401,13 @@ export class Sim {
       ch.queue.push({ t: 'act', pose: 'stretch', ms: CHEER_MS * 0.55 }, { t: 'act', pose: 'raise_hand', ms: CHEER_MS * 0.45 });
       if (home.seated) ch.queue.push({ t: 'enter', spot: home.id });
     } else {
-      // cabeça baixa, desanimado, sem sair da cadeira
+      // head down, disheartened, seated in chair
       ch.reactUntil = now + SULK_MS;
       ch.queue.push({ t: 'act', pose: home.seated ? 'sleep' : 'stand', ms: SULK_MS });
     }
   }
 
-  /** Lance do futebol da TV agora (para a torcida comemorar junto com o "GOL" da tela). */
+  /** TV soccer play state (for spectators to celebrate synchronously with on-screen "GOAL"). */
   footballLance(t: number): { lance: number; progress: number; right: boolean; period: number; goalAt: number } | null {
     try {
       return this.art.footballLance?.(t, PROGRAM_SEED.futebol) ?? null;
@@ -436,7 +436,7 @@ export class Sim {
     ch.shellDoneAt = latestShellDone(a)?.at ?? 0;
     this.chars.set(a.id, ch);
     if (first) return ch;
-    // chegada pelo elevador
+    // arrival via elevator
     const el = this.pickElevator(ch);
     const spot = this.spots.get(el.spotId)!;
     ch.placeAtTile(spot.tx, spot.ty);
@@ -447,21 +447,21 @@ export class Sim {
     ch.inside = true;
     ch.arriving = true;
     ch.hiddenUntil = el.reserveAppear(now);
-    // subagentes disparados juntos não saem do elevador no mesmo instante
+    // subagents spawned together stagger elevator exit times
     if (a.kind === 'sub') ch.hiddenUntil += Math.floor(ch.rng() * 600);
     ch.queue.push({ t: 'elevOut', elev: el.index, phase: 0 });
     return ch;
   }
 
   /**
-   * Carga inicial: todos começam no lugar natural (a própria mesa), sem ninguém "parado no
-   * corredor". Só uma minoria dos ociosos de verdade (parados há um tempo, sem cochilar) aparece
-   * num sofá/poltrona/puff/café — nunca em banco de corredor ou banheiro, e nunca esvaziando a sala.
+   * Initial load: all start in natural spot (own desk), with no one "stranded in
+   * hallway". Only small subset of truly idle agents (stopped for a while, not napping) appear
+   * on sofa/armchair/pouf/coffee — never on hallway/bathroom benches, and never emptying a room.
    */
   private placeInitial(ch: Character, now: number, roomsSeated: Set<string>): void {
     this.assignHome(ch);
     const home = this.spots.get(ch.homeSpot);
-    // primeiro passeio só depois de alguns segundos: a carga inicial mostra todos no lugar
+    // first roaming departure delayed by few seconds: initial load presents all in place
     ch.nextOutingAt = now + INITIAL_OUTING_DELAY_MS + idleSitMs(ch.rng, this.options().liveliness) * ch.rng();
     const relaxing =
       ch.mode === 'idle' &&
@@ -486,7 +486,7 @@ export class Sim {
     } else this.placeOverflow(ch);
   }
 
-  /** Sem lugar reservado: em pé dentro da própria sala (se ela existe) ou na recepção. */
+  /** Without reserved spot: standing inside own room (if it exists) or in reception. */
   private placeOverflow(ch: Character): void {
     const room = this.rooms.get(ch.roomId);
     const t = room && room.present ? this.overflowTile(ch, room) : null;
@@ -506,7 +506,7 @@ export class Sim {
     ch.sortY = s.sortY ?? null;
   }
 
-  /** Reserva mesa (ou banqueta/ponto em pé) na sala do personagem. */
+  /** Reserves desk (or stool/standing spot) in character's assigned room. */
   private assignHome(ch: Character): void {
     if (ch.homeSpot && this.spots.get(ch.homeSpot) && this.spots.ownerOf(ch.homeSpot) === ch.id) return;
     ch.homeSpot = null;
@@ -524,13 +524,13 @@ export class Sim {
 
   // =================================================================== layout
 
-  /** Recalcula o prédio (largura, grade, spots) a partir das salas presentes. */
+  /** Recomputes building structure (width, grid, spots) from active rooms. */
   relayout(force = false): void {
     const present = [...this.rooms.values()].filter((r) => r.present);
     let cols = columnsFor(present.map((r) => r.slot));
     const cur = this.building.cols;
     if (cols < cur && !force) {
-      // só encolhe quando ninguém está na faixa que vai sumir
+      // shrinks only when no character occupies vanishing footprint
       const limit = cols * COL_W * TILE;
       if ([...this.chars.values()].some((c) => !c.gone && c.x >= limit - TILE)) {
         cols = cur;
@@ -558,9 +558,9 @@ export class Sim {
         ch.seated = false;
         ch.sortY = null;
       }
-      // caminhos em andamento são recalculados a partir do tile atual; destino que deixou de existir (o
-      // prédio encolheu e levou o bebedouro do corredor, a sala foi desmontada) invalida o plano: sem isto o
-      // passo não acharia caminho e teletransportaria o personagem para fora do prédio
+      // in-progress paths are recalculated from current tile; destination that ceased to exist (building
+      // shrank removing hallway water cooler, room was dismantled) invalidates plan: without this,
+      // step would fail to find path and teleport character outside building
       let stale = false;
       for (const s of ch.step ? [ch.step, ...ch.queue] : ch.queue) {
         if (s.t !== 'go') continue;
@@ -578,7 +578,7 @@ export class Sim {
     }
   }
 
-  // =================================================================== atualização por frame
+  // =================================================================== per-frame update
 
   update(dt: number, now: number): void {
     this.now = now;
@@ -603,11 +603,11 @@ export class Sim {
     }
   }
 
-  /** Verificações de baixa frequência (pai saindo, salas sem dono, encolher prédio). */
+  /** Low-frequency housekeeping (departing parent, unowned rooms, shrinking building). */
   private housekeeping(now: number): void {
     for (const ch of this.chars.values()) {
       if (ch.info.kind === 'sub' && !ch.leaving) this.refreshMode(ch);
-      // comando em primeiro plano passou dos 10 s (ou a espera acabou): muda de modo sem snapshot novo
+      // foreground command exceeded 10 s (or wait elapsed): transitions mode without fresh snapshot
       else if (!ch.leaving && (ch.mode === 'shell' || (ch.info.status === 'working' && ch.info.shells?.length))) this.refreshMode(ch);
       if (ch.mode === 'idle' && ch.atSpot?.startsWith('core:dorm_') && ch.pose === 'sleep' && ch.icon !== 'zzz') {
         ch.setIcon('zzz', 1e12, now);
@@ -630,7 +630,7 @@ export class Sim {
       }
       if (!room.listed && (room.phase === 'ready' || room.phase === 'building')) {
         const occupants = this.occupants(room);
-        // segurança: sala sem ninguém e luz acesa sem ninguém para apagar
+        // safeguard: empty room with light on and no occupant to turn it off
         if (occupants === 0 && room.lightOn && !this.switchClaimValid(room) && now - room.unlistedAt > 2500) room.setLight(false, now);
         const ok = canDismantle({ listed: room.listed, occupants, lightOn: room.lightOn, dark: room.light(now) <= 0.01, unlistedForMs: now - room.unlistedAt }, 0);
         if (!ok) room.readyToDismantleAt = 0;
@@ -648,12 +648,12 @@ export class Sim {
     this.compact(now);
   }
 
-  // =================================================================== mudança de sala
+  // =================================================================== room relocation
 
   /**
-   * Sem buracos entre as salas: quando uma vaga fica livre antes da última sala (um terminal fechou e a
-   * sala foi desmontada), a sala mais distante se muda para ela depois de COMPACT_DELAY_MS. Uma sala por
-   * vez, só sala pronta e com a sessão aberta; o prédio encolhe quando o endereço antigo é desmontado.
+   * Eliminates gaps between rooms: when a slot becomes vacant before the last room (terminal closed and
+   * room dismantled), the farthest room relocates to it after COMPACT_DELAY_MS. One room at a
+   * time, only ready rooms with open sessions; building shrinks when former address is dismantled.
    */
   private compact(now: number): void {
     const free = this.freeSlot();
@@ -672,10 +672,10 @@ export class Sim {
   }
 
   /**
-   * Muda a sala para outra vaga: ela é construída de novo lá (apagada; o primeiro a chegar acende a luz)
-   * e o endereço antigo vira uma sala fantasma que espera esvaziar, apaga e é desmontada. Os lugares
-   * mantêm os ids (cada um continua com a sua mesa, agora na sala nova); quem está sentado ou a caminho
-   * de um lugar da sala passa a usar o lugar equivalente da fantasma, levanta dali e vai andando.
+   * Moves room to another slot: reconstructed there (unlit; first arrival turns on light)
+   * and former address becomes ghost room waiting to empty, dims, and dismantles. Spot IDs
+   * are preserved (each occupant retains their desk, now in new room); anyone seated or en route
+   * to a spot uses the ghost equivalent, stands up, and walks over.
    */
   moveRoom(room: RoomState, slot: number, now: number): void {
     const before = room.layout;
@@ -688,7 +688,7 @@ export class Sim {
     ghost.lightOn = room.lightOn;
     ghost.lightAt = room.lightAt;
     this.rooms.set(ghostId, ghost);
-    // o layout é determinístico pela semente: o i-ésimo lugar da fantasma é o i-ésimo da sala antiga
+    // layout is deterministic by seed: i-th spot in ghost room corresponds to i-th spot in old room
     const alias = new Map<string, string>();
     before.spots.forEach((s, i) => {
       const g = ghostLayout.spots[i];
@@ -704,7 +704,7 @@ export class Sim {
     room.readyToDismantleAt = 0;
     room.version++;
     this.relayout();
-    // os lugares da fantasma não são de ninguém (nenhum passeio ou roda vai parar lá)
+    // ghost room spots belong to no one (no roaming or gathering stops there)
     for (const s of ghostLayout.spots) this.spots.reserve(s.id, GHOST_OWNER);
 
     for (const ch of this.chars.values()) {
@@ -714,8 +714,8 @@ export class Sim {
         ch.atSpot = alias.get(ch.atSpot)!;
         touched = true;
       }
-      // a caminho de um lugar, do interruptor ou de um canto da sala antiga: o plano fica velho (o passo que não
-      // pode ser interrompido termina no endereço antigo: senta na fantasma, mexe na luz da fantasma)
+      // en route to spot, switch, or corner of old room: plan becomes stale (uninterruptible
+      // step finishes at old address: sits in ghost room, toggles ghost room light)
       for (const step of ch.step ? [ch.step, ...ch.queue] : ch.queue) {
         if (step.t === 'enter' && alias.has(step.spot)) {
           step.spot = alias.get(step.spot)!;
@@ -743,7 +743,7 @@ export class Sim {
     return true;
   }
 
-  /** Personagens associados à sala (não saindo) + qualquer um fisicamente dentro dela. */
+  /** Characters assigned to room (not departing) + anyone physically inside bounds. */
   occupants(room: RoomState, except?: string): number {
     let n = 0;
     for (const c of this.chars.values()) {
@@ -753,14 +753,14 @@ export class Sim {
     return n;
   }
 
-  /** Quantos estão fisicamente dentro do retângulo da sala. */
+  /** Count physically inside room bounding box. */
   private physicallyInside(room: RoomState, except?: string): number {
     let n = 0;
     for (const c of this.chars.values()) if (!c.gone && c.id !== except && inRect(room.layout.rect, c.tx, c.ty)) n++;
     return n;
   }
 
-  /** Contas presentes e quadro kanban de cada sala. */
+  /** Active accounts and kanban board for each room. */
   private refreshRoomInfo(): void {
     for (const room of this.rooms.values()) {
       const accs = new Set<string>();
@@ -775,15 +775,15 @@ export class Sim {
     }
   }
 
-  // =================================================================== execução dos passos
+  // =================================================================== step execution
 
   private runCharacter(ch: Character, dt: number, now: number): void {
-    // animação
+    // animation
     ch.animT += dt * 1000;
     ch.updateLane(dt);
     if (ch.icon && now >= ch.iconUntil) ch.icon = null;
-    // "zzz" só enquanto dorme: quem levanta (uma roda chamou, festa na sala, um passeio) acordou, e o ícone não vai
-    // junto. O cochilo na mesa de quem está ocioso há muito tempo não muda o modo, então ninguém mais o apagaria.
+    // "zzz" only while asleep: standing up (called by gathering, party, roaming) wakes agent, icon does
+    // not follow. Desk nap for long-idle agents does not change mode, so nothing else would clear it.
     if (ch.icon === 'zzz' && ch.pose !== 'sleep') ch.icon = null;
     if (ch.mode === 'shell' && ch.shellSince && !this.visit) ch.shellStage = shellStage(now - ch.shellSince);
     if (!ch.step) {
@@ -807,7 +807,7 @@ export class Sim {
       }
       return;
     }
-    // fila vazia: decide o próximo plano ou descansa
+    // empty queue: evaluates next plan or rests
     if (now >= ch.thinkAt) {
       const planned = this.think(ch, now);
       if (!planned) ch.thinkAt = now + 400;
@@ -922,7 +922,7 @@ export class Sim {
       s.path = [];
       s.i = 0;
       if (!this.findPath(ch.tx, ch.ty, s.tx, s.ty, s.path)) {
-        // sem caminho (não deveria acontecer): teletransporta para não travar
+        // no path found (exceptional): teleport defensively to avoid getting stuck
         ch.placeAtTile(s.tx, s.ty);
         s.path.length = 0;
       }
@@ -993,7 +993,7 @@ export class Sim {
       }
       return false;
     }
-    // sai do elevador até o tile da frente
+    // steps out of elevator onto front approach tile
     const gx = spot.tx * TILE + FOOT_DX;
     const gy = spot.ty * TILE + FOOT_DY;
     const dx = gx - ch.x;
@@ -1063,7 +1063,7 @@ export class Sim {
     const ax = spot.tx * TILE + FOOT_DX;
     const ay = spot.ty * TILE + FOOT_DY;
     if (s.phase === 0) {
-      // entra pela porta (sobe um pouco) e some
+      // enters through doorway (steps up) and disappears
       const dx = spot.x - ch.x;
       const dy = spot.y - ch.y;
       const d = Math.hypot(dx, dy);
@@ -1155,14 +1155,14 @@ export class Sim {
     return s.t === 'go' || s.t === 'act' || s.t === 'until' || s.t === 'gather' || s.t === 'do';
   }
 
-  /** Descarta a fila (e sai da roda, se estiver numa). */
+  /** Discards queue (and leaves gathering circle if in one). */
   clearPlan(ch: Character): void {
     ch.queue.length = 0;
     ch.step = null;
     ch.thinkAt = 0;
     this.releaseTemp(ch);
-    // o passo 'do' que soltaria o interruptor foi descartado junto com a fila: sem isto a reserva
-    // vaza e ninguém mais acende (ou apaga) a luz da sala enquanto este personagem existir
+    // 'do' step releasing light switch was dropped with queue: without this, reservation
+    // departs and suppresses room light toggling while this character exists
     const room = this.rooms.get(ch.roomId);
     if (room && room.switchClaim === ch.id) room.switchClaim = null;
     if (ch.gathering) this.social.leave(ch, this.now);
@@ -1180,7 +1180,7 @@ export class Sim {
     return true;
   }
 
-  /** Decide o próximo plano. Retorna true se planejou algo. */
+  /** Decides next plan. Returns true if action was scheduled. */
   private think(ch: Character, now: number): boolean {
     if (ch.gone) return false;
     if (ch.mode === 'leave') return this.planLeave(ch, now);
@@ -1190,7 +1190,7 @@ export class Sim {
     this.assignHome(ch);
     if (!ch.homeSpot) return this.planOverflow(ch, room);
     ch.standTile = null;
-    // sala apagada: o primeiro a chegar acende a luz
+    // darkened room: first arrival turns on the light
     if (!room.lightOn && room.phase !== 'dismantling' && !this.switchClaimValid(room)) {
       room.switchClaim = ch.id;
       const sw = room.layout.spots.find((p) => p.kind === 'switch');
@@ -1219,7 +1219,7 @@ export class Sim {
         ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
       }
     }
-    // esperando um shell: só sai da mesa para uma roda (sozinho, fica na pipoca)
+    // waiting on shell: leaves desk solely for gatherings (solo stays eating popcorn)
     if (ch.mode === 'shell') {
       if (!ch.nextSocialAt) ch.nextSocialAt = now + idleSitMs(ch.rng, this.options().liveliness) * 1.3;
       if (now >= ch.nextSocialAt) {
@@ -1231,7 +1231,7 @@ export class Sim {
     return false;
   }
 
-  /** Agentes long-idle vagando para a sua respectiva dormitório para dormir. */
+  /** Long-idle agents roaming to respective dorm to sleep. */
   private goToDorm(ch: Character, now: number): boolean {
     const dormId = ch.info.provider === 'kilo' ? 'core:dorm_kilo' : 'core:dorm_antigravity';
     const dormSpot = [...this.spots.all()].find(
@@ -1251,7 +1251,7 @@ export class Sim {
     return true;
   }
 
-  /** Levantar/sair do lugar atual antes de andar. */
+  /** Stand up / vacate current spot before walking. */
   private pushLeave(ch: Character, steps: Step[]): void {
     if (ch.atSpot) steps.push({ t: 'exit' });
   }
@@ -1262,7 +1262,7 @@ export class Sim {
     const steps: Step[] = [];
     this.pushLeave(ch, steps);
     const dist = Math.abs(home.tx - ch.tx) + Math.abs(home.ty - ch.ty);
-    // quem acabou de chegar anda (a não ser que precise do usuário); depois corre se estiver longe
+    // newcomer walks (unless user attention needed); subsequently runs if far away
     const run = shouldRun(dist, ch.mode) && (!ch.arriving || ch.mode === 'wait');
     steps.push({ t: 'go', tx: home.tx, ty: home.ty, run, held }, { t: 'enter', spot: home.id });
     if (ch.mode === 'idle') steps.push({ t: 'do', fn: () => (ch.nextOutingAt = this.now + idleSitMs(ch.rng, this.options().liveliness)) });
@@ -1271,7 +1271,7 @@ export class Sim {
     return true;
   }
 
-  /** Sem sala ainda (aguardando slot): espera na recepção. */
+  /** Without room yet (awaiting slot): waits in reception. */
   private planLobby(ch: Character, room: RoomState | undefined): boolean {
     const t = this.lobbyTile(ch);
     ch.queue.push(
@@ -1282,8 +1282,8 @@ export class Sim {
   }
 
   /**
-   * Sala lotada (todos os lugares reservados): trabalha em pé dentro da própria sala, num canto
-   * livre, até vagar um lugar. Nunca fica rodando pela recepção.
+   * Crowded room (all seats reserved): works standing inside room in free corner
+   * until a seat frees up. Never paces endlessly around reception.
    */
   private planOverflow(ch: Character, room: RoomState): boolean {
     const stay = ch.standTile && !ch.atSpot && ch.tx === ch.standTile.x && ch.ty === ch.standTile.y && this.overflowFree(ch.tx, ch.ty, ch);
@@ -1294,13 +1294,13 @@ export class Sim {
     const steps: Step[] = [];
     this.pushLeave(ch, steps);
     const r = room.layout.rect;
-    // de frente para o meio da sala (onde estão as mesas)
+    // facing center of room (where desks are situated)
     const dir: Dir = facing(t.x * TILE, t.y * TILE, (r.x + 5) * TILE, (r.y + 6) * TILE);
     if (t.x !== ch.tx || t.y !== ch.ty || ch.atSpot) {
       const dist = Math.abs(t.x - ch.tx) + Math.abs(t.y - ch.ty);
       steps.push({ t: 'go', tx: t.x, ty: t.y, dir, run: shouldRun(dist, ch.mode) });
     }
-    // esperando um shell em pé: só a ampulheta (a pose de espera é sentada)
+    // waiting on shell while standing: display hourglass only (wait pose requires sitting)
     const pose = ch.mode === 'wait' ? 'raise_hand' : ch.mode === 'work' ? 'read' : 'stand';
     const held = ch.mode === 'work' ? 'laptop' : 'none';
     steps.push({ t: 'until', cond: () => this.hasFreeSeat(room, ch), minMs: 1500, maxMs: 12_000, pose, held, dir });
@@ -1312,7 +1312,7 @@ export class Sim {
     return !!chooseSeat(room.layout.spots, (id) => this.spots.isFree(id, ch.id), ch.info.kind);
   }
 
-  /** Tile livre para alguém ficar em pé (sem assento, sem spot e sem outra pessoa). */
+  /** Unoccupied tile for standing (no seat, no spot, and no other character). */
   private overflowFree(x: number, y: number, ch: Character, busy = this.busyTiles(ch.id)): boolean {
     const grid = this.building.grid;
     if (grid.get(x, y) !== FREE || busy.has(y * grid.w + x)) return false;
@@ -1320,7 +1320,7 @@ export class Sim {
     return true;
   }
 
-  /** Melhor tile livre da sala para trabalhar em pé: junto a paredes/móveis, longe da porta. */
+  /** Optimal room tile for standing work: along walls/furniture, away from door. */
   private overflowTile(ch: Character, room: RoomState): { x: number; y: number } | null {
     const grid = this.building.grid;
     const r = room.layout.rect;
@@ -1332,8 +1332,8 @@ export class Sim {
       for (let x = r.x + 1; x <= r.x + 14; x++) {
         if (!this.overflowFree(x, y, ch, busy)) continue;
         if (door && Math.abs(x - (door.x + door.w / 2 - 0.5)) <= 1.5 && Math.abs(y - (door.y + door.h / 2 - 0.5)) <= 2) continue;
-        // de costas para uma parede/móvel parece natural; espremido entre dois móveis ou colado em
-        // outra pessoa, não
+        // back against wall/furniture feels natural; squeezed between furniture or crowded against
+        // another agent does not
         const solidAt = (dx: number, dy: number) => grid.get(x + dx, y + dy) === BLOCKED;
         let crowd = 0;
         for (const [dx, dy] of [
@@ -1374,8 +1374,8 @@ export class Sim {
     ch.queue.push(
       { t: 'exit' },
       {
-        // em pé, virado para a porta, "explicando" a tarefa a quem chega ('raise_hand' e ✋ ficam
-        // reservados para quando o agente precisa do usuário)
+        // standing, facing door, "explaining" task to arrival ('raise_hand' and ✋ remain
+        // reserved for when agent requires user attention)
         t: 'until',
         cond: () => ![...this.chars.values()].some((c) => c.info.parentId === ch.id && c.arriving),
         minMs: 2600,
@@ -1458,7 +1458,7 @@ export class Sim {
     return true;
   }
 
-  /** Tile caminhável ao lado de alguém (evitando assentos e tiles ocupados), o mais próximo de quem vem. */
+  /** Walkable tile beside character (avoiding seats and occupied tiles), closest to approacher. */
   private besideTile(target: Character, from: Character): { x: number; y: number } {
     const grid = this.building.grid;
     const busy = this.busyTiles(from.id, target.id);
@@ -1487,7 +1487,7 @@ export class Sim {
     return best ?? grid.nearestWalkable(target.tx, target.ty) ?? { x: target.tx, y: target.ty };
   }
 
-  /** Tiles (índice y*w+x) onde há alguém parado ou indo parar, exceto `a` e `b`. */
+  /** Tiles (index y*w+x) where someone is standing or heading, excluding `a` and `b`. */
   busyTiles(a: string, b?: string): Set<number> {
     const w = this.building.grid.w;
     const out = new Set<number>();
@@ -1526,7 +1526,7 @@ export class Sim {
       water: !!this.spots.findFree('water', { by: ch.id }),
       bathroom: !!this.spots.findFree('stall', { by: ch.id }),
       lounge: LOUNGE_SEATS.some((k) => !!this.spots.findFree(k, { by: ch.id })),
-      // jogos e conversas são rodas (social/): aqui só o que se faz sozinho
+      // games and conversations are gatherings (social/): solo activities handled here
       pingpong: false,
       talk: false,
       window: !!this.spots.findFree('window', { by: ch.id }),
@@ -1610,7 +1610,7 @@ export class Sim {
       case 'mirror':
         return this.social.startSolo('mirror', ch, now);
       case 'phone': {
-        // senta num puff/sofá/banco e fica rolando o celular
+        // sits on pouf/sofa/bench browsing mobile phone
         const s = this.randomFree(PHONE_SEATS, ch);
         if (!s || !this.reserveTemp(ch, s)) return false;
         this.pushLeave(ch, steps);
@@ -1619,7 +1619,7 @@ export class Sim {
         break;
       }
       case 'window': {
-        // olhar pela janela ou dar uma conferida no quadro kanban da própria sala
+        // gaze out window or inspect room kanban board
         const board = rng() < 0.35 ? this.spots.findFree('whiteboard', { by: ch.id, filter: (p) => p.areaId === ch.roomId }) : null;
         const s = board ?? this.spots.findFree('window', { by: ch.id, rng });
         if (!s || !this.reserveTemp(ch, s)) return false;
@@ -1648,7 +1648,7 @@ export class Sim {
         break;
       }
       case 'snack': {
-        // máquina de snacks ou geladeira da copa
+        // snack vending machine or breakroom refrigerator
         const s = this.spots.findFree(rng() < 0.6 ? 'snack' : 'fridge', { by: ch.id, rng }) ?? this.spots.findFree('snack', { by: ch.id, rng });
         if (!s || !this.reserveTemp(ch, s)) return false;
         this.pushLeave(ch, steps);
@@ -1672,7 +1672,7 @@ export class Sim {
     return true;
   }
 
-  /** Volta para a mesa ao final de um passeio. */
+  /** Returns to desk upon completing a stroll. */
   pushHome(ch: Character, held: 'none' | 'coffee' | 'water'): void {
     const home = this.spots.get(ch.homeSpot);
     ch.queue.push({ t: 'do', fn: () => this.releaseTemp(ch) });
@@ -1681,12 +1681,12 @@ export class Sim {
     ch.queue.push({ t: 'do', fn: () => (ch.nextOutingAt = this.now + idleSitMs(ch.rng, this.options().liveliness)) });
   }
 
-  /** Pose de descanso quando não há passos (na mesa: digitando, pedindo atenção, sentado ou cochilando). */
+  /** Rest pose when idle without steps (at desk: typing, raising hand, sitting, or napping). */
   private restPose(ch: Character, now: number): void {
     const spot = ch.atSpot ? this.spots.get(ch.atSpot) : undefined;
     const atHome = !!spot && ch.atSpot === ch.homeSpot;
     if (!spot) {
-      // sem lugar (sala lotada): trabalha em pé com o notebook
+      // overflow (crowded room): works standing with laptop
       if (ch.mode === 'wait') ch.setPose('raise_hand');
       else if (ch.mode === 'work' && ch.standTile) ch.setPose('read', 'laptop');
       else ch.setPose('stand');
@@ -1714,11 +1714,11 @@ export class Sim {
   }
 
   /**
-   * Pose da espera de shell sentado na mesa, pela escalada (sim/shell.ts): pipoca, braços cruzados
-   * com giros na cadeira, bocejos sob a teia e, por fim, o cochilo. Sem alocação (roda por frame).
+   * Desk wait pose for shell jobs by escalation (sim/shell.ts): popcorn, crossed arms
+   * with chair spins, cobweb yawns, and ultimately napping. Allocation-free (runs per frame).
    */
   private shellPose(ch: Character, spot: SpotDef, now: number): void {
-    // visita: de braços cruzados olhando o terminal, sempre (a escalada depende de um tempo que não veio do mundo)
+    // visit: crossed arms watching terminal always (escalation requires timing not provided by world)
     if (this.visit) {
       ch.setPose('wait');
       return;
@@ -1729,7 +1729,7 @@ export class Sim {
         ch.setPose('wait', 'popcorn');
         return;
       case 'restless': {
-        // giro completo na cadeira (direções em sequência rápida), de braços cruzados
+        // complete chair spin (rapid directional cycle), with crossed arms
         ch.dir = spinDir(spinPhase(age, ch.info.seed), spot.dir);
         ch.setPose('wait');
         return;
@@ -1737,7 +1737,7 @@ export class Sim {
       case 'cobweb': {
         const yawn = yawnPhase(age, ch.info.seed);
         if (yawn >= 0) {
-          // bocejo: a cabeça pende e um 🥱 escapa
+          // yawn: head tilts and 🥱 appears
           if (now > ch.chatUntil) {
             ch.chatEmoji = '🥱';
             ch.chatUntil = now + 1300;
@@ -1754,23 +1754,23 @@ export class Sim {
 
   // =================================================================== visita
 
-  /** Ocioso há muito tempo (cochila na mesa, nem sempre aceita convite)? Na visita, nunca: o tempo não veio do mundo. */
+  /** Long idle (naps at desk, occasionally ignores invites)? In visits, never: timing not sent from world. */
   longIdle(ch: Character, now: number): boolean {
     return !this.visit && isLongIdle(ch.info.status, ch.info.statusSince, now);
   }
 
-  /** Os personagens desenhados: os agentes e, na visita, o visitante (por último). */
+  /** Characters rendered: agents and, during visits, visitor (ordered last). */
   *people(): IterableIterator<Character> {
     yield* this.chars.values();
     if (this.visitor && !this.visitor.gone) yield this.visitor;
   }
 
-  /** Um personagem desenhado pelo id (agente ou o visitante). */
+  /** Rendered character by ID (agent or visitor). */
   person(id: string): Character | undefined {
     return this.chars.get(id) ?? (this.visitor?.id === id ? this.visitor : undefined);
   }
 
-  /** Visita: o visitante surge no elevador da recepção e sai para o hall (null = tira o visitante). */
+  /** Visit: visitor spawns in reception elevator and steps into lobby (null = removes visitor). */
   setVisitor(info: AgentInfo | null, now: number): Character | null {
     const old = this.visitor;
     if (old) for (const e of this.elevators) e.release(old.id, now);
@@ -1800,14 +1800,14 @@ export class Sim {
     return ch;
   }
 
-  /** O visitante está no elevador (chegando ou saindo): não anda nem sai de novo. */
+  /** Visitor is inside elevator (entering or exiting): cannot walk or trigger duplicate exit. */
   get visitorBusy(): boolean {
     const v = this.visitor;
     if (!v || v.gone) return true;
     return v.leaving || [v.step, ...v.queue].some((s) => s?.t === 'elevOut' || s?.t === 'elevIn');
   }
 
-  /** Visita: o visitante anda até o tile (clique; o teclado cancela). */
+  /** Visit: visitor walks to tile (click navigation; keyboard input overrides). */
   visitorWalkTo(tx: number, ty: number, run = false): boolean {
     const v = this.visitor;
     if (!v || this.visitorBusy) return false;
@@ -1817,7 +1817,7 @@ export class Sim {
     return true;
   }
 
-  /** O elevador perto do visitante (a até EXIT_RADIUS tiles da frente), ou null: dali ele sai do prédio. */
+  /** Elevator near visitor (within EXIT_RADIUS tiles of approach tile), or null: used to exit building. */
   visitorElevator(): Elevator | null {
     const v = this.visitor;
     if (!v || this.visitorBusy) return null;
@@ -1829,7 +1829,7 @@ export class Sim {
     return null;
   }
 
-  /** Visita: o visitante entra no elevador mais perto e some; `done` quando a porta fecha (a cena manda o `leave`). */
+  /** Visit: visitor enters nearest elevator and disappears; `done` when door closes (scene dispatches `leave`). */
   visitorExit(done: () => void): boolean {
     const v = this.visitor;
     if (!v || this.visitorBusy) return false;
@@ -1851,8 +1851,8 @@ export class Sim {
   }
 
   /**
-   * Luzes da visita (veja VisitLight): apagado, as salas sem ninguém escuras; discreto, as salas prontas acesas. Ao vivo,
-   * nada (quem chega acende, o último a sair apaga). `instant`: sem a transição (a entrada no prédio).
+   * Visit lights (see VisitLight): away dims empty rooms; discreet keeps finished rooms lit. Live mode does
+   * nothing (first arrival turns on lights, last exit turns them off). `instant`: skips transition (building entry).
    */
   applyVisitLight(now: number, instant = false): void {
     if (!this.visit || this.visitLight === 'live') return;
@@ -1865,7 +1865,7 @@ export class Sim {
     }
   }
 
-  /** Visita: o teclado anda livre (com colisão); senão, o passo da fila (elevador, caminho do clique). */
+  /** Visit: keyboard provides free movement (with collision); otherwise queue step (elevator, click path). */
   private runVisitor(v: Character, dt: number, now: number): void {
     v.animT += dt * 1000;
     if (v.icon && now >= v.iconUntil) v.icon = null;
@@ -1902,7 +1902,7 @@ export class Sim {
 
   // =================================================================== aba oculta
 
-  /** Avança tudo instantaneamente para os destinos (usado ao voltar de uma aba oculta). */
+  /** Fast-forwards all entities to destinations immediately (used when returning from hidden tab). */
   fastForward(now: number): void {
     this.now = now;
     for (const room of this.rooms.values()) {
@@ -1955,7 +1955,7 @@ export class Sim {
       room.switchClaim = null;
     }
     this.stallBusy.clear();
-    // o visitante termina o que fazia: chega ao hall ou, saindo, entra no elevador (e a saída acontece)
+    // visitor completes active step: reaches lobby or, if exiting, enters elevator (and departure executes)
     const v = this.visitor;
     if (v) {
       for (let guard = 0; guard < 10; guard++) {

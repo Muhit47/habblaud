@@ -42,7 +42,7 @@ describe('computeInsets', () => {
     const phone: PanelGeometry = { ...desktop, vw: 390, vh: 844, topBottom: 108, drawerLeft: 8, drawerTop: 346, drawerSheet: true, feedOpenH: 371, feedMargin: 8 };
     const ins = computeInsets(phone, { sidebar: false, feed: false, drawer: true, narrow: true });
     expect(ins).toEqual({ top: 108 + g, left: 0, right: 0, bottom: 844 - 346 + g });
-    // A faixa livre acima da folha continua utilizável.
+    // Unobstructed margin above document remains clickable.
     expect(844 - ins.top - ins.bottom).toBeGreaterThanOrEqual(MIN_FREE);
   });
 

@@ -1,10 +1,10 @@
-// Habblaud World na interface, parte pura (sem DOM): quando a janela do World e os popups de lançamento
-// aparecem, a máquina de estados da seção, as regras de senha, nome de jogador e traços e o texto de cada erro. São
-// conferências de antemão, para responder na hora: quem decide é o servidor (o nome, por exemplo, ainda passa pela
-// lista de palavras bloqueadas, que só ele tem). Também o cartão "Seu prédio" (Fase 2): estado, contagens, motivo de
-// uma remessa recusada, o chip da barra do topo e quando o tema vai para o mundo. Fase 6: a tela "Conta e dados" (aviso
-// de inatividade, baixar os dados, excluir a conta), o recurso por e-mail (conta suspensa ou banida, prédio "não
-// verificado") e a manutenção do mundo. A interface fica em settings-world.ts, building.ts, world-chip.ts e
+// Habblaud World in the UI, pure part (DOM-free): when the World window and launch popups
+// appear, section state machine, password rules, player name and traits, and error text. These are
+// client-side advance checks for immediate feedback: the server decides (e.g. name still goes through
+// blocked words list that only it has). Also the "Your building" card (Phase 2): state, counts, reason for
+// a rejected payload, top bar chip, and when theme goes to world. Phase 6: "Account and data" screen (inactivity
+// notice, downloading data, deleting account), email appeal (suspended/banned account, "unverified"
+// building), and world maintenance. UI lives in settings-world.ts, building.ts, world-chip.ts, and
 // world-popups.ts.
 import { PART_KEYS, type AppearanceParts } from '../../../../shared/appearance';
 import type { Appearance } from '../../art/api';
@@ -19,24 +19,24 @@ import { isIntroId } from '../../../../shared/world/intro';
 import { parsePlayerName, type PlayerNameProblem } from '../../../../shared/world/names-rules';
 import { tr } from '../../../../shared/i18n';
 
-// ------------------------------------------------------------------ quando aparece
+// ------------------------------------------------------------------ when shown
 
 /**
- * - hidden: nada do World (sem `meta.world`, `enabled: false`, sem servidor do World configurado, que é o padrão:
- *   o recurso fica desligado e nada aparece; ou a página do celular pela porta remota);
- * - local_only: aberto por outro endereço ou sem a trava do terminal: as rotas da conta respondem 403;
- * - active: dá para criar conta, entrar, editar o personagem...
+ * - hidden: no World (without `meta.world`, `enabled: false`, without configured World server which is default:
+ *   feature is disabled and nothing appears; or mobile page via remote port);
+ * - local_only: opened through another address or without terminal lock: account routes respond 403;
+ * - active: can register account, log in, edit character...
  */
 export type WorldSectionMode = 'hidden' | 'local_only' | 'active';
 
 export interface WorldGate {
-  /** Página do celular (porta remota com login). */
+  /** Mobile page (remote port with login). */
   remote: boolean;
-  /** Página aberta pelo próprio computador (Host local). */
+  /** Page opened by the local machine (local host). */
   local: boolean;
-  /** meta.terminal: o Habblaud só é acessível pelo próprio computador (a trava das ações da conta). */
+  /** meta.terminal: Habblaud is only accessible locally (the lock for account actions). */
   terminal: boolean;
-  /** Modo demonstração com o FakeWorldApi: sem servidor, nenhuma trava vale. */
+  /** Demo mode with FakeWorldApi: no server, no locks apply. */
   fake: boolean;
 }
 
@@ -46,36 +46,36 @@ export function worldSectionMode(meta: WorldMeta | undefined, gate: WorldGate): 
   return 'active';
 }
 
-// ------------------------------------------------------------------ os popups de lançamento (world-popups.ts)
+// ------------------------------------------------------------------ launch popups (world-popups.ts)
 
 /**
- * O personagem já foi criado? O servidor local só põe `scene` (e `building`) no meta.world com a conta liberada e o
- * personagem criado (server/world/service.ts: `hasBuilding`); o modo demonstração faz o mesmo. Antes disso o meta não
- * diz nada do personagem (o snapshot vai ao celular e à linha do tempo), e é isso que basta aqui.
+ * Has character been created? Local server only puts `scene` (and `building`) in meta.world with approved account and
+ * created character (server/world/service.ts: `hasBuilding`); demo mode does the same. Before that meta does not
+ * specify anything about character (snapshot goes to mobile and timeline), and that suffices here.
  */
 export function hasCharacter(meta: WorldMeta | undefined): boolean {
   return !!meta && (meta.scene !== undefined || meta.building !== undefined);
 }
 
-/** Chave do cartão de convite antigo (até a 0.11): só o valor `never` ("Não mostrar de novo") continua valendo. */
+/** Key for legacy invite card (up to 0.11): only `never` ("Do not show again") value remains valid. */
 export const INVITE_SEEN_KEY = 'habblaud:world-invite-seen';
-/** Popup de lançamento: JSON `{shown, last}` (quantas vezes apareceu e quando foi a última, em ms) ou `never`. */
+/** Launch popup: JSON `{shown, last}` (how many times shown and when was last, in ms) or `never`. */
 export const LAUNCH_KEY = 'habblaud:world-launch';
-/** Popup "Você está na lista de espera": `1` depois de aparecer. */
+/** Popup "You are on the waitlist": `1` after being shown. */
 export const WAITLIST_SEEN_KEY = 'habblaud:world-waitlist-seen';
-/** Popup "Acesso liberado!": `1` depois de aparecer. */
+/** Popup "Access granted!": `1` after being shown. */
 export const APPROVED_SEEN_KEY = 'habblaud:world-approved-seen';
 
-/** "Agora não": o popup de lançamento volta depois de 3 dias... */
+/** "Not now": launch popup returns after 3 days... */
 export const LAUNCH_RETURN_MS = 3 * 24 * 60 * 60 * 1000;
-/** ...e aparece no máximo 3 vezes no total (a primeira e dois lembretes). */
+/** ...and appears at most 3 times in total (first time and two reminders). */
 export const LAUNCH_MAX_SHOWS = 3;
 
 export type WorldPopupKind = 'launch' | 'waitlist' | 'approved';
 
-/** O que este navegador já viu dos popups (localStorage; sem ele, vale só para a página). */
+/** What this browser has seen of popups (localStorage; without it, page-scoped). */
 export interface WorldPopupMemory {
-  /** Lançamento: quantas vezes apareceu e quando foi a última; `never` = "Não mostrar de novo" ou conta criada. */
+  /** Launch: times shown and last timestamp; `never` = "Do not show again" or account created. */
   launch: { shown: number; last: number } | 'never' | null;
   waitlistSeen: boolean;
   approvedSeen: boolean;
@@ -83,13 +83,13 @@ export interface WorldPopupMemory {
 
 export interface WorldPopupDecision {
   show: WorldPopupKind | null;
-  /** A memória depois desta leitura (com o popup contado), ou null se nada muda. */
+  /** Memory after this evaluation (with popup counted), or null if unchanged. */
   memory: WorldPopupMemory | null;
 }
 
 export const EMPTY_POPUP_MEMORY: WorldPopupMemory = { launch: null, waitlistSeen: false, approvedSeen: false };
 
-/** Lê a memória dos popups das chaves cruas (a antiga `never` vale como "nunca"; `shown` não bloqueia o lançamento novo). */
+/** Reads popup memory from raw keys (legacy `never` counts as "never"; `shown` does not block new launch). */
 export function parsePopupMemory(raw: { launch: string | null; legacy: string | null; waitlist: string | null; approved: string | null }): WorldPopupMemory {
   let launch: WorldPopupMemory['launch'] = null;
   if (raw.launch === 'never' || raw.legacy === 'never') launch = 'never';
@@ -100,13 +100,13 @@ export function parsePopupMemory(raw: { launch: string | null; legacy: string | 
         launch = { shown: Math.max(0, Math.floor(v.shown)), last: Math.max(0, v.last) };
       }
     } catch {
-      // valor torto: como se nunca tivesse aparecido
+      // malformed value: treat as never shown
     }
   }
   return { launch, waitlistSeen: raw.waitlist !== null, approvedSeen: raw.approved !== null };
 }
 
-/** O que gravar em cada chave (null = apagar). */
+/** What to write to each key (null = delete). */
 export function serializePopupMemory(m: WorldPopupMemory): { launch: string | null; waitlist: string | null; approved: string | null } {
   return {
     launch: m.launch === 'never' ? 'never' : m.launch ? JSON.stringify(m.launch) : null,
@@ -116,13 +116,13 @@ export function serializePopupMemory(m: WorldPopupMemory): { launch: string | nu
 }
 
 /**
- * Qual popup do Habblaud World mostrar agora (um só por vez, pelo estado da conta), e o que gravar na memória:
- * - launch: sem conta ("Novidade: Habblaud World"); volta a cada 3 dias até 3 vezes, ou nunca mais depois de
- *   "Não mostrar de novo" ou de uma conta criada (qualquer estado diferente de `logged_out` grava `never`);
- * - waitlist: na lista de espera, uma vez por navegador (logo depois do cadastro ou ao abrir a página já na espera);
- * - approved: acesso liberado e personagem ainda não criado, uma vez por navegador.
- * Só pelo próprio computador com o servidor do World configurado; nunca no timelapse, no modo demonstração ou pela
- * porta do celular. A memória é gravada quando o popup aparece (fechar a página com ele aberto conta).
+ * Which Habblaud World popup to display now (one at a time, depending on account state), and what to save in memory:
+ * - launch: without account ("What's new: Habblaud World"); returns every 3 days up to 3 times, or never again after
+ *   "Do not show again" or an account is created (any state other than `logged_out` saves `never`);
+ * - waitlist: on waitlist, once per browser (right after registration or when opening page while waiting);
+ * - approved: access granted and character not yet created, once per browser.
+ * Only on local computer with World server configured; never in timelapse, demo mode, or via
+ * mobile port. Memory is saved when the popup appears (closing page while open counts).
  */
 export function nextWorldPopup(meta: WorldMeta | undefined, gate: WorldGate & { replaying: boolean }, memory: WorldPopupMemory, now: number): WorldPopupDecision {
   if (gate.fake || gate.replaying || worldSectionMode(meta, gate) !== 'active' || !meta) return { show: null, memory: null };
@@ -132,7 +132,7 @@ export function nextWorldPopup(meta: WorldMeta | undefined, gate: WorldGate & { 
     if (l && (l.shown >= LAUNCH_MAX_SHOWS || now - l.last < LAUNCH_RETURN_MS)) return { show: null, memory: null };
     return { show: 'launch', memory: { ...memory, launch: { shown: (l?.shown ?? 0) + 1, last: now } } };
   }
-  // Com conta (na espera ou liberada), o lançamento nunca mais aparece.
+  // With account (on waitlist or approved), launch popup never appears again.
   const base: WorldPopupMemory = memory.launch === 'never' ? memory : { ...memory, launch: 'never' };
   const changed = base !== memory;
   if (meta.state === 'waiting' && !memory.waitlistSeen) return { show: 'waitlist', memory: { ...base, waitlistSeen: true } };
@@ -140,36 +140,36 @@ export function nextWorldPopup(meta: WorldMeta | undefined, gate: WorldGate & { 
   return { show: null, memory: changed ? base : null };
 }
 
-// ------------------------------------------------------------------ máquina de estados da seção
+// ------------------------------------------------------------------ section state machine
 
 export type WorldScreen =
-  // sem conta (state 'logged_out')
+  // without account (state 'logged_out')
   | 'welcome'
   | 'register'
   | 'login'
   | 'verify'
   | 'forgot'
   | 'reset'
-  // com conta ('waiting' ou 'approved')
+  // with account ('waiting' or 'approved')
   | 'home'
   | 'character'
   | 'visibility'
   | 'devices'
-  // "Conta e dados" (Fase 6): aviso de inatividade, baixar os dados e excluir a conta
+  // "Account and data" (Phase 6): inactivity warning, download data, and delete account
   | 'account'
-  // Bloqueados (Fase 5): quem você bloqueou, para desbloquear
+  // Blocked (Phase 5): blocked users to unblock
   | 'blocked';
 
-/** Aviso curto no topo da seção depois de uma ação (some na próxima navegação). */
+/** Short flash notice at the top of section after an action (dismissed on next navigation). */
 export type WorldFlash = 'code_sent' | 'code_resent' | 'password_changed' | 'signed_out' | 'character_saved' | 'device_revoked';
 
 export interface WorldUi {
-  /** Estado da conta segundo o último GET /api/world/status (antes dele, o do snapshot). */
+  /** Account state according to latest GET /api/world/status (before it, from snapshot). */
   server: WorldServerState | null;
   screen: WorldScreen;
-  /** E-mail digitado: passa do cadastro para o código, do "esqueci a senha" para a senha nova e para o login. */
+  /** Entered email: passes from register to code, forgot-password to new password and login. */
   email: string;
-  /** Nome de jogador digitado no cadastro: volta preenchido se a pessoa voltar da tela do código. */
+  /** Player name entered during registration: preserved if returning from code screen. */
   name: string;
   flash: WorldFlash | null;
 }
@@ -177,19 +177,19 @@ export interface WorldUi {
 export type WorldUiEvent =
   | { type: 'server'; state: WorldServerState }
   | { type: 'go'; screen: WorldScreen }
-  /** Cadastro aceito (com o nome de jogador reservado) ou login de e-mail ainda não confirmado: o código foi para o e-mail. */
+  /** Registration accepted (with reserved player name) or unconfirmed email login: code sent to email. */
   | { type: 'code_sent'; email: string; name?: string }
-  /** "Esqueci a senha": o código da senha nova foi para o e-mail. */
+  /** "Forgot password": reset code sent to email. */
   | { type: 'reset_code_sent'; email: string }
   | { type: 'password_changed' }
-  /** Entrou (código confirmado ou login): o aviso da tela de entrada não vale mais. */
+  /** Signed in (code confirmed or login): entry screen notice no longer applies. */
   | { type: 'signed_in' }
   | { type: 'flash'; flash: WorldFlash };
 
 const SIGNED_OUT: readonly WorldScreen[] = ['welcome', 'register', 'login', 'verify', 'forgot', 'reset'];
 const SIGNED_IN: readonly WorldScreen[] = ['home', 'character', 'visibility', 'devices', 'account', 'blocked'];
 
-/** Telas possíveis em cada estado da conta (a primeira é a de entrada). */
+/** Possible screens in each account state (the first is entry screen). */
 export function screensFor(state: WorldServerState): readonly WorldScreen[] {
   if (state === 'waiting' || state === 'approved') return SIGNED_IN;
   if (state === 'logged_out') return SIGNED_OUT;
@@ -200,7 +200,7 @@ export function initialWorldUi(): WorldUi {
   return { server: null, screen: 'welcome', email: '', name: '', flash: null };
 }
 
-/** A tela continua valendo para o estado da conta? Senão, volta para a de entrada (ex.: saiu da conta → boas-vindas). */
+/** Is screen still valid for account state? If not, returns to entry screen (e.g. logged out -> welcome). */
 function fit(s: WorldUi): WorldUi {
   if (!s.server) return s;
   const allowed = screensFor(s.server);
@@ -227,7 +227,7 @@ export function worldReduce(s: WorldUi, e: WorldUiEvent): WorldUi {
   }
 }
 
-// ------------------------------------------------------------------ e-mail, código e senha
+// ------------------------------------------------------------------ email, code and password
 
 export function normalizeEmail(raw: string): string {
   return raw.normalize('NFC').trim();
@@ -238,7 +238,7 @@ export function emailLooksValid(raw: string): boolean {
   return e.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
 
-/** Código do e-mail: só os dígitos do que foi digitado ou colado ("123 456" vale). */
+/** Email verification code: only digits from entered or pasted text ("123 456" is valid). */
 export function normalizeCode(raw: string): string {
   return raw.replace(/\D/g, '').slice(0, 6);
 }
@@ -253,8 +253,8 @@ export const PASSWORD_MAX = 128;
 export type PasswordProblem = 'short' | 'long' | 'email' | 'repeated';
 
 /**
- * Regras da senha que dá para conferir sem o servidor: de 12 a 128 caracteres (em NFC), diferente do e-mail e que não
- * seja só repetição ("aaaaaaaaaaaa", "abcabcabcabc"). A lista de senhas vazadas quem confere é o servidor.
+ * Password rules verifiable client-side: 12 to 128 characters (NFC), not matching email, and not
+ * purely repetitive ("aaaaaaaaaaaa", "abcabcabcabc"). Leaked password checking is done by server.
  */
 export function passwordProblem(password: string, email = ''): PasswordProblem | null {
   const p = password.normalize('NFC');
@@ -281,10 +281,10 @@ export function passwordProblemText(p: PasswordProblem): string {
   }
 }
 
-// ------------------------------------------------------------------ nome de jogador
+// ------------------------------------------------------------------ player name
 
-// Regras e chave de unicidade: shared/world/names-rules.ts (as mesmas do servidor do mundo, menos a lista de palavras
-// bloqueadas, que só ele tem). Aqui fica só o texto de cada motivo.
+// Rules and uniqueness key: shared/world/names-rules.ts (same as world server, except blocked words
+// list which only it has). Here we only have user-facing text for each reason.
 
 export function nameProblemText(p: PlayerNameProblem): string {
   switch (p) {
@@ -304,13 +304,13 @@ export function nameProblemText(p: PlayerNameProblem): string {
   }
 }
 
-// ------------------------------------------------------------------ traços
+// ------------------------------------------------------------------ traits
 
-// Ids, rótulos, pares que não combinam e a validação da escolha: shared/world/traits.ts (os mesmos do servidor).
+// IDs, labels, clashing pairs and selection validation: shared/world/traits.ts (same as server).
 
 /**
- * Dá para marcar o traço `t` com os já escolhidos? Os escolhidos sempre dá (para desmarcar); os outros não quando já
- * há 3 ou quando não combinam com um deles (`with` diz qual).
+ * Can trait `t` be toggled given current selections? Selected can always be toggled (to deselect); others cannot
+ * when 3 are already picked or when clashing with an existing one (`with` specifies which).
  */
 export function traitBlock(selected: readonly TraitId[], t: TraitId): { reason: 'full' } | { reason: 'clash'; with: TraitId } | null {
   if (selected.includes(t)) return null;
@@ -320,25 +320,25 @@ export function traitBlock(selected: readonly TraitId[], t: TraitId): { reason: 
   return null;
 }
 
-/** Marca ou desmarca (sem efeito se o traço estiver bloqueado). */
+/** Toggles selection (no effect if trait is blocked). */
 export function toggleTrait(selected: readonly TraitId[], t: TraitId): TraitId[] {
   if (selected.includes(t)) return selected.filter((s) => s !== t);
   return traitBlock(selected, t) ? [...selected] : [...selected, t];
 }
 
-/** 2 ou 3 traços conhecidos, sem repetição e sem pares que não combinam (parsePlayerTraits, a regra do servidor). */
+/** 2 or 3 known traits, non-repeating and without clashing pairs (parsePlayerTraits, server rule). */
 export function traitsValid(traits: readonly unknown[]): traits is TraitId[] {
   return parsePlayerTraits(traits) !== null;
 }
 
-// ------------------------------------------------------------------ personagem
+// ------------------------------------------------------------------ character
 
-/** Semente fixa do rascunho: o jogador não tem semente (vale o `parts` completo), então ela só dá o ponto de partida. */
+/** Fixed draft seed: player has no seed (full `parts` applies), so this only provides starting point. */
 export const PLAYER_DRAFT_SEED = 0x5eed;
 
 /**
- * Todas as peças da aparência (as 13 de PART_KEYS). O personagem do mundo vai sem semente: um `parts` parcial seria
- * completado de outro jeito em cada lugar que o desenha.
+ * All appearance parts (the 13 in PART_KEYS). World character is sent without seed: a partial `parts` would
+ * be filled differently in each place rendering it.
  */
 export function fullParts(a: Appearance): AppearanceParts {
   const full: Record<string, string> = {};
@@ -349,14 +349,14 @@ export function fullParts(a: Appearance): AppearanceParts {
   return full as AppearanceParts;
 }
 
-/** Aparência de partida do editor: a do personagem salvo (peças por cima da semente fixa) ou um sorteio. */
+/** Initial editor appearance: saved character (parts overlaid on fixed seed) or randomized. */
 export function draftAppearance(look: 'f' | 'm', parts?: AppearanceParts, seed = PLAYER_DRAFT_SEED): Appearance {
   return appearanceFromSeed(seed, { look, parts });
 }
 
 export type CharacterProblem = { field: 'name'; problem: PlayerNameProblem } | { field: 'traits' } | { field: 'intro' };
 
-/** O que falta para salvar o personagem (o primeiro problema), ou null. */
+/** What is missing to save character (first problem found), or null. */
 export function characterProblem(d: { name: string; traits: readonly TraitId[]; intro: string | null }): CharacterProblem | null {
   const name = parsePlayerName(d.name);
   if (!name.ok) return { field: 'name', problem: name.problem };
@@ -365,7 +365,7 @@ export function characterProblem(d: { name: string; traits: readonly TraitId[]; 
   return null;
 }
 
-// ------------------------------------------------------------------ visibilidade
+// ------------------------------------------------------------------ visibility
 
 export const DEFAULT_VISIBILITY: Readonly<WorldVisibility> = {
   mode: 'live',
@@ -377,47 +377,47 @@ export const DEFAULT_VISIBILITY: Readonly<WorldVisibility> = {
   knocks: false,
 };
 
-/** Os interruptores da tela de visibilidade (o aviso de inatividade fica em "Conta e dados"). */
+/** Visibility screen toggles (inactivity notice is in "Account and data"). */
 export type VisibilitySwitch = Exclude<keyof WorldVisibility, 'mode' | 'notifyInactivity'>;
 
-/** Ordem dos interruptores na tela. */
+/** Switch order on screen. */
 export const VISIBILITY_SWITCHES: readonly VisibilitySwitch[] = ['closed', 'hideCountry', 'tokensVisible', 'leaderboard', 'compactions', 'knocks'];
 
-// ------------------------------------------------------------------ conta e dados (Fase 6)
+// ------------------------------------------------------------------ account and data (Phase 6)
 
-/** O aviso por e-mail antes de retirar o prédio por inatividade está ligado? Sem a informação, o padrão da conta: sim. */
+/** Is email notice before removing inactive building enabled? Missing info defaults to: yes. */
 export function notifyInactivityOn(v: Pick<WorldVisibility, 'notifyInactivity'> | undefined): boolean {
   return v?.notifyInactivity !== false;
 }
 
-/** Nome do arquivo de "Baixar meus dados" (o mesmo do anexo de GET /api/world/export). */
+/** Filename for "Download my data" (matching GET /api/world/export attachment). */
 export const EXPORT_FILENAME = 'habblaud-world-dados.json';
 
-/** Para onde vão os recursos (conta suspensa ou banida, prédio "não verificado") e os pedidos sobre os dados. */
+/** Destination for appeals (suspended/banned account, "unverified" building) and data requests. */
 export const APPEAL_EMAIL = 'privacidade@habblaud.com';
 
-/** Assunto fixo do recurso (em português: é o filtro da caixa de quem atende), com o id da conta quando se sabe. */
+/** Fixed appeal subject (in Portuguese: inbox filter for support), with account ID when known. */
 export const APPEAL_SUBJECT = 'Recurso Habblaud World';
 
-/** O link "Recorrer por e-mail": mailto para APPEAL_EMAIL com o assunto e, se houver, o id da conta. */
+/** Link "Appeal via email": mailto to APPEAL_EMAIL with subject and account ID if available. */
 export function appealMailto(accountId?: string): string {
   const id = accountId && /^[A-Za-z0-9_-]{1,64}$/.test(accountId) ? accountId : '';
   return `mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(id ? `${APPEAL_SUBJECT} ${id}` : APPEAL_SUBJECT)}`;
 }
 
-/** O selo de um prédio marcado como "não verificado" (WorldBuildingPublic.unverified), para o cartão da cidade. */
+/** Badge for building marked as "unverified" (WorldBuildingPublic.unverified), for city card. */
 export function unverifiedLabel(): string {
   return tr('Não verificado');
 }
 
-/** O que o selo quer dizer, para quem vê o prédio na cidade (dica do selo no cartão). */
+/** What badge means for viewers in city (badge tooltip on card). */
 export function unverifiedHint(): string {
   return tr('Os números deste prédio pareceram fora do normal e estão em revisão; enquanto isso, ele fica fora de placares e destaques.');
 }
 
-// ------------------------------------------------------------------ erros
+// ------------------------------------------------------------------ errors
 
-/** O que a interface estava fazendo: o mesmo código ("invalid") quer dizer coisas diferentes em cada ação. */
+/** What UI action was being performed: same code ("invalid") has different meanings per action. */
 export type WorldAction =
   | 'status'
   | 'register'
@@ -437,21 +437,21 @@ export type WorldAction =
   | 'leave'
   | 'sent'
   | 'theme'
-  /** Um comando da cena Mundo (POST /api/world/cmd) recusado pelo servidor local. */
+  /** World scene command (POST /api/world/cmd) rejected by local server. */
   | 'scene'
-  /** "Baixar meus dados" (GET /api/world/export). */
+  /** "Download my data" (GET /api/world/export). */
   | 'export'
-  /** "Excluir conta" (pedir o código ou confirmar). */
+  /** "Delete account" (request code or confirm). */
   | 'delete'
-  /** O aviso de inatividade (PUT /api/world/visibility). */
+  /** Inactivity notice (PUT /api/world/visibility). */
   | 'inactivity'
-  /** Fase 5: "Enquanto você estava fora" visto e Desbloquear. */
+  /** Phase 5: "While you were away" viewed and Unblock. */
   | 'summary'
   | 'unblock';
 
 /**
- * Texto de um erro (o `message` do servidor, em inglês, nunca aparece). O switch cobre todo WorldErrorCode (o
- * compilador cobra um texto para cada código novo); um código que esta versão não conhece leva o texto genérico.
+ * Error text (server `message`, in English, is never displayed directly). Switch covers all WorldErrorCode (the
+ * compiler enforces text for every new code); unrecognized codes receive fallback generic text.
  */
 export function worldErrorText(raw: WorldErrorCode | string, action: WorldAction): string {
   const code: WorldErrorCode = isWorldKnownErrorCode(raw) || raw === 'offline' || raw === 'forbidden' ? raw : 'unknown';
@@ -556,12 +556,12 @@ export function worldErrorText(raw: WorldErrorCode | string, action: WorldAction
   }
 }
 
-// ------------------------------------------------------------------ prédio no mundo (Fase 2)
+// ------------------------------------------------------------------ building in world (Phase 2)
 
 /**
- * Estado do cartão "Seu prédio" (conta aprovada). Sem personagem o prédio não entra no mundo; fora do mundo ("Sair do
- * mundo") e pausado valem mais do que a conexão (nos dois nenhum pacote sobe); depois, uma parada pedida pelo servidor do
- * mundo (`stopped`, com o motivo); sem conexão aberta, o Habblaud está conectando ou tentando de novo.
+ * "Your building" card state (approved account). Without character, building does not enter world; left world ("Leave
+ * world") and paused take precedence over connection (in both no packets uplink); next, server-requested stop
+ * (`stopped`, with reason); without open connection, Habblaud is connecting or retrying.
  */
 export type BuildingState = 'connected' | 'reconnecting' | 'paused' | 'stopped' | 'left' | 'no_player';
 
@@ -573,7 +573,7 @@ export function buildingState(b: WorldBuildingStatus | undefined, hasPlayer: boo
   return b?.connected ? 'connected' : 'reconnecting';
 }
 
-/** O que o cartão diz quando o servidor do mundo parou o prédio (`goodbye`), por motivo. */
+/** What card displays when world server stopped the building (`goodbye`), by reason. */
 export function buildingStopView(reason: WorldBuildingStop): { label: string; desc: string; toggle: BuildingView['toggle'] } {
   switch (reason) {
     case 'update':
@@ -604,12 +604,12 @@ export function buildingStopView(reason: WorldBuildingStop): { label: string; de
 }
 
 /**
- * Motivos com que o servidor do mundo recusa uma remessa (`uplink.ack {error}`, UPLINK_ACK_ERRORS do protocolo); um
- * código que esta versão não conhece chega como `internal` (net/world.ts) e um fora da lista vira o genérico.
+ * Reasons world server rejects an uplink payload (`uplink.ack {error}`, protocol UPLINK_ACK_ERRORS); codes
+ * unknown to this version arrive as `internal` (net/world.ts) and anything outside list becomes generic fallback.
  */
 export const UPLINK_REJECT_CODES = UPLINK_ACK_ERRORS;
 
-/** Por que o mundo recusou a remessa, em uma frase. */
+/** Why world rejected uplink payload, in a single sentence. */
 export function uplinkRejectText(code: string | undefined): string {
   switch (code) {
     case 'schema':
@@ -637,67 +637,67 @@ export function uplinkRejectText(code: string | undefined): string {
 
 export interface BuildingView {
   state: BuildingState;
-  /** Selo do estado ("Conectado", "Pausado"...). */
+  /** State label ("Connected", "Paused"...). */
   label: string;
-  /** O que o estado quer dizer, em uma ou duas frases. */
+  /** What state means, in one or two sentences. */
   desc: string;
-  /** "2 andares", "3 agentes", "Última remessa: há 12 s" (vazio sem personagem). */
+  /** "2 floors", "3 agents", "Last uplink: 12 s ago" (empty without character). */
   stats: string[];
-  /** Motivo da recusa da última remessa (null: aceita ou sem resposta ainda). */
+  /** Reason last uplink was rejected (null: accepted or awaiting response). */
   rejected: string | null;
-  /** Texto do botão de pausa e a explicação dele (null: sem botão). */
+  /** Pause button text and explanation (null: no button). */
   toggle: { action: 'pause' | 'resume' | 'join'; text: string; hint: string } | null;
-  /** Mostra "Sair do mundo" (há um prédio no mundo para retirar). */
+  /** Displays "Leave world" (active building exists in world to withdraw). */
   leave: boolean;
-  /** O prédio está marcado como "não verificado" (o que isso quer dizer, para o dono), ou null. */
+  /** Building marked as "unverified" (what this means for owner), or null. */
   unverified: string | null;
-  /** "Recorrer por e-mail" (conta suspensa ou banida) ou "Contestar por e-mail" (não verificado), ou null. */
+  /** "Appeal via email" (suspended/banned account) or "Contest via email" (unverified), or null. */
   appeal: { text: string; hint: string } | null;
 }
 
-/** O que o cartão sabe além do prédio: a manutenção do mundo (o último /v1/me respondeu 503 `maintenance`). */
+/** What card knows beyond building: world maintenance status (latest /v1/me returned 503 `maintenance`). */
 export interface BuildingViewOptions {
   maintenance?: boolean;
 }
 
-/** "Recorrer por e-mail", com a explicação ao lado. */
+/** "Appeal via email", with explanation beside it. */
 function appealFor(kind: 'appeal' | 'contest'): { text: string; hint: string } {
   return kind === 'appeal'
     ? { text: tr('Recorrer por e-mail'), hint: tr('Abre um e-mail para {0}: conte o que aconteceu, e uma pessoa revê o caso.', [APPEAL_EMAIL]) }
     : { text: tr('Contestar por e-mail'), hint: tr('Abre um e-mail para {0}: se for engano, uma pessoa revê os números e tira o selo.', [APPEAL_EMAIL]) };
 }
 
-/** "1 byte", "1.174 bytes". */
+/** "1 byte", "1,174 bytes". */
 export function bytesText(n: number): string {
   return n === 1 ? tr('1 byte') : tr('{0} bytes', [formatInt(n)]);
 }
 
-/** "1 andar", "3 andares". */
+/** "1 floor", "3 floors". */
 export function floorsText(n: number): string {
   return n === 1 ? tr('1 andar') : tr('{0} andares', [formatInt(n)]);
 }
 
-/** "1 agente", "3 agentes". */
+/** "1 agent", "3 agents". */
 export function agentsText(n: number): string {
   return n === 1 ? tr('1 agente') : tr('{0} agentes', [formatInt(n)]);
 }
 
-/** "1 visitante agora", "3 visitantes agora". */
+/** "1 visitor now", "3 visitors now". */
 export function visitorsText(n: number): string {
   return n === 1 ? tr('1 visitante agora') : tr('{0} visitantes agora', [formatInt(n)]);
 }
 
 /**
- * O aviso "Alguém entrou no seu prédio": uma vez por conexão, quando a contagem de visitantes (meta.world.building
- * .visitors) passa de nenhum a algum. Sem contagem (a conexão caiu, fechado a visitas), o aviso se rearma. A primeira
- * contagem que esta página vê não avisa (a visita já estava lá antes de abrir a página).
+ * "Someone entered your building" alert: once per connection, when visitor count (meta.world.building
+ * .visitors) transitions from zero to non-zero. Without count (connection lost, closed to visits), alert re-arms.
+ * Initial count seen on page load does not alert (visitor was already present before opening).
  */
 export interface VisitorAlertState {
-  /** Já viu uma contagem (ou a falta dela) nesta página. */
+  /** Seen a count (or lack of one) on this page. */
   started: boolean;
-  /** A última contagem (undefined: sem contagem). */
+  /** Last count (undefined: no count). */
   last: number | undefined;
-  /** Já avisou nesta conexão. */
+  /** Already alerted on this connection. */
   notified: boolean;
 }
 
@@ -712,10 +712,10 @@ export function nextVisitorAlert(s: VisitorAlertState, visitors: number | undefi
   return { state: { started: true, last: n, notified: s.notified || arrived }, notify };
 }
 
-/** Tudo o que o cartão "Seu prédio" mostra, sem DOM. */
+/** Everything "Your building" card displays, pure data without DOM. */
 export function buildingView(b: WorldBuildingStatus | undefined, hasPlayer: boolean, now: number, opts: BuildingViewOptions = {}): BuildingView {
   const v = buildingViewBase(b, hasPlayer, now, opts);
-  // Suspensa ou banida: o recurso por e-mail. Não verificado (e o prédio ainda no mundo): o selo e a contestação.
+  // Suspended or banned: email appeal. Unverified (and building still in world): badge and contest link.
   if (v.state === 'stopped' && (b?.stopped === 'banned' || b?.stopped === 'suspended')) return { ...v, appeal: appealFor('appeal') };
   if (b?.unverified && v.state !== 'stopped' && v.state !== 'left' && v.state !== 'no_player') {
     return {
@@ -778,7 +778,7 @@ function buildingViewBase(b: WorldBuildingStatus | undefined, hasPlayer: boolean
     case 'reconnecting': {
       const connected = state === 'connected';
       const first = !b?.lastUplinkAt;
-      // Sem conexão e o mundo em manutenção (503 `maintenance`): o Habblaud tenta de novo com espera.
+      // Without connection and world under maintenance (503 `maintenance`): Habblaud retries with backoff.
       const maintenance = !connected && !!opts.maintenance;
       return {
         state,
@@ -800,7 +800,7 @@ function buildingViewBase(b: WorldBuildingStatus | undefined, hasPlayer: boolean
   }
 }
 
-/** A diferença entre pausar e sair do mundo (PLANO.md, seção 2.6), ao lado do botão "Sair do mundo". */
+/** Difference between pausing and leaving world (PLANO.md, section 2.6), beside "Leave world" button. */
 export function leaveHint(): string {
   return tr(
     'Pausar apaga o prédio e guarda o lote: retomar traz de volta, no mesmo lugar. Sair do mundo retira o prédio na hora e libera o lote; a conta e o personagem continuam, e voltar depois cria um prédio novo, em outro lote.',
@@ -810,8 +810,8 @@ export function leaveHint(): string {
 export type AckKind = 'accepted' | 'rejected' | 'pending';
 
 /**
- * A resposta do mundo a uma remessa, para a janela "Ver o que foi enviado". Aceita, com os bytes que o mundo contou
- * (iguais aos enviados, `sentBytes`, quando o pacote chegou inteiro).
+ * World server response to uplink payload, for "View sent payload" modal. Accepted, with bytes counted by world
+ * (matching `sentBytes` when payload arrived intact).
  */
 export function ackView(ack: WorldLastUplink['ack'], sentBytes?: number): { kind: AckKind; label: string; reason: string | null } {
   if (!ack) return { kind: 'pending', label: tr('Sem resposta do mundo ainda.'), reason: null };
@@ -823,14 +823,14 @@ export function ackView(ack: WorldLastUplink['ack'], sentBytes?: number): { kind
   return { kind: 'rejected', label: tr('Recusada pelo mundo.'), reason: uplinkRejectText(ack.error) };
 }
 
-/** O pacote como a janela mostra: o mesmo objeto que foi para o fio, só com recuo (2 espaços). */
+/** Payload formatted for modal view: same object sent over wire, indented with 2 spaces. */
 export function prettyUplink(uplink: WorldUplink): string {
   return JSON.stringify(uplink, null, 2);
 }
 
 /**
- * A escolha de Aparência › Tema do escritório também vai para o prédio (PUT /api/world/theme)? Só com o World ligado,
- * a conta aprovada e a página onde dá para mexer na conta (a rota é só local).
+ * Is Appearance › Office theme selection synced to building (PUT /api/world/theme)? Only with World enabled,
+ * account approved, and on page where account settings are editable (route is local only).
  */
 export function themeGoesToWorld(meta: WorldMeta | undefined, gate: WorldGate): boolean {
   return worldSectionMode(meta, gate) === 'active' && meta?.state === 'approved';
@@ -839,9 +839,9 @@ export function themeGoesToWorld(meta: WorldMeta | undefined, gate: WorldGate): 
 export type WorldChipState = 'live' | 'paused' | 'reconnecting' | 'stopped';
 
 /**
- * Chip da barra do topo ("🏙️ no mundo" / "⏸ pausado" / "⚠️ parado"): só com `meta.world.building` (conta aprovada) e
- * nunca pela porta do celular. Fora do mundo, nada. Parado pelo servidor do mundo, "parado" (o motivo fica no cartão).
- * Sem conexão, só aparece se o prédio já mandou alguma remessa (antes disso não está no mundo).
+ * Top bar status chip ("🏙️ in world" / "⏸ paused" / "⚠️ stopped"): only with `meta.world.building` (approved account)
+ * and never via mobile port. If left world, null. Stopped by world server, "stopped" (reason shown in card).
+ * Without active connection, only appears if building has previously sent an uplink (before that, not in world).
  */
 export function worldChipState(meta: WorldMeta | undefined, gate: WorldGate): WorldChipState | null {
   const b = meta?.building;

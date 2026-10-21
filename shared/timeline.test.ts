@@ -60,15 +60,15 @@ function snap(agents: AgentInfo[], rooms: RoomInfo[] = [room('/p/loja')], accoun
   return { rev: 1, serverTime: T0, rooms, agents, accounts, meta: { demo: false, sources: [], startedAt: T0, version: 't' } };
 }
 
-/** Frame -> objeto comparável (Maps viram listas ordenadas). */
+/** Frame -> comparable object (Maps become sorted lists). */
 const plain = (f: TimelineFrame) => ({
   rooms: [...f.rooms.values()].sort((a, b) => a.id.localeCompare(b.id)),
   agents: [...f.agents.values()].sort((a, b) => a.id.localeCompare(b.id)),
   accounts: [...f.accounts.values()].sort((a, b) => a.id.localeCompare(b.id)),
 });
 
-describe('timeline: dias', () => {
-  it('chave do dia local, validação estrita e aritmética de calendário', () => {
+describe('timeline: days', () => {
+  it('local day key, strict validation, and calendar arithmetic', () => {
     expect(dayKey(T0)).toBe('2026-10-07');
     expect(dayKey(new Date(2026, 0, 1, 0, 0, 1).getTime())).toBe('2026-01-01');
     expect(isDayKey('2026-10-07')).toBe(true);
@@ -83,8 +83,8 @@ describe('timeline: dias', () => {
   });
 });
 
-describe('timeline: resumo do snapshot', () => {
-  it('só os campos de desenho: sem tarefas, números, detalhe do comando nem e-mail da conta', () => {
+describe('timeline: snapshot summary', () => {
+  it('rendering fields only: no tasks, stats, command details, or account email', () => {
     const a = agent('.claude:1', {
       waitingFor: 'aprovar uma permissão',
       activity: { id: 'x', kind: 'run', icon: '💻', text: 'Rodando npm test', detail: 'npm test -- --token=***', tool: 'Bash', at: T0 + 5 },
@@ -111,8 +111,8 @@ describe('timeline: resumo do snapshot', () => {
   });
 });
 
-describe('timeline: ferramenta (provider)', () => {
-  it('copia provider de agente e conta (ausente = Claude Code) e volta igual', () => {
+describe('timeline: tool provider', () => {
+  it('copies provider of agent and account (absent = Claude Code) and round-trips identically', () => {
     const cx = agent('.codex:t1', { provider: 'codex', account: '.codex' });
     const acc: AccountInfo = { ...account('.codex'), provider: 'codex', usage: { source: 'codex', fetchedAt: T0, noQuota: true } };
     const f = compactSnapshot(snap([cx, agent('.claude:1')], [room('/p/loja')], [account('.claude'), acc]));
@@ -128,7 +128,7 @@ describe('timeline: ferramenta (provider)', () => {
 });
 
 describe('timeline: deltas', () => {
-  it('diferença aplicada sobre o estado anterior reconstrói o novo', () => {
+  it('difference applied on top of previous state reconstructs the new state', () => {
     const before = compactSnapshot(
       snap([agent('.claude:1', { waitingFor: 'responder', status: 'waiting' }), agent('.claude:2', { name: 'Caio', roomId: '/p/api' })], [room('/p/loja'), room('/p/api', 1)]),
     );
@@ -144,7 +144,7 @@ describe('timeline: deltas', () => {
     );
     const d = diffFrames(before, after)!;
     expect(d).not.toBeNull();
-    // Agente alterado: só o que mudou (waitingFor some com null); o novo vem completo; o que saiu, null.
+    // Modified agent: only changes (waitingFor clears with null); new agent is complete; removed agent is null.
     const byId = new Map(d.agents!);
     expect(byId.get('.claude:1')).toEqual({ status: 'idle', statusSince: T0 + 9, activity: { kind: 'done', icon: '✅', text: 'Concluiu', at: T0 + 9 }, waitingFor: null });
     expect(byId.get('s:sub')).toMatchObject({ id: 's:sub', kind: 'sub', parentId: '.claude:1', name: 'Luan' });
@@ -156,26 +156,26 @@ describe('timeline: deltas', () => {
     const old = frame.agents.get('.claude:1')!;
     applyChanges(frame, JSON.parse(JSON.stringify(d)));
     expect(plain(frame)).toEqual(plain(after));
-    // O objeto antigo não foi alterado (snapshots já entregues continuam valendo).
+    // Old object was not mutated (already delivered snapshots remain valid).
     expect(old.status).toBe('waiting');
     expect(old.waitingFor).toBe('responder');
   });
 
-  it('sem mudança no que o player desenha = sem delta', () => {
+  it('no change in what player renders = no delta', () => {
     const a = compactSnapshot(snap([agent('.claude:1')]));
     const b = compactSnapshot(snap([agent('.claude:1', { stats: { toolCalls: 99, tokensIn: 1, tokensOut: 1, subagents: 0 }, lastEventAt: T0 + 50 })]));
     expect(diffFrames(a, b)).toBeNull();
   });
 
-  it('patch de agente desconhecido incompleto (linha perdida) é ignorado', () => {
+  it('incomplete patch for unknown agent (lost line) is ignored', () => {
     const frame = frameOf(keyframeOf(compactSnapshot(snap([])), T0, 300_000));
     applyChanges(frame, { agents: [['fantasma', { status: 'idle' }]] });
     expect(frame.agents.size).toBe(0);
   });
 });
 
-describe('timeline: leitura do arquivo', () => {
-  it('ignora linhas inválidas e segura o relógio que voltou', () => {
+describe('timeline: file parsing', () => {
+  it('ignores invalid lines and clamps backward clock', () => {
     const k = keyframeOf(compactSnapshot(snap([agent('.claude:1')])), T0, 300_000, true);
     const text = [
       JSON.stringify(k),
@@ -192,7 +192,7 @@ describe('timeline: leitura do arquivo', () => {
     expect(recs.map((r) => r.at)).toEqual([T0, T0 + 2000, T0 + 2000, T0 + 4000]);
   });
 
-  it('resumo -> AgentInfo/AccountInfo completos para o mundo e a interface', () => {
+  it('summary -> full AgentInfo/AccountInfo for world and interface', () => {
     const c = compactAgent(agent('.claude:1', { activity: { id: 'z', kind: 'edit', icon: '✏️', text: 'Editando App.tsx', at: T0 + 7 } }));
     const a = toAgentInfo(c);
     expect(a).toMatchObject({ id: '.claude:1', sessionId: '.claude:1', tasks: [], stats: { toolCalls: 0 }, lastEventAt: T0 + 7 });
@@ -203,7 +203,7 @@ describe('timeline: leitura do arquivo', () => {
     expect(acc.configDir).toBe('');
   });
 
-  it('parts do personagem editado vão e voltam; agente sem parts continua sem', () => {
+  it('edited character parts round-trip; agent without parts remains without', () => {
     const parts = { skin: '#5a3623', hairStyle: 'bob' } as const;
     const c = compactAgent(agent('.claude:1', { parts }));
     expect(c.parts).toEqual(parts);

@@ -1,10 +1,9 @@
-// Chip do Habblaud World na barra do topo, ao lado da versão: "🏙️ no mundo" com o prédio aceso, "⏸ pausado",
-// "reconectando…" quando a conexão caiu e "⚠️ parado" quando o servidor do mundo parou o prédio. Só com
-// `meta.world.building` (conta aprovada; fora do mundo, nada) e nunca no celular pela porta remota (worldChipState).
-// Um clique abre a janela do Habblaud World, onde estão o cartão "Seu prédio", a pausa e o motivo de uma parada.
-// Com gente visitando o prédio, "👀 N" ao lado; o primeiro visitante de cada conexão ainda dá o aviso "Alguém entrou
-// no seu prédio" (desligável na janela do Habblaud World).
-// Fase 5: com o prédio aceso, "❤️ 3 hoje" (os likes que o prédio recebeu hoje), que pula quando chega um novo.
+// Habblaud World top bar chip (beside version): "🏙️ in world" when live, "⏸ paused",
+// "reconnecting…" on connection drop, and "⚠️ halted" when server stops building. Requires
+// `meta.world.building` (approved account; hidden otherwise) and local host access (worldChipState).
+// Clicking opens Habblaud World dialog ("Your building" card, pause toggle, halt reason).
+// Displays "👀 N" when visitors are present; first visitor per session alerts "Someone entered your building".
+// Phase 5: displays "❤️ 3 today" (daily likes), bumping subtly on increment.
 import type { Notice } from '../../../../shared/types';
 import { tr } from '../../../../shared/i18n';
 import type { WorldSource } from '../../net/world';
@@ -30,7 +29,7 @@ export class WorldChip implements UiComponent {
     private readonly ctx: UiContext,
     private readonly src: WorldSource,
     open: () => void,
-    /** O aviso "Alguém entrou no seu prédio" (os toasts da interface). */
+    /** "Someone entered your building" toast dispatcher. */
     private readonly notify?: (n: Notice) => void,
   ) {
     this.icon = h('span', { class: 'ui-world-chip__icon', attrs: { 'aria-hidden': 'true' } });
@@ -43,7 +42,7 @@ export class WorldChip implements UiComponent {
   render(): void {
     const meta = this.src.meta();
     const state = worldChipState(meta, worldGate(this.ctx, this.src));
-    // visitantes no prédio: o aviso do primeiro de cada conexão (fora do mundo ou sem conta, sem contagem)
+    // building visitors: alert on first visitor per session (omitted if out of world or accountless)
     const count = state ? meta?.building?.visitors : undefined;
     const next = nextVisitorAlert(this.alert, count, this.ctx.prefs.worldVisitNotify);
     this.alert = next.state;
@@ -70,7 +69,7 @@ export class WorldChip implements UiComponent {
     const full = likes ? `${title} ${likes.title}` : title;
     setTitle(this.el, full);
     setAttr(this.el, 'aria-label', full);
-    // um like novo: o coração pula
+    // new like received: animate heart bump
     const n = b?.likesToday ?? 0;
     if (likes && this.lastLikes !== null && n > this.lastLikes && !prefersReducedMotion()) {
       this.likes.classList.remove('is-bump');

@@ -1,6 +1,6 @@
-// docs/world/privacidade.md é a lista do que sai do computador: todo campo do pacote do prédio (schema.json) e da
-// primeira mensagem da conexão (`hello`) tem de estar citado lá, entre crases. Campo novo no pacote sem a página
-// atualizada derruba este teste (regra 3 de shared/world/README.md).
+// docs/world/privacidade.md is the exhaustive list of data leaving machine: every field from building payload (schema.json)
+// and initial connection handshake (`hello`) must be documented there inside backticks. New field in payload without updated
+// documentation breaks this test (rule 3 of shared/world/README.md).
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';

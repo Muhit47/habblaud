@@ -1,6 +1,6 @@
-// Nomes de sala escolhidos pelo usuário (botão direito > Renomear), persistidos por pasta em <dataDir>/rooms.json.
-// Sem apelido, a sala usa o nome da pasta (model/rooms.ts roomDisplayNames); `defaults` dá nomes fixos a pastas
-// conhecidas (a pasta de assets aparece como "Arquiteto").
+// User-assigned room names (right-click > Rename), persisted per directory in <dataDir>/rooms.json.
+// Without an alias, room uses directory name (model/rooms.ts roomDisplayNames); `defaults` gives fixed names
+// to known folders (e.g. assets folder displays as "Architect").
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { errMsg, log } from '../log';
@@ -8,7 +8,7 @@ import { tr } from '../../shared/i18n';
 
 export const ROOM_NAME_MAX = 40;
 
-/** Chave comparável de um caminho (barras normais, sem barra final, sem diferença de maiúsculas). */
+/** Comparable path key (standard forward slashes, no trailing slash, case-insensitive). */
 export function pathKey(p: string): string {
   return p.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 }
@@ -17,7 +17,7 @@ export class RoomAliases {
   private aliases = new Map<string, string>();
   private readonly defaults = new Map<string, string>();
 
-  /** `file` null = só em memória (testes). */
+  /** `file` null = in-memory only (tests). */
   constructor(private readonly file: string | null) {}
 
   load(): void {
@@ -30,7 +30,7 @@ export class RoomAliases {
     }
   }
 
-  /** Nome fixo para uma pasta quando o usuário não escolheu outro. */
+  /** Fixed fallback name for directory when user has not configured custom name. */
   setDefault(path: string, name: string): void {
     this.defaults.set(pathKey(path), name);
   }
@@ -40,7 +40,7 @@ export class RoomAliases {
     return this.aliases.get(k) ?? this.defaults.get(k);
   }
 
-  /** Define o nome da sala da pasta; vazio volta ao padrão. Devolve o nome em uso. */
+  /** Sets room name for directory; empty string reverts to default. Returns active name. */
   set(path: string, name: string): string | undefined {
     const k = pathKey(path);
     const clean = name.replace(/\s+/g, ' ').trim().slice(0, ROOM_NAME_MAX);

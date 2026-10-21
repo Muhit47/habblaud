@@ -1,28 +1,28 @@
-// A cena Mundo no navegador (Fase 3): o stream da cidade (GET /api/world/stream, SSE) e os comandos do jogador
-// (POST /api/world/cmd), mais um FakeWorldStream para o modo demonstração (?mock=1&world=approved&scene=city) e os
-// testes. A cena usa só `createWorldStream({mock})`:
+// The World scene in the browser (Phase 3): city stream (GET /api/world/stream, SSE) and player commands
+// (POST /api/world/cmd), plus a FakeWorldStream for demo mode (?mock=1&world=approved&scene=city) and
+// tests. The scene only uses `createWorldStream({mock})`:
 //
 //   const ws = createWorldStream({ mock: store.mock });
-//   const off = ws.on((ev) => { ... });   // 'snapshot' (troca o estado inteiro), 'message' (aplica na ordem), 'status'
-//   ws.send([{ t: 'move', x, y, dir, moving }]);  // fila: um lote a cada 200 ms, só o último move de cada lote
-//   ws.close();                                    // fecha o SSE (o servidor local manda `view.off` se era o último)
+//   const off = ws.on((ev) => { ... });   // 'snapshot' (replaces entire state), 'message' (applies in order), 'status'
+//   ws.send([{ t: 'move', x, y, dir, moving }]);  // queue: one batch every 200 ms, only the last move per batch
+//   ws.close();                                    // closes SSE (local server sends `view.off` if it was the last)
 //
-// O servidor local já conferiu o `rev` dos patches e descartou o que não é da cena: o navegador aplica cada `message`
-// na ordem em que chega (a cena usa client/src/world/city/state.ts, a partir do snapshot). O servidor do mundo nunca é
-// chamado daqui, e o token nunca chega à página.
+// The local server has already verified the `rev` of patches and discarded what does not belong to the scene: the browser applies each `message`
+// in the order it arrives (scene uses client/src/world/city/state.ts, starting from snapshot). The world server is never
+// called from here, and the token never reaches the page.
 //
-// A cidade falsa (só dados fictícios, nada do escritório): 20 prédios nos primeiros lotes da espiral, o meu no lote
-// (3,1) com a porta na calçada sul (onde eu nasço, como o servidor faz), 5 pessoas dando a volta nos quarteirões e uma
-// sentada num banco da praça, um prédio mudando a cada 3 s e o `afk` depois de 60 s sem andar; `?perf=N` enche N lotes.
-// Visita (Fase 4): `enter` na porta (a até 3 tiles, como o servidor; o meu prédio de qualquer lugar) responde com o
-// interior de exemplo (shared/world/visit-sample.ts: ao vivo, discreto ou apagado, conforme o prédio), um
-// `building.patch` a cada 3 s (agentes trocando de status) e a contagem de visitantes; fechado a visitas, `closed`;
-// longe, `too_far`. Lá dentro, nada da rua desce; `leave` responde o `pos` na porta e as áreas de novo.
-// O social leve (Fase 5), com as regras do servidor: like a até 4 passos da porta (nunca no meu), carimbo e bater a até
-// 2 (like e carimbo também de dentro do prédio), um carimbo por prédio por dia (com o `stamped`, como o `blocked_ok` e
-// o `reported` do bloqueio e da denúncia), os bots se cumprimentando (e respondendo a quem os cumprimenta), bloquear tira a
-// pessoa da rua, "Ir para HB-XXXX" e o prédio aleatório, a meta da cidade a 80 % e, com `celebrate()` (o botão de teste
-// de `?fireworks=1`), os fogos.
+// The fake city (mock data only, nothing from the office): 20 buildings in the first spiral lots, mine in lot
+// (3,1) with door on south sidewalk (where I spawn, as the server does), 5 people walking around blocks and one
+// sitting on a park bench, one building changing every 3 s and `afk` after 60 s without walking; `?perf=N` fills N lots.
+// Visit (Phase 4): `enter` at the door (up to 3 tiles, like the server; my building from anywhere) responds with
+// sample interior (shared/world/visit-sample.ts: live, muted, or off, depending on building), a
+// `building.patch` every 3 s (agents changing status) and visitor count; closed to visits, `closed`;
+// far, `too_far`. Inside, nothing from the street descends; `leave` responds with `pos` at the door and areas again.
+// Light social (Phase 5), with server rules: like up to 4 steps from door (never on mine), stamp and knock up to
+// 2 (like and stamp also from inside building), one stamp per building per day (with `stamped`, like `blocked_ok` and
+// `reported` for blocking and reporting), bots greeting each other (and replying to whoever greets them), blocking removes
+// person from the street, "Go to HB-XXXX" and random building, city goal at 80 %, and with `celebrate()` (test button
+// for `?fireworks=1`), fireworks.
 import type { WorldSceneCommand, WorldSceneMe, WorldSceneMessage, WorldSceneSnapshot } from '../../../shared/world/api';
 import { WORLD_SCENE_LIMITS, WORLD_SCENE_MESSAGES } from '../../../shared/world/api';
 import { flattenAppearance } from '../../../shared/world/appearance-flat';
@@ -63,14 +63,14 @@ import { FAKE_SUMMARY } from './world';
 
 export type { WorldSceneCommand, WorldSceneMessage, WorldSceneSnapshot } from '../../../shared/world/api';
 
-/** connecting: abrindo (ou o navegador tentando de novo); open: snapshot recebido; retrying: esperando para reabrir. */
+/** connecting: opening (or browser retrying); open: snapshot received; retrying: waiting to reopen. */
 export type WorldStreamStatus = 'connecting' | 'open' | 'retrying' | 'closed';
 
 export type WorldStreamEvent =
   | { type: 'snapshot'; snapshot: WorldSceneSnapshot }
   | { type: 'message'; msg: WorldSceneMessage }
   | { type: 'status'; status: WorldStreamStatus }
-  /** Um lote de comandos recusado pelo servidor local (`no_stream`, `not_connected`, `invalid`...). */
+  /** A command batch rejected by local server (`no_stream`, `not_connected`, `invalid`...). */
   | { type: 'error'; code: string };
 
 export interface WorldStream {
@@ -79,16 +79,16 @@ export interface WorldStream {
   close(): void;
 }
 
-/** Um lote a cada 200 ms (o servidor local aceita 5 por segundo por stream). */
+/** One batch every 200 ms (local server accepts 5 per second per stream). */
 export const CMD_BATCH_MS = 200;
-/** Comandos guardados na fila enquanto o stream não abre (fora o último move). */
+/** Commands queued while stream is not open (except the last move). */
 const QUEUE_MAX = WORLD_SCENE_LIMITS.cmdsPerBatch - 1;
-/** EventSource.CLOSED (o EventSource não existe no Node dos testes). */
+/** EventSource.CLOSED (EventSource does not exist in Node test environment). */
 const ES_CLOSED = 2;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-/** Junta comandos novos à fila: o último move substitui os anteriores; o resto, até o teto (os mais velhos saem). */
+/** Merges new commands into queue: latest move replaces previous ones; remainder up to limit (oldest dropped). */
 export function enqueueCommands(queue: readonly WorldSceneCommand[], cmds: readonly WorldSceneCommand[]): WorldSceneCommand[] {
   const all = reduceSceneBatch([...queue, ...cmds]);
   const others: WorldSceneCommand[] = all.filter((c) => c.t !== 'move');
@@ -142,7 +142,7 @@ export class HttpWorldStream implements WorldStream {
   private retryTimer: unknown = null;
   private inflight = false;
   private lastPostAt = -Infinity;
-  /** Espera pedida pelo servidor local (429). */
+  /** Delay requested by local server (429). */
   private holdUntil = 0;
   private attempts = 0;
   private closed = false;
@@ -216,8 +216,8 @@ export class HttpWorldStream implements WorldStream {
     });
     es.addEventListener('error', () => {
       if (!current()) return;
-      // CONNECTING: o navegador tenta de novo sozinho (e o servidor manda um snapshot novo, com outro id de stream).
-      // CLOSED: desistiu (429, 403, 409...): a reconexão fica por conta daqui, com espera crescente.
+      // CONNECTING: browser retries automatically (and server sends a new snapshot, with another stream id).
+      // CLOSED: gave up (429, 403, 409...): reconnection is handled here, with increasing backoff.
       this.stream = null;
       if (es.readyState === ES_CLOSED) {
         es.close();
@@ -240,7 +240,7 @@ export class HttpWorldStream implements WorldStream {
     }, delay);
   }
 
-  /** Um lote a cada CMD_BATCH_MS, um por vez, só com o stream aberto. */
+  /** One batch every CMD_BATCH_MS, one at a time, only when stream is open. */
   private schedule(): void {
     if (this.closed || this.flushTimer || this.inflight || !this.queue.length || !this.stream) return;
     const wait = Math.max(0, this.lastPostAt + CMD_BATCH_MS - this.now(), this.holdUntil - this.now());
@@ -280,7 +280,7 @@ export class HttpWorldStream implements WorldStream {
     this.inflight = false;
     if (this.closed) return;
     if (status === 429 && code === 'rate_limited') {
-      // Volta para a fila (o move mais novo, se houver, vale mais) e espera o que o servidor pediu.
+      // Returns to queue (newest move, if any, takes precedence) and waits as requested by server.
       this.queue = enqueueCommands(cmds, this.queue);
       this.holdUntil = this.now() + retryAfter * 1000;
     } else if (status < 200 || status >= 300) {
@@ -300,33 +300,33 @@ function parse(ev: Event): unknown {
 
 // ------------------------------------------------------------------------------------------------ o de mentira
 
-/** Cidade falsa (modo demonstração, capturas e testes): os mesmos eventos, sem servidor. Tudo sai do relógio dado. */
+/** Fake city (demo mode, screenshots, and tests): same events, without server. Everything runs off provided clock. */
 export interface FakeWorldStreamOptions {
   now?: () => number;
-  /** Anda sozinho (um passo a cada 200 ms) e entrega o snapshot no próximo microtask. Padrão: true. */
+  /** Advances automatically (one step every 200 ms) and delivers snapshot on next microtask. Default: true. */
   autoplay?: boolean;
-  /** Quantos prédios, nos primeiros lotes da espiral (padrão 20; `?perf=N` mede com centenas na tela; teto 2000). */
+  /** How many buildings in initial spiral lots (default 20; `?perf=N` benchmarks hundreds on screen; ceiling 2000). */
   buildings?: number;
   /**
-   * A última posição, entre um stream e o seguinte da mesma página (como o servidor guarda por conta no `view.off` ou
-   * na queda): quem fecha a cidade e volta nasce onde estava. Sem ela, nasce na porta do próprio prédio.
+   * Last position between consecutive streams on the same page (as server persists on `view.off` or
+   * disconnect): closing and reopening city spawns where user was. Without it, spawns at building door.
    */
   memory?: FakeStreamMemory;
 }
 
-/** O que o falso lembra entre streams da mesma página (`FakeWorldStreamOptions.memory`). */
+/** What the fake retains across streams on the same page (`FakeWorldStreamOptions.memory`). */
 export interface FakeStreamMemory {
   pos?: WorldPosition;
 }
 
 const DISTRICT = 'centro';
-/** Sem `move` por isto, o falso manda `afk` (como o servidor). */
+/** Without `move` for this duration, fake sends `afk` (like the server). */
 const FAKE_AFK_MS = 60_000;
-/** O servidor aceita o `enter` a até isto da frente da porta (2 tiles + 1 de folga). */
+/** Server accepts `enter` up to this distance in front of door (2 tiles + 1 tolerance). */
 const FAKE_ENTER_MAX = 3;
 /**
- * Status que os agentes do interior de exemplo vão trocando, um patch a cada 3 s (pelo número do patch, de 4 em 4; o
- * 4º de cada volta só muda os visitantes): o do exemplo, Beatriz responde, Thiago e Larissa voltam ao trabalho.
+ * Statuses that sample interior agents cycle through, one patch every 3 s (by patch index, modulo 4; the
+ * 4th of each cycle only updates visitors): sample status, Beatriz replies, Thiago and Larissa return to work.
  */
 const FAKE_STATUS_CYCLE: ReadonlyArray<Readonly<Record<string, WorldBuildingDetail['floors'][number]['agents'][number]['status']>>> = [
   {},
@@ -335,7 +335,7 @@ const FAKE_STATUS_CYCLE: ReadonlyArray<Readonly<Record<string, WorldBuildingDeta
   { Beatriz: 'working', Larissa: 'working', Thiago: 'working' },
 ];
 
-/** Eu na cidade falsa: o personagem da conta de exemplo do FakeWorldApi (net/world.ts), o das Configurações. */
+/** Me in the fake city: sample account character from FakeWorldApi (net/world.ts), same as in Settings. */
 export const FAKE_ME: WorldSceneMe = {
   id: 'p_voce',
   name: 'Pixel Dev',
@@ -350,13 +350,13 @@ export const FAKE_ME: WorldSceneMe = {
   country: 'BR',
   buildingId: 'p_voce',
 };
-/** O meu prédio é o 4º lote da espiral: (3,1), com a porta na calçada sul do quarteirão (1,0). */
+/** My building is the 4th spiral lot: (3,1), with door on south sidewalk of block (1,0). */
 const MY_LOT_INDEX = 3;
-/** O código do meu prédio na cidade falsa (o mesmo do FakeWorldApi). */
+/** My building code in the fake city (same as FakeWorldApi). */
 export const FAKE_MY_CODE = 'HB-4F2K';
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTVWXYZ';
 
-/** Código fictício e estável de cada lote da cidade falsa ("HB-" + 4 do alfabeto sem confusos). */
+/** Deterministic mock code for each fake city lot ("HB-" + 4 unambiguous alphabet chars). */
 export function fakeBuildingCode(i: number): string {
   let v = (Math.imul(i + 7, 2654435761) >>> 0) % CODE_ALPHABET.length ** 4;
   let out = '';
@@ -368,20 +368,20 @@ export function fakeBuildingCode(i: number): string {
   return code === FAKE_MY_CODE ? 'HB-7777' : code;
 }
 
-/** O código como alguém digitou, no formato canônico (ou null), como o servidor do mundo faz. */
+/** Building code as entered, in canonical format (or null), matching world server behavior. */
 function normalizeCode(raw: string): string | null {
   const s = raw.trim().toUpperCase().replace(/[\s_]+/g, '');
   const body = s.startsWith('HB-') ? s.slice(3) : s.startsWith('HB') && s.length === 6 ? s.slice(2) : s;
   return /^[2-9A-HJKMNP-TV-Z]{4}$/.test(body) ? `HB-${body}` : null;
 }
 
-/** Uma resposta que combina com o cumprimento (os bots respondem). */
+/** A response that matches the greeting (bots respond). */
 const REPLY: Readonly<Record<GreetingId, GreetingId>> = {
   hello: 'nice_to_meet', wave: 'hello', nice_building: 'thanks', congrats: 'thanks', clap: 'thanks', good_luck: 'thanks',
   coffee: 'coffee', bye: 'bye', thanks: 'clap', nice_to_meet: 'wave',
 };
 
-/** Donos fictícios (nomes de jogador inventados). */
+/** Mock owners (fictional player names). */
 const OWNERS: ReadonlyArray<readonly [string, string | undefined]> = [
   ['Ana Pixel', 'BR'], ['Bruno Byte', 'PT'], ['Camille Code', 'FR'], ['Diego Deploy', 'MX'], ['Emma Stack', 'US'],
   ['Felipe Fork', 'AR'], ['Gabi Git', 'BR'], ['Hiro Hash', 'JP'], ['Inês Infra', 'ES'], ['Jonas Json', 'DE'],
@@ -394,8 +394,8 @@ const TRAITS: readonly (readonly TraitId[])[] = [['games', 'piadas'], ['leitura'
 const INTROS: readonly IntroId[] = ['coffee', 'tabs', 'pixel_art', 'cats', 'ship_fast', 'music'];
 
 /**
- * Os 5 que andam (o quarteirão em volta do qual dão a volta, o sentido, a velocidade em tiles/s e onde começam) e o
- * dono de qual prédio cada um é (índice na espiral; o id do jogador é o do prédio). O 6º fica sentado num banco da praça.
+ * The 5 roaming players (block circled, direction, speed in tiles/s, start position) and which
+ * building each owns (spiral index; player id matches building id). The 6th sits on a park bench.
  */
 const WALKERS: ReadonlyArray<{ name: string; look: 'f' | 'm'; block: CityPoint; cw: boolean; speed: number; phase: number; owns?: number }> = [
   { name: 'Luna Loop', look: 'f', block: { x: 1, y: 0 }, cw: true, speed: 3.0, phase: 12, owns: 1 },
@@ -405,10 +405,10 @@ const WALKERS: ReadonlyArray<{ name: string; look: 'f' | 'm'; block: CityPoint; 
   { name: 'Yuki Yarn', look: 'f', block: { x: 0, y: 1 }, cw: true, speed: 5.6, phase: 25, owns: 13 },
 ];
 const SITTER = { name: 'Ravi Repo', look: 'm' as const };
-/** O país de cada um (o 4º não mostra). */
+/** Country code for each player (4th does not display). */
 const COUNTRY_OF_WALKER: readonly string[] = ['BR', 'US', 'FR', 'ES', 'JP', 'IN'];
 
-/** O meio da calçada em volta de um quarteirão (2 tiles de largura: o meio é a junta dos dois). */
+/** Center of sidewalk around a block (2 tiles wide: center is the seam between them). */
 function sidewalkLoop(block: CityPoint): { x0: number; y0: number; x1: number; y1: number; length: number } {
   const o = blockOrigin(block);
   const x0 = o.x - 1;
@@ -418,7 +418,7 @@ function sidewalkLoop(block: CityPoint): { x0: number; y0: number; x1: number; y
   return { x0, y0, x1, y1, length: 2 * (x1 - x0 + (y1 - y0)) };
 }
 
-/** Onde está quem anda `dist` tiles pela volta (sentido horário: leste, sul, oeste, norte). */
+/** Position of entity walking `dist` tiles around the loop (clockwise: east, south, west, north). */
 export function loopPosition(block: CityPoint, dist: number, cw: boolean): WorldPosition {
   const l = sidewalkLoop(block);
   const w = l.x1 - l.x0;
@@ -435,20 +435,20 @@ export function loopPosition(block: CityPoint, dist: number, cw: boolean): World
   return at(l.x0, l.y1 - d, 'n', 's');
 }
 
-/** O assento do banco ao sul da fonte, à direita (tiles): onde o 6º jogador fica sentado. */
+/** Seat of bench south of fountain, on the right (tiles): where the 6th player sits. */
 export function fakeBenchSeat(): CityPoint {
   const o = blockOrigin(PLAZA);
   return { x: o.x + FOUNTAIN.x + FOUNTAIN.w / 2 + 5, y: o.y + FOUNTAIN.y + FOUNTAIN.h + 2 + 0.85 };
 }
 
-/** Onde eu nasço: na calçada em frente à porta do meu prédio (como o servidor faz com quem tem prédio). */
+/** Spawn point: on sidewalk in front of my building door (as server does for building owners). */
 export function fakeMyDoor(): CityPoint {
   return lotDoor(fakeLots(MY_LOT_INDEX + 1)[MY_LOT_INDEX]!).front;
 }
 
 const chunkOfPos = (x: number, y: number) => chunkId(DISTRICT, chunkOf(blockAt(x, y)));
 
-/** A meta da semana da cidade falsa: a primeira (10 mil h de agentes), a 80 %, até a próxima segunda-feira (UTC). */
+/** Fake city weekly goal: first milestone (10k agent hours), at 80 %, until next Monday (UTC). */
 export function fakeGoal(now: number): CityGoal {
   const d = new Date(now);
   const day = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
@@ -465,7 +465,7 @@ function fakeLots(n: number): CityPoint[] {
   return lots;
 }
 
-/** Os prédios da cidade falsa, nos `n` primeiros lotes da espiral (o meu no 4º); tudo fictício e determinístico. */
+/** Fake city buildings across first `n` spiral lots (mine in 4th); fully mock and deterministic. */
 export function fakeCityBuildings(n = 20): WorldBuildingPublic[] {
   const rng = mulberry32(0xc17c17);
   const count = Math.max(1, Math.min(2000, Math.floor(n)));
@@ -501,7 +501,7 @@ export function fakeCityBuildings(n = 20): WorldBuildingPublic[] {
     if (!discreet) b.agents = { total, working, waiting, idle: total - working - waiting };
     if (i % 4 !== 1) b.tokens = { day: (i % 5) as TokenBand, week: Math.min(5, (i % 5) + 1) as TokenBand };
     if (i % 8 === 6) b.closed = true;
-    // Fase 5: o código do prédio, quem aceita batidas na porta e um prédio "não verificado" (Fase 6)
+    // Phase 5: building code, knock acceptance, and an "unverified" building (Phase 6)
     b.code = mine ? FAKE_MY_CODE : fakeBuildingCode(i);
     if (i % 3 === 1 || i === 4) b.knocks = true;
     if (i === 10) (b as WorldBuildingPublic & { unverified?: true }).unverified = true;
@@ -523,24 +523,24 @@ export class FakeWorldStream implements WorldStream {
   private lastMoveAt: number;
   private afkSent = false;
   private timer: ReturnType<typeof setInterval> | null = null;
-  /** Respostas aos comandos: saem no próximo passo, como uma ida e volta. */
+  /** Command responses: sent on next step, simulating round-trip. */
   private pending: WorldSceneMessage[] = [];
-  /** Dentro de um prédio (visita): o interior e o `rev` dele. */
+  /** Inside a building (visit): interior and its `rev`. */
   private inside: { id: string; rev: number; detail: WorldBuildingDetail; patches: number } | null = null;
-  /** Mensagens para mais tarde (as respostas dos bots aos cumprimentos). */
+  /** Delayed messages (bot replies to greetings). */
   private later: Array<{ at: number; msg: WorldSceneMessage }> = [];
-  /** Sorteios do social (determinísticos, como o resto da cidade falsa). */
+  /** Social random generators (deterministic, like rest of fake city). */
   private readonly social = mulberry32(0x50c1a1);
   private readonly memory?: FakeStreamMemory;
-  /** O dono viu o "Enquanto você estava fora" (`summary.seen`): o snapshot não o traz mais. */
+  /** Owner saw "While you were away" (`summary.seen`): snapshot no longer includes it. */
   private summarySeen = false;
   /** Quem eu bloqueei (some da rua). */
   private readonly hidden = new Set<string>();
-  /** Carimbos de hoje (um por prédio). */
+  /** Today's stamps (one per building). */
   private readonly stamped = new Set<string>();
-  /** Quando cada bot me cumprimentou por último. */
+  /** Last time each bot greeted me. */
   private readonly greetedMe = new Map<string, number>();
-  /** A meta da semana (horas de agente): começa a 80 % da primeira. */
+  /** Weekly goal (agent hours): starts at 80 % of first milestone. */
   private goal: CityGoal;
 
   constructor(o: FakeWorldStreamOptions = {}) {
@@ -552,7 +552,7 @@ export class FakeWorldStream implements WorldStream {
     const mine = this.buildings.find((b) => b.id === FAKE_ME.id);
     const door = mine ? lotDoor(mine.lot).front : spawnPoint();
     this.memory = o.memory;
-    // de volta à cidade: nasce onde estava (a última posição guardada no `view.off` ou no fechamento)
+    // back to city: spawns where previously located (last position saved in `view.off` or closure)
     const last = o.memory?.pos;
     this.me = last ? { x: last.x, y: last.y, dir: last.dir, moving: false } : { x: door.x, y: door.y, dir: 's', moving: false };
     this.goal = fakeGoal(this.start);
@@ -575,7 +575,7 @@ export class FakeWorldStream implements WorldStream {
       };
     };
     this.walkers = WALKERS.map((w, k) => player(k, w.name, w.look, loopPosition(w.block, w.phase, w.cw)));
-    // sentado no banco ao sul da fonte: parado em cima de um banco, a cena desenha sentado
+    // seated on bench south of fountain: stationary atop bench, scene renders seated
     const seat = fakeBenchSeat();
     this.walkers.push(player(WALKERS.length, SITTER.name, SITTER.look, { x: seat.x, y: seat.y, dir: 's', moving: false }));
     if (o.autoplay !== false) {
@@ -585,7 +585,7 @@ export class FakeWorldStream implements WorldStream {
 
   on(listener: (ev: WorldStreamEvent) => void): () => void {
     const off = this.listeners.add(listener);
-    // Como o de verdade: o snapshot chega depois de abrir (nunca dentro do `on`).
+    // Like real server: snapshot arrives after opening (never inside `on`).
     void Promise.resolve().then(() => {
       if (this.closed) return;
       listener({ type: 'status', status: 'open' });
@@ -594,7 +594,7 @@ export class FakeWorldStream implements WorldStream {
     return off;
   }
 
-  /** O estado inteiro, como o `world.snapshot` do servidor local. */
+  /** Entire state, matching local server `world.snapshot`. */
   snapshot(): WorldSceneSnapshot {
     const byChunk = new Map<string, WorldBuildingPublic[]>();
     for (const b of this.buildings) {
@@ -616,17 +616,17 @@ export class FakeWorldStream implements WorldStream {
       ...(this.inside ? { inside: { id: this.inside.id, rev: this.inside.rev, detail: this.inside.detail } } : {}),
       ...(this.viewing ? { city: this.cityStatus() } : {}),
       likesToday: 3,
-      // o "Enquanto você estava fora" que o servidor manda ao dono ao conectar (o mesmo do FakeWorldApi)
+      // "While you were away" summary sent to owner on connect (same as FakeWorldApi)
       ...(this.summarySeen ? {} : { summary: structuredClone(FAKE_SUMMARY) }),
     });
   }
 
-  /** A cidade (↓ `city`): os prédios acesos, a meta da semana e a faixa dos tokens. */
+  /** City (↓ `city`): illuminated buildings, weekly goal, and token banner. */
   private cityStatus(): { lit: number; goal: CityGoal; tokensBand: TokenBand } {
     return { lit: this.buildings.filter((b) => b.state === 'online').length, goal: { ...this.goal }, tokensBand: 4 };
   }
 
-  /** A cidade bateu a meta (o botão de teste de `?fireworks=1`): fogos e a meta seguinte. */
+  /** City reached goal (test button for `?fireworks=1`): fireworks and next goal. */
   celebrate(): void {
     if (this.closed) return;
     const reached = this.goal;
@@ -652,12 +652,12 @@ export class FakeWorldStream implements WorldStream {
     this.listeners.clear();
   }
 
-  /** Guarda a última posição (parado) para o próximo `view`, neste stream ou no seguinte da mesma página. */
+  /** Saves last position (stopped) for next `view`, on this stream or subsequent on same page. */
   private remember(): void {
     if (this.memory) this.memory.pos = { x: this.me.x, y: this.me.y, dir: this.me.dir, moving: false };
   }
 
-  /** Um passo (200 ms): as respostas pendentes, os 5 andando, a cada 3 s um prédio que muda e o `afk`. */
+  /** One step (200 ms): pending responses, the 5 walking, building update every 3 s, and `afk`. */
   tick(): void {
     if (this.closed) return;
     this.ticks++;
@@ -665,7 +665,7 @@ export class FakeWorldStream implements WorldStream {
     this.pending = [];
     for (const m of out) this.emit(m);
     if (!this.viewing) return;
-    // dentro de um prédio, nada da rua desce: só o interior mudando a cada 3 s
+    // inside a building, nothing from street streams down: only interior updating every 3 s
     if (this.inside) {
       if (this.ticks % 15 === 0) this.patchInside();
       return;
@@ -690,7 +690,7 @@ export class FakeWorldStream implements WorldStream {
     if (this.ticks % 15 === 0) this.changeBuilding(this.ticks / 15);
     if (this.ticks % 300 === 0) this.emit({ t: 'minimap', blocks: this.minimap() });
     if (this.ticks % 300 === 0) {
-      // a meta anda um pouco a cada minuto (agentes trabalhando na cidade toda)
+      // goal advances a bit each minute (agents working across entire city)
       this.goal = { ...this.goal, progress: Math.min(this.goal.target - 1, this.goal.progress + 7) };
       this.emit({ t: 'city', ...this.cityStatus() });
     }
@@ -702,8 +702,8 @@ export class FakeWorldStream implements WorldStream {
   }
 
   /**
-   * Os bots se cumprimentam (dois que se veem, e o outro responde em 1,6 s) e, às vezes, cumprimentam quem está perto
-   * deles (eu), no máximo uma vez a cada 30 s cada um.
+   * Bots greet each other (two who see each other, respondent replies in 1.6 s) and occasionally greet whoever is near
+   * them (me), at most once every 30 s each.
    */
   private botsGreet(now: number): void {
     const bots = this.walkers.filter((p) => !this.hidden.has(p.id));
@@ -725,11 +725,11 @@ export class FakeWorldStream implements WorldStream {
     }
   }
 
-  /** Agentes começam ou param de trabalhar e chegam likes num prédio (area.patch com o `rev` + 1). */
+  /** Agents start/stop work and likes arrive at a building (area.patch with `rev` + 1). */
   private changeBuilding(n: number): void {
     const b = this.buildings[(n * 7) % this.buildings.length]!;
     if (!b.agents || b.state !== 'online') return;
-    // de vez em quando todos param de uma vez (fim de turno: confete na fachada)
+    // occasionally all stop at once (end of shift: confetti on facade)
     const working = n % 4 === 0 && b.agents.working > 0 ? 0 : (b.agents.working + 1) % (b.agents.total + 1);
     const waiting = Math.min(b.agents.total - working, n % 2);
     b.agents = { total: b.agents.total, working, waiting, idle: b.agents.total - working - waiting };
@@ -744,7 +744,7 @@ export class FakeWorldStream implements WorldStream {
   private command(c: WorldSceneCommand): void {
     switch (c.t) {
       case 'move': {
-        // Como o servidor: destino caminhável e perto do último (um passo de 200 ms correndo é ~1,2 tile).
+        // Like server: walkable destination near previous one (200 ms run step is ~1.2 tiles).
         const far = Math.hypot(c.x - this.me.x, c.y - this.me.y) > 6;
         if (!isWalkable(c.x, c.y, () => true) || far) {
           this.pending.push({ t: 'pos', x: this.me.x, y: this.me.y });
@@ -765,14 +765,14 @@ export class FakeWorldStream implements WorldStream {
       }
       case 'like':
       case 'unlike': {
-        // como o servidor: a até 4 passos da porta, nunca no próprio prédio
+        // like server: up to 4 steps from door, never on own building
         const b = this.near(c.buildingId, 4);
         if (typeof b === 'string') return void this.pending.push({ t: 'notice', level: 'warn', text: b });
         const liked = c.t === 'like';
         if (!!b.likedByMe !== liked) b.likes += liked ? 1 : -1;
         b.likedByMe = liked;
         this.pending.push({ t: 'like.update', buildingId: b.id, likes: b.likes, likedByMe: liked });
-        // de dentro: o interior também (como o `building` do próximo `building.patch` do servidor)
+        // from inside: interior as well (like `building` in server's next `building.patch`)
         if (this.inside?.id === b.id) Object.assign(this.inside.detail.building, { likes: b.likes, likedByMe: liked });
         return;
       }
@@ -794,7 +794,7 @@ export class FakeWorldStream implements WorldStream {
         return;
       }
       case 'knock': {
-        // quem bate nunca sabe se o dono está lá: sem resposta, só a recusa de longe
+        // knocker never knows if owner is there: no reply, only distant rejection
         const b = this.near(c.buildingId, 2);
         if (typeof b === 'string') this.pending.push({ t: 'notice', level: 'warn', text: b });
         return;
@@ -813,7 +813,7 @@ export class FakeWorldStream implements WorldStream {
         this.lastMoveAt = this.now();
         this.afkSent = false;
         this.pending.push({ t: 'pos', x: d.front.x, y: d.front.y });
-        // a área em volta do lugar novo (a cena só guarda os 3×3 chunks em volta de mim)
+        // area around new location (scene only retains 3x3 chunks around player)
         for (const ch of this.snapshot().chunks) this.pending.push({ t: 'area', chunk: ch.chunk, rev: ch.rev, buildings: ch.buildings });
         return;
       }
@@ -860,14 +860,14 @@ export class FakeWorldStream implements WorldStream {
         return;
       }
       default:
-        // report: o `reported`; summary.seen: nada volta (e o resumo sai do snapshot).
+        // report: `reported`; summary.seen: nothing returned (summary omitted from snapshot).
         if (c.t === 'report') this.pending.push({ t: 'notice', level: 'info', text: 'reported' });
         if (c.t === 'summary.seen') this.summarySeen = true;
         return;
     }
   }
 
-  /** `enter`: como o servidor (não existe, longe, fechado), e o interior de exemplo conforme o prédio. */
+  /** `enter`: like server (does not exist, far, closed), and sample interior appropriate for building. */
   private enter(id: string): void {
     const b = this.buildings.find((x) => x.id === id);
     if (!b) {
@@ -888,12 +888,12 @@ export class FakeWorldStream implements WorldStream {
     const detail = sampleBuildingDetail(mode);
     const { agents: _agents, ...pub } = b;
     detail.building = { ...pub, ...(detail.building.agents ? { agents: detail.building.agents } : {}), floors: detail.floors.length, ...(mode === 'discreet' ? { discreet: true } : {}) };
-    detail.visitors = mine ? 0 : 2; // o dono vendo o próprio prédio não conta
+    detail.visitors = mine ? 0 : 2; // owner viewing own building does not count
     this.inside = { id: b.id, rev: 1, detail, patches: 0 };
     this.pending.push({ t: 'building', rev: 1, detail: structuredClone(detail) });
   }
 
-  /** O interior muda: agentes trocam de status (ao vivo) e, de vez em quando, alguém entra ou sai. */
+  /** Interior changes: agents change status (live) and occasionally someone enters or leaves. */
   private patchInside(): void {
     const ins = this.inside;
     if (!ins) return;
@@ -912,8 +912,8 @@ export class FakeWorldStream implements WorldStream {
   }
 
   /**
-   * O prédio a até `max` passos da porta (como o servidor confere) ou o prédio em que estou (de dentro vale sem a
-   * distância), ou o aviso: longe, o meu ou nenhum.
+   * Building up to `max` steps from door (as server verifies) or building I am in (from inside valid without
+   * distance check), or warning: far, own, or none.
    */
   private near(id: string, max: number): WorldBuildingPublic | 'too_far' | 'invalid' | 'not_found' {
     if (id === FAKE_ME.id) return 'invalid';
@@ -944,9 +944,9 @@ export class FakeWorldStream implements WorldStream {
   }
 }
 
-// ------------------------------------------------------------------------------------------------ fábrica
+// ------------------------------------------------------------------------------------------------ factory
 
-/** O stream da cena: no modo demonstração, a cidade falsa; fora dele, o servidor local. */
+/** Scene stream: in demo mode, fake city; otherwise, local server. */
 export function createWorldStream(opts: { mock: boolean } & HttpWorldStreamOptions & FakeWorldStreamOptions): WorldStream {
   return opts.mock ? new FakeWorldStream(opts) : new HttpWorldStream(opts);
 }

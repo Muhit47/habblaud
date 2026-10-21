@@ -56,7 +56,7 @@ describe('readBuildInfo e scripts/build-info.mjs', () => {
     const clean = run(root);
     expect(clean).toEqual({ commit: head, dirty: false, builtAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) });
     expect(readBuildInfo(root)).toEqual(clean);
-    // Arquivo fora do git (como o dist/ recém-criado, um .env ou um link do node_modules) não conta.
+    // Files outside git (such as freshly created dist/, a .env, or node_modules symlink) do not count.
     writeFileSync(join(root, 'solto.txt'), 'x');
     expect(run(root).dirty).toBe(false);
     writeFileSync(join(root, 'a.txt'), 'dois');
@@ -66,7 +66,7 @@ describe('readBuildInfo e scripts/build-info.mjs', () => {
   it('sem git: "unknown"; HABBLAUD_BUILD_COMMIT/DIRTY substituem o git', () => {
     const root = mkdtempSync(join(tmpdir(), 'habblaud-build-'));
     dirs.push(root);
-    // GIT_CEILING_DIRECTORIES: não sobe até um repositório acima da pasta temporária.
+    // GIT_CEILING_DIRECTORIES: does not traverse up to a repository above the temporary directory.
     expect(run(root, { GIT_CEILING_DIRECTORIES: dirname(root) })).toMatchObject({ commit: 'unknown', dirty: false });
     const sha = 'a'.repeat(40);
     expect(run(root, { HABBLAUD_BUILD_COMMIT: sha, HABBLAUD_BUILD_DIRTY: '1' })).toMatchObject({ commit: sha, dirty: true });

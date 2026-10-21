@@ -43,7 +43,7 @@ describe('cartão de uso de uma conta do Codex', () => {
     expect(codexUsageNote(codex(), 0)).toBe('Não precisa instalar nada: os números chegam com a próxima sessão do Codex.');
     expect(usageSubtitle(codex())).toBe('plano Team');
     expect(usageSubtitle(codex({ plan: undefined }))).toBe('Codex');
-    // Claude Code: como antes.
+    // Claude Code: unchanged behavior.
     expect(usageMessage({ usageStatus: 'disabled' })).toEqual(['sem dados de uso', 'sem dados']);
     expect(usageSubtitle({ email: 'a@b.c', configDir: '~/.claude' })).toBe('a@b.c');
     expect(usageSubtitle({ configDir: '~/.claude' })).toBe('~/.claude');

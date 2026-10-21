@@ -1,7 +1,7 @@
-// Versão nova: consulta a release mais recente do repositório no GitHub
-// (GET https://api.github.com/repos/<dono>/<nome>/releases/latest, sem token) e compara com a versão em uso.
-// Uma consulta a cada 6 h (1 h depois de uma falha) com ETag: a resposta 304 não gasta o limite de 60
-// consultas por hora do GitHub. O resultado fica em <dataDir>/updates.json, para um reinício não repetir a consulta.
+// Update checker: queries latest repository release on GitHub
+// (GET https://api.github.com/repos/<owner>/<repo>/releases/latest, unauthenticated) and compares with running version.
+// Polled every 6 h (1 h after failure) using ETag: 304 response does not consume GitHub's 60 req/h rate limit.
+// Cached in <dataDir>/updates.json so restarts do not trigger redundant queries.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { UpdateStatus } from '../../shared/types';
@@ -10,9 +10,9 @@ import { tr } from '../../shared/i18n';
 
 export const CHECK_EVERY_MS = 6 * 3_600_000;
 export const RETRY_MS = 3_600_000;
-/** Primeira consulta depois de subir (não atrasa a inicialização). */
+/** Initial query delay after boot (avoids delaying startup). */
 const FIRST_DELAY_MS = 5_000;
-/** "Verificar agora" seguidos: no máximo uma consulta a cada 30 s. */
+/** Throttling consecutive manual checks: at most once every 30 s. */
 export const MANUAL_GAP_MS = 30_000;
 const TIMEOUT_MS = 10_000;
 
@@ -28,20 +28,20 @@ export function parseVersion(v: string): Version | null {
   return { nums: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] };
 }
 
-/** <0, 0 ou >0, como no semver; versões ilegíveis contam como iguais. */
+/** <0, 0, or >0, semver style; unparseable versions count as equal. */
 export function compareVersions(a: string, b: string): number {
   const x = parseVersion(a);
   const y = parseVersion(b);
   if (!x || !y) return 0;
   for (let i = 0; i < 3; i++) if (x.nums[i] !== y.nums[i]) return x.nums[i] - y.nums[i];
-  // Sem pré-lançamento vale mais que com (1.0.0 > 1.0.0-beta).
+  // Stable release ranks higher than pre-release (1.0.0 > 1.0.0-beta).
   if (!x.pre || !y.pre) return (x.pre ? -1 : 0) - (y.pre ? -1 : 0);
   return x.pre < y.pre ? -1 : x.pre > y.pre ? 1 : 0;
 }
 
 /**
- * "dono/nome" a partir do campo `repository` do package.json: "dono/nome", "github:dono/nome",
- * "https://github.com/dono/nome(.git)", "git+https://...", "git@github.com:dono/nome.git" ou {url}.
+ * "owner/repo" parsed from package.json `repository` field: "owner/repo", "github:owner/repo",
+ * "https://github.com/owner/repo(.git)", "git+https://...", "git@github.com:owner/repo.git" or {url}.
  */
 export function parseGithubRepo(repository: unknown): string | undefined {
   const raw = typeof repository === 'string' ? repository : (repository as { url?: unknown } | null)?.url;
@@ -66,17 +66,17 @@ interface Cached {
 }
 
 export interface UpdateCheckerOptions {
-  /** Versão em uso (package.json). */
+  /** Running version (package.json). */
   current: string;
-  /** "dono/nome"; ausente = verificação desligada. */
+  /** "owner/repo"; absent = update check disabled. */
   repo?: string;
   /** HABBLAUD_UPDATE_CHECK=0 desliga. */
   enabled: boolean;
-  /** Onde guardar o último resultado; null = só em memória (testes). */
+  /** Cache path for last result; null = in-memory only (tests). */
   file: string | null;
   fetch?: typeof fetch;
   now?: () => number;
-  /** O status mudou (o servidor republica o snapshot). */
+  /** Status changed (server republishes snapshot). */
   onChange?: () => void;
 }
 
@@ -114,7 +114,7 @@ export class UpdateChecker {
     };
   }
 
-  /** Lê o último resultado guardado (ignorado se for de outro repositório). */
+  /** Reads last cached check result (ignored if for different repository). */
   load(): void {
     const repo = this.opts.repo;
     if (!this.opts.file || !this.enabled || !repo) return;
@@ -135,7 +135,7 @@ export class UpdateChecker {
     }
   }
 
-  /** Agenda a primeira consulta: logo depois de subir ou quando o resultado guardado vencer. */
+  /** Schedules first check: shortly after startup or when cached result expires. */
   start(): void {
     if (!this.enabled) return;
     const due = this.cache ? this.cache.checkedAt + CHECK_EVERY_MS - this.now() : 0;
@@ -149,8 +149,8 @@ export class UpdateChecker {
   }
 
   /**
-   * Consulta o GitHub agora. `manual` ("Verificar agora"): se a última tentativa foi há menos de 30 s,
-   * devolve o status atual sem consultar.
+   * Queries GitHub now. `manual` ("Check now"): if last attempt occurred less than 30s ago,
+   * returns current status without querying.
    */
   check(opts: { manual?: boolean } = {}): Promise<UpdateStatus> {
     if (!this.enabled) return Promise.resolve(this.status());
@@ -196,7 +196,7 @@ export class UpdateChecker {
     if (res.status === 304 && this.cache) {
       this.cache = { ...this.cache, checkedAt: now };
     } else if (res.status === 404) {
-      // Nenhuma release publicada (ou repositório que não existe mais).
+      // No published releases found (or repository no longer exists).
       this.cache = { repo, checkedAt: now };
     } else if (res.ok) {
       const body = ((await res.json()) ?? {}) as { tag_name?: unknown; html_url?: unknown; published_at?: unknown };
@@ -240,7 +240,7 @@ export class UpdateChecker {
     this.timer.unref?.();
   }
 
-  /** Avisa no log uma vez por versão nova encontrada. */
+  /** Emits log notice once per newly discovered release. */
   private announce(): void {
     const s = this.status();
     if (!s.available || s.latest === this.announced) return;
@@ -249,7 +249,7 @@ export class UpdateChecker {
   }
 }
 
-/** Só links de página do próprio GitHub (a interface põe o endereço num link). */
+/** Strictly GitHub release URLs (UI formats address as clickable link). */
 function safeReleaseUrl(url: unknown, repo: string): string {
   if (typeof url === 'string' && url.length <= 300 && url.toLowerCase().startsWith(`https://github.com/${repo.toLowerCase()}/`)) return url;
   return `https://github.com/${repo}/releases/latest`;

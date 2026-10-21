@@ -1,11 +1,11 @@
-// Rótulos traduzidos dos nomes fictícios de projeto (shared/world/floor-names.ts): cada andar de um prédio no mundo
-// ganha um id da lista, sorteado pelo servidor a partir do id aleatório do andar, e quem visita vê "Projeto Ipê"
-// ("Project Ipê", "Proyecto Ipê", "Projet Ipê"). O rótulo muda junto com o id do andar (24 h ± 6 h).
+// Translated labels for mock project names (shared/world/floor-names.ts): each floor of a building in the world
+// gets an ID from the list, randomized by server from random floor ID, and visitors see "Project Ipê"
+// ("Project Ipê", "Proyecto Ipê", "Projet Ipê"). Label changes with floor ID (24 h ± 6 h).
 import { tr } from '../i18n';
 import { FLOOR_NAME_IDS, type FloorNameId } from './floor-names';
 
 const LABELS: Record<FloorNameId, () => string> = {
-  // Árvores
+  // Trees
   ipe: () => tr('Projeto Ipê'),
   jacaranda: () => tr('Projeto Jacarandá'),
   jatoba: () => tr('Projeto Jatobá'),
@@ -26,7 +26,7 @@ const LABELS: Record<FloorNameId, () => string> = {
   cerejeira: () => tr('Projeto Cerejeira'),
   pinheiro: () => tr('Projeto Pinheiro'),
   palmeira: () => tr('Projeto Palmeira'),
-  // Pedras
+  // Stones
   jade: () => tr('Projeto Jade'),
   ambar: () => tr('Projeto Âmbar'),
   ametista: () => tr('Projeto Ametista'),
@@ -47,7 +47,7 @@ const LABELS: Record<FloorNameId, () => string> = {
   citrino: () => tr('Projeto Citrino'),
   peridoto: () => tr('Projeto Peridoto'),
   lapislazuli: () => tr('Projeto Lápis-lazúli'),
-  // Constelações (e a aurora)
+  // Constellations (and aurora)
   aurora: () => tr('Projeto Aurora'),
   orion: () => tr('Projeto Órion'),
   lyra: () => tr('Projeto Lira'),
@@ -74,7 +74,7 @@ export function isFloorNameId(v: unknown): v is FloorNameId {
   return typeof v === 'string' && (FLOOR_NAME_IDS as readonly string[]).includes(v);
 }
 
-/** "Projeto Ipê" no idioma atual; um id que esta versão não conhece vira só "Projeto". */
+/** "Project Ipê" in current language; an ID unknown to this version falls back to "Project". */
 export function floorLabel(id: string): string {
   return isFloorNameId(id) ? LABELS[id]() : tr('Projeto');
 }

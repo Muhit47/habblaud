@@ -1,6 +1,6 @@
-// Testes do mod do Habblaud, rodados pelo próprio Claude Code: `claude plugin test` dentro de mod/habblaud
-// (sem sessão, sem login, sem rede). Os stubs respondem no lugar do Claude Code: env, relógio
-// (mock.clock), $.session.usage, $.session.id, $.session.surfaces, $.fs.write, $.http.fetch e $.ui.status.
+// Habblaud mod tests, executed by Claude Code CLI: `claude plugin test` inside mod/habblaud
+// (isolated, without session, auth, or network). Stubs mock Claude Code APIs: env, clock
+// (mock.clock), $.session.usage, $.session.id, $.session.surfaces, $.fs.write, $.http.fetch, $.ui.status.
 import type { CommandRunInput, HttpResponse, On, SessionRateLimit } from 'claude-code'
 import { describe, expect, mock, test } from 'claude-code/testing'
 import { accountIdOf, configDirOf, normalizePath, parseSummary, statusText, usageDirOf, windowOf, type Summary, type WaitingAgent } from '../hooks/register'
@@ -13,7 +13,7 @@ const SUMMARY_URL = `http://127.0.0.1:${PORT}/api/mod/summary`
 const LIMITS: SessionRateLimit[] = [
   { kind: 'five_hour', percentUsed: 42, resetsAt: '2026-10-06T14:00:00Z' },
   { kind: 'seven_day', percentUsed: 15.5, resetsAt: '2026-10-09T23:00:00.000Z' },
-  // limite de gasto de um gateway: não é limite do plano, fica de fora
+  // gateway spend limit: not a plan quota limit, excluded
   { kind: 'spend_limit', percentUsed: 120 },
 ]
 const CONTEXT = { window: 200_000, tokens: 1_000, percent: 0.5 }
@@ -30,13 +30,13 @@ interface World {
   env?: Record<string, string>
   limits?: SessionRateLimit[]
   surfaces?: ReadonlyArray<'terminal' | 'desktop'>
-  /** Resposta do Habblaud: um resumo, 'offline' (conexão recusada), 'hang' (não responde) ou um HTTP cru. */
+  /** Habblaud response: summary, 'offline' (refused), 'hang' (timeout), or raw HTTP. */
   answer?: () => Summary | 'offline' | 'hang' | { status: number; text: string }
-  /** $.fs.write falha (pasta sem permissão, disco cheio...). */
+  /** $.fs.write fails (permission denied, disk full...). */
   writeFails?: boolean
 }
 
-/** Registra todos os stubs (antes da primeira chamada em $, como o kit exige) e devolve o que foi capturado. */
+/** Registers all stubs (prior to first $ invocation, required by kit) and returns recorded calls. */
 function world(on: On, w: World = {}) {
   const clock = mock.clock(on, { now: NOW })
   mock.env(on, w.env ?? { HOME: '/home/fulano', CLAUDE_CONFIG_DIR: '~/.claude-conta2,/outra/pasta', HABBLAUD_PORT: PORT })
@@ -76,7 +76,7 @@ function world(on: On, w: World = {}) {
 }
 
 const START = { cwd: '/work', surface: 'terminal', isInteractive: true } as const
-/** /habblaud digitado no terminal (o kit pede a origem e onde a resposta aparece). */
+/** /habblaud entered in terminal (kit expects origin and display target). */
 const RUN: CommandRunInput = { command: 'habblaud', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } }
 
 function response(status: number, text: string): HttpResponse {
@@ -89,7 +89,7 @@ describe('uso do plano', () => {
     await $.session.start(START)
     expect(w.commands).toEqual(['habblaud'])
     expect(w.writes.length).toBe(1)
-    // O kit passa o caminho gravado pelo path da máquina que roda o teste (no Windows, C:\home\...): sem o drive.
+    // Kit normalizes path by host OS (on Windows, C:\home\...): strip drive letter.
     expect(w.writes[0]?.path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')).toBe('/home/fulano/.habblaud/usage/.claude-conta2.json')
     expect(w.writes[0]?.text.endsWith('}\n')).toBe(true)
     expect(JSON.parse(w.writes[0]?.text ?? '')).toEqual({
@@ -113,7 +113,7 @@ describe('uso do plano', () => {
     const w = world(on, { env: { USERPROFILE: 'C:\\Users\\fulano', CLAUDE_CONFIG_DIR: 'C:\\Users\\fulano\\.claude-conta2\\', HABBLAUD_PORT: PORT } })
     await $.session.start(START)
     expect(w.writes.length).toBe(1)
-    // O kit passa o caminho gravado pelo path da máquina que roda o teste: confere só o fim.
+    // Kit normalizes path by host OS: check suffix only.
     expect(w.writes[0]?.path).toMatch(/fulano[\\/]\.habblaud[\\/]usage[\\/]\.claude-conta2\.json$/)
     expect(JSON.parse(w.writes[0]?.text ?? '')).toMatchObject({ accountId: '.claude-conta2', configDir: 'C:/Users/fulano/.claude-conta2' })
   })

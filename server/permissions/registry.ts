@@ -1,20 +1,20 @@
-// Responder pelo escritório: registro dos pedidos de permissão pendentes.
+// Answering via office: registry of pending permission requests.
 //
-// O hook PermissionRequest do Claude Code (mod/habblaud-permissoes/hooks/permission-hook.mjs, pelo plugin
-// habblaud-permissoes ou pelo npm run hooks:install) manda cada pedido para POST /api/permissions e fica esperando a decisão em GET /api/permissions/:id/wait (long-poll).
-// A página responde em POST /api/permissions/:id/decision. O registro:
-// - só aceita o pedido se alguma página local estiver aberta e a sessão for conhecida (senão o hook sai
-//   na hora e o terminal segue normal);
-// - publica o pedido no agente (AgentInfo.permission, via Office) e avisa no feed;
-// - entrega a decisão ao hook (allow/deny, ou as respostas de um AskUserQuestion) ou o libera sem decisão
-//   ("responder no terminal");
-// - descarta pedidos órfãos: tempo limite do hook, hook que morreu (sem ninguém esperando), agente que
-//   saiu e pedido respondido no próprio terminal (o tool_result aparece no transcript).
+// Claude Code PermissionRequest hook (mod/habblaud-permissoes/hooks/permission-hook.mjs, via
+// habblaud-permissoes plugin or npm run hooks:install) sends requests to POST /api/permissions and long-polls GET /api/permissions/:id/wait.
+// Web app responds via POST /api/permissions/:id/decision. The registry:
+// - accepts request only if local web page is open and session is known (otherwise hook exits
+//   immediately and terminal proceeds normally);
+// - exposes request on agent (AgentInfo.permission, via Office) and publishes to feed;
+// - delivers decision to hook (allow/deny, or AskUserQuestion answers) or releases without decision
+//   ("answer in terminal");
+// - discards orphaned requests: hook timeout, deceased hook process, exited agent, or prompt answered
+//   directly in terminal (tool_result found in transcript).
 //
-// O Codex usa as mesmas rotas (hook PermissionRequest de mod/habblaud-codex/hook.mjs, com `provider: "codex"` e a
-// conta no corpo). Diferenças: o agente casa pelo thread (agent_id ?? session_id) entre os agentes do Codex; sem
-// sugestões nem perguntas; recusar só com motivo (sem interromper); sem a busca da resposta no transcript (no Codex o
-// terminal só pede a aprovação depois que o hook termina, então ela nunca é respondida lá enquanto ele espera).
+// Codex uses same routes (PermissionRequest hook in mod/habblaud-codex/hook.mjs, with `provider: "codex"`
+// and account). Differences: agent matched by thread (agent_id ?? session_id) across Codex agents; no
+// suggestions or questions; deny strictly with reason; no transcript lookup (in Codex approval
+// prompt happens after hook completes, so never answered in terminal while waiting).
 import { randomBytes } from 'node:crypto';
 import { describeTool, maskSecrets, truncate } from '../../shared/activity';
 import { ANSWER_OTHER_MAX, answerSummary, ASK_TOOL, checkAnswers } from '../../shared/answers';
@@ -25,27 +25,27 @@ import { codexToolView } from './codex';
 import { callSignature, scanToolCall } from './transcript';
 import { tr } from '../../shared/i18n';
 
-/** Tempo que o hook espera por padrão (ele manda o próprio em `timeout_ms`). */
+/** Default timeout hook waits (hook specifies its own in `timeout_ms`). */
 export const DEFAULT_TIMEOUT_MS = 300_000;
 export const MIN_TIMEOUT_MS = 5_000;
 export const MAX_TIMEOUT_MS = 24 * 60 * 60_000;
-/** Folga depois do tempo limite do hook antes de o pedido sumir sozinho. */
+/** Grace period after hook timeout before request is evicted automatically. */
 export const EXPIRY_GRACE_MS = 5_000;
-/** Resposta mais longa de um long-poll (o hook pergunta de novo em seguida). */
+/** Maximum duration of single long-poll (hook immediately re-polls afterwards). */
 export const WAIT_MAX_MS = 25_000;
-/** Sem nenhum hook esperando há este tempo = o hook morreu (cancelado, tempo esgotado, sessão interrompida). */
+/** No hook polling for this duration = hook exited (cancelled, timed out, session aborted). */
 export const ORPHAN_MS = 8_000;
-/** Decisão guardada para o hook que estava entre duas esperas vir buscar. */
+/** Cached decision retained for hook transitioning between poll cycles. */
 export const RESOLVED_KEEP_MS = 30_000;
-/** Intervalo mínimo entre conferências do transcript de um pedido. */
+/** Minimum interval between transcript checks for a pending request. */
 export const SCAN_EVERY_MS = 1_000;
-/** Principal que esperava (diálogo aberto) e deixou de esperar há este tempo: respondeu no terminal. */
+/** Primary waiting agent that ceased waiting for this duration: answered directly in terminal. */
 export const LEFT_WAITING_MS = 3_000;
 export const MAX_PENDING = 32;
 /**
- * Espera longa (HABBLAUD_PERMISSION_TIMEOUT acima do padrão) sem nenhuma página que responda há este tempo, e sem
- * celular que possa entrar depois: o pedido volta ao terminal (senão ficaria até 24 h onde ninguém o vê; nos
- * subagentes em segundo plano o terminal só mostra o diálogo quando o hook termina).
+ * Extended timeout (HABBLAUD_PERMISSION_TIMEOUT above default) with no responding page and no remote client
+ * configured: request reverts to terminal (preventing hanging up to 24 h unseen;
+ * for background subagents terminal only shows prompt when hook completes).
  */
 export const UNWATCHED_MS = 5 * 60_000;
 
@@ -53,38 +53,38 @@ const DESTINATIONS = new Set(['session', 'localSettings', 'projectSettings', 'us
 const MAX_SUGGESTIONS = 4;
 const MAX_MESSAGE = 1_000;
 const RULE_MAX = 160;
-/** Respostas numa decisão `answer` (o AskUserQuestion faz até 4 perguntas). */
+/** Answers in an `answer` decision (AskUserQuestion supports up to 4 questions). */
 const MAX_ANSWERS = 4;
 
-/** O que o registro usa do Office (interface mínima: facilita os testes). */
+/** Office methods required by registry (minimal interface for testing). */
 export interface OfficeLike {
   get(id: string): AgentInfo | undefined;
   list(): AgentInfo[];
   markDirty(): void;
   addActivity(id: string, activity: Activity, current: boolean, opts?: { feed?: boolean }): void;
-  /** Aviso "pede permissão" ou "tem uma pergunta" (mesmo dedupe do aviso "precisa de você" do status). */
+  /** Notice "requests permission" or "has a question" (deduped with "needs you" status notice). */
   noticePermission(id: string, what: string, kind?: 'permission' | 'question'): void;
 }
 
 export interface RegistryOptions {
   office: OfficeLike;
-  /** Páginas locais conectadas (Hub.localSize): sem nenhuma, o pedido não é desviado do terminal. */
+  /** Connected local pages (Hub.localSize): if none, request is not diverted from terminal. */
   viewers: () => number;
-  /** Uma página que ainda não está aberta pode responder depois (celular com login e `permissions` liberado). */
+  /** Whether page may answer later (authenticated remote client with `permissions` allowed). */
   answerLater?: () => boolean;
-  /** Transcript de um agente presente (ClaudeWatcher.transcriptPathOf). */
+  /** Transcript path of an active agent (ClaudeWatcher.transcriptPathOf). */
   transcriptPathOf?: (agentId: string) => string | undefined;
   /**
-   * Conta do Codex (AgentInfo.account) de um pedido do hook do Codex, pela pasta CODEX_HOME que ele manda (o basename
-   * que o hook calcula não sabe dos ids desambiguados, ex. ".codex~2"). undefined = vale a conta do hook.
+   * Codex account (AgentInfo.account) from hook request, matched via CODEX_HOME directory (hook-calculated
+   * basename lacks disambiguated IDs like ".codex~2"). undefined = hook account applies.
    */
   codexAccount?: (account: string | undefined, codexHome: string | undefined) => string | undefined;
-  /** Decisão para um pedido fictício do demo (Office.decideDemoPermission); true = era do demo. */
+  /** Decision for synthetic demo prompt (Office.decideDemoPermission); true = demo request handled. */
   demoDecide?: (id: string, d: PermissionDecision) => boolean;
-  /** Detalhe de um pedido fictício do demo (o snapshot já o traz). */
+  /** Details of synthetic demo request (snapshot already carries it). */
   demoDetail?: (id: string) => PermissionRequestInfo | undefined;
   now?: () => number;
-  /** Intervalo do relógio interno (start). */
+  /** Internal clock interval (start). */
   tickMs?: number;
   orphanMs?: number;
   resolvedKeepMs?: number;
@@ -96,8 +96,8 @@ export type RegisterResult = { id: string; expiresAt: number } | { skip: SkipRea
 export type ReleaseReason = 'terminal' | 'answered' | 'expired' | 'orphan' | 'gone' | 'unwatched' | 'shutdown';
 
 /**
- * Resposta de uma espera do hook. `answer`: as respostas por posição (o hook as troca pelos textos originais
- * do AskUserQuestion que recebeu do Claude Code).
+ * Long-poll hook response. `answer`: answers by index (hook maps back to original
+ * AskUserQuestion strings received from Claude Code).
  */
 export type WaitResult =
   | { status: 'pending' }
@@ -106,13 +106,13 @@ export type WaitResult =
   | { status: 'released'; reason: ReleaseReason };
 
 /**
- * invalid = sugestão de regra desconhecida; invalid-answer = decisão que não serve para o tipo de pedido (pergunta
- * se responde com `answer`, e só ela) ou respostas que não batem com as perguntas; unsupported = o Codex não aceita
- * (interromper ou "sempre permitir").
+ * invalid = unknown rule suggestion; invalid-answer = mismatched decision type (question
+ * must be answered with `answer`) or invalid option indices; unsupported = Codex rejects
+ * interruptions or "always allow".
  */
 export type DecideResult = 'ok' | 'not-found' | 'conflict' | 'invalid' | 'invalid-answer' | 'unsupported';
 
-/** Erro de validação do corpo vindo do hook (vira 400). */
+/** Body validation error from hook (becomes 400). */
 export class InvalidRequest extends Error {}
 
 interface Waiter {
@@ -120,33 +120,33 @@ interface Waiter {
   timer: ReturnType<typeof setTimeout>;
 }
 
-/** Formato ORIGINAL de uma pergunta do AskUserQuestion: para conferir as respostas, que voltam por posição. */
+/** ORIGINAL AskUserQuestion schema: used to validate index-based option responses. */
 interface AskFormat {
   multiSelect: boolean;
-  /** Quantas opções o original tem (inclusive as que o Habblaud não mostra). */
+  /** Total option count in original prompt (including un-rendered options). */
   options: number;
 }
 
 interface Pending {
-  /** Versão completa (com `input`): GET /api/permissions/:id. */
+  /** Full detail version (with `input`): GET /api/permissions/:id. */
   info: PermissionRequestInfo;
-  /** Pedido do Codex (sem a busca da resposta no transcript). */
+  /** Codex request (omits transcript response scan). */
   codex?: boolean;
-  /** Pergunta (AskUserQuestion): o formato de `tool_input.questions`, por posição (undefined = entrada inválida). */
+  /** Question (AskUserQuestion): format of `tool_input.questions` by index (undefined = invalid input). */
   askFormat?: Array<AskFormat | undefined>;
   agentId: string;
   sessionId: string;
-  /** agent_id do hook (pedido de subagente). */
+  /** Hook agent_id (subagent request). */
   hookAgentId?: string;
   signature: string;
   toolUseId?: string;
   lastScanAt: number;
-  /** O registro de sessões já mostrou o principal esperando (o diálogo abriu no terminal). */
+  /** Session registry already signaled primary agent waiting (dialogue opened in terminal). */
   sawWaiting?: boolean;
-  /** Desde quando ele deixou de esperar (depois de ter esperado). */
+  /** Timestamp when agent stopped waiting (after having waited). */
   notWaitingSince?: number;
   waiters: Set<Waiter>;
-  /** Desde quando não há hook esperando. */
+  /** Timestamp since no hook has been polling. */
   idleSince: number;
   outcome?: Exclude<WaitResult, { status: 'pending' }>;
   resolvedAt?: number;
@@ -166,25 +166,25 @@ function isIndex(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0;
 }
 
-/** Pedido que se responde com `answer` (as perguntas do AskUserQuestion; o Codex não as manda pelo hook). */
+/** Prompt answered with `answer` (AskUserQuestion questions; Codex never sends via hook). */
 function isQuestion(info: { tool: string; provider?: string }): boolean {
   return info.tool === ASK_TOOL && info.provider !== 'codex';
 }
 
-/** O Codex não aceita interromper nem "sempre permitir" (o hook dele só aprova ou recusa com motivo). */
+/** Codex does not support interruption or "always allow" (hook only approves or denies with reason). */
 function unsupportedByCodex(info: PermissionRequestInfo, d: PermissionDecision): boolean {
   return info.provider === 'codex' && (d.interrupt === true || d.suggestion !== undefined);
 }
 
 /**
- * A decisão não serve para o tipo de pedido: `answer` só vale para perguntas, e pergunta não se aprova sem as
- * respostas (recusar e "responder no terminal" valem para os dois).
+ * Decision mismatched with request type: `answer` applies only to questions, questions cannot be approved
+ * without answers (deny and "answer in terminal" apply to both).
  */
 function wrongKind(info: PermissionRequestInfo, d: PermissionDecision): boolean {
   return d.behavior === 'answer' ? !isQuestion(info) || !info.questions?.length : d.behavior === 'allow' && isQuestion(info);
 }
 
-/** Formato original das perguntas do AskUserQuestion, por posição. */
+/** Original format of AskUserQuestion questions, by index. */
 function askFormat(raw: unknown): Array<AskFormat | undefined> {
   if (!Array.isArray(raw)) return [];
   return raw.map((q) => {
@@ -193,7 +193,7 @@ function askFormat(raw: unknown): Array<AskFormat | undefined> {
   });
 }
 
-/** Perguntas de verdade (com texto) no original: todas precisam aparecer no escritório para dar para responder por lá. */
+/** Genuine questions (with non-empty text) in original: all must be displayed in UI to be answerable. */
 function askCount(raw: unknown): number {
   if (!Array.isArray(raw)) return 0;
   return raw.filter((q) => {
@@ -202,7 +202,7 @@ function askCount(raw: unknown): number {
   }).length;
 }
 
-/** A resposta cabe no formato original da pergunta (posições das opções e quantas escolhas). */
+/** Answer matches original prompt schema (option indices and selection count). */
 function fitsFormat(f: AskFormat | undefined, a: PermissionAnswer): boolean {
   if (!f) return false;
   const options = a.options ?? [];
@@ -210,7 +210,7 @@ function fitsFormat(f: AskFormat | undefined, a: PermissionAnswer): boolean {
   return f.multiSelect || options.length + (a.other ? 1 : 0) === 1;
 }
 
-/** Agente que ainda pode receber um pedido (não saiu nem concluiu). */
+/** Agent still eligible to receive prompt (neither offline nor completed). */
 function present(a: AgentInfo | undefined): a is AgentInfo {
   return !!a && a.status !== 'offline' && a.status !== 'done';
 }
@@ -225,9 +225,9 @@ function ruleText(raw: unknown): string | undefined {
 }
 
 /**
- * Sugestões "sempre permitir" que o Habblaud oferece: só `addRules` com `behavior: "allow"` num destino
- * conhecido. A página escolhe pela posição e o hook aplica a sugestão ORIGINAL que recebeu do Claude Code
- * (o servidor nunca inventa regras).
+ * "Always allow" suggestions offered: strictly `addRules` with `behavior: "allow"` on known destination.
+ * Web UI selects by index and hook applies ORIGINAL suggestion received from Claude Code
+ * (server never synthesizes rules).
  */
 export function pickSuggestions(raw: unknown): PermissionSuggestionInfo[] {
   if (!Array.isArray(raw)) return [];
@@ -243,9 +243,9 @@ export function pickSuggestions(raw: unknown): PermissionSuggestionInfo[] {
 }
 
 /**
- * Põe o pedido pendente no agente do snapshot (cópia já clonada pelo Office). Enquanto há pedido, o agente
- * aparece como 'waiting' — inclusive o subagente em segundo plano, cujo diálogo só aparece no terminal
- * depois que o hook responde (o registro de sessões do Claude Code não diz que ele espera).
+ * Attaches pending request to agent in snapshot (already cloned by Office). While request pending, agent
+ * shows as 'waiting' — including background subagents whose dialogue only renders in terminal
+ * once hook answers (Claude Code session registry does not flag background subagent as waiting).
  */
 export function applyPermission(a: AgentInfo, p: PermissionRequestInfo | undefined): AgentInfo {
   if (!p || !present(a)) return a;
@@ -259,9 +259,9 @@ export function applyPermission(a: AgentInfo, p: PermissionRequestInfo | undefin
 }
 
 /**
- * Valida o JSON do hook (o mesmo que o Claude Code entrega no stdin, com `timeout_ms` do hook). O hook do Codex manda
- * também `provider: "codex"`, a conta (`account`, o basename do CODEX_HOME) e o caminho dela (`codexHome`); nele,
- * `agent_id` é o thread do subagente (e `session_id`, o thread raiz).
+ * Validates hook JSON (identical to Claude Code stdin payload, with hook `timeout_ms`). Codex hook also
+ * provides `provider: "codex"`, account (`account`, basename of CODEX_HOME), and path (`codexHome`);
+ * `agent_id` is subagent thread (and `session_id`, root thread).
  */
 export function parseHookInput(raw: unknown): {
   provider?: 'codex';
@@ -296,9 +296,9 @@ export function parseHookInput(raw: unknown): {
 }
 
 /**
- * Respostas de uma decisão `answer`: até MAX_ANSWERS, cada uma com a posição da pergunta, as posições das opções
- * (distintas; ficam em ordem crescente) e/ou o texto livre (aparado, até ANSWER_OTHER_MAX). Se batem com as
- * perguntas do pedido, quem confere é o registro (decide).
+ * Answers for `answer` decision: up to MAX_ANSWERS, each with question index, selected option indices
+ * (distinct, ascending order) and/or free text (trimmed, up to ANSWER_OTHER_MAX). Registry verifies
+ * match against request questions (decide).
  */
 function parseAnswers(raw: unknown): PermissionAnswer[] | undefined {
   if (!Array.isArray(raw) || !raw.length || raw.length > MAX_ANSWERS) return undefined;
@@ -322,7 +322,7 @@ function parseAnswers(raw: unknown): PermissionAnswer[] | undefined {
   return out;
 }
 
-/** Corpo de uma decisão vinda da página. */
+/** Decision payload received from web app. */
 export function parseDecision(raw: unknown): PermissionDecision | undefined {
   const r = rec(raw);
   if (r?.behavior === 'answer') {
@@ -350,7 +350,7 @@ export class PermissionRegistry {
   private readonly orphanMs: number;
   private readonly resolvedKeepMs: number;
   private readonly maxPending: number;
-  /** Desde quando não há nenhuma página que responda (null = há). */
+  /** Timestamp since no responsive page was connected (null = page connected). */
   private unwatchedSince: number | null = null;
 
   constructor(private readonly opts: RegistryOptions) {
@@ -372,14 +372,14 @@ export class PermissionRegistry {
     this.timer.unref?.();
   }
 
-  /** Para o relógio e libera quem estiver esperando (o hook sai sem decidir). */
+  /** Stops timer and releases any waiting hooks (hook exits without deciding). */
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     for (const p of this.pending.values()) if (!p.outcome) this.release(p, 'shutdown');
   }
 
-  /** Pedidos em aberto (sem decisão). */
+  /** Open requests (pending decision). */
   get size(): number {
     let n = 0;
     for (const p of this.pending.values()) if (!p.outcome) n++;
@@ -387,9 +387,9 @@ export class PermissionRegistry {
   }
 
   /**
-   * Registra um pedido vindo do hook. `{skip}` = não desviar (o hook sai na hora e o terminal segue):
-   * pergunta que o escritório não consegue mostrar inteira, ninguém olhando, sessão desconhecida ou pedidos
-   * demais. Corpo inválido: lança InvalidRequest.
+   * Registers request from hook. `{skip}` = do not divert (hook exits immediately, terminal continues):
+   * prompt cannot be rendered fully, no watcher present, unknown session, or requests
+   * too frequent. Malformed payload throws InvalidRequest.
    */
   register(raw: unknown): RegisterResult {
     const req = parseHookInput(raw);
@@ -397,7 +397,7 @@ export class PermissionRegistry {
     const desc = codex ? codexToolView(req.tool, req.input, req.cwd) : describeTool(req.tool, req.input);
     const questions = 'questions' in desc ? desc.questions : undefined;
     const ask = isQuestion(req);
-    // Pergunta: todas precisam aparecer no escritório (o hook só responde se cada uma tiver resposta).
+    // Question prompt: all must be displayed in UI (hook only answers if each question has response).
     if (ask && (!questions?.length || questions.length !== askCount(req.input.questions))) return { skip: 'unsupported-tool' };
     if (this.opts.viewers() <= 0) return { skip: 'no-viewers' };
     const target = codex
@@ -408,7 +408,7 @@ export class PermissionRegistry {
 
     const now = this.now();
     const id = `p-${now.toString(36)}-${++this.seq}-${randomBytes(9).toString('base64url')}`;
-    // Codex: título, resumo e argumentos pelos nomes de ferramenta dele (permissions/codex.ts).
+    // Codex: title, summary, and arguments via its tool names (permissions/codex.ts).
     const view = 'title' in desc ? desc : toolView(req.tool, req.input, req.cwd);
     const info: PermissionRequestInfo = { id, tool: req.tool, title: view.title, text: desc.text, icon: desc.icon, createdAt: now, expiresAt: now + req.timeoutMs };
     if (codex) info.provider = 'codex';
@@ -447,7 +447,7 @@ export class PermissionRegistry {
     return { id, expiresAt: info.expiresAt + EXPIRY_GRACE_MS };
   }
 
-  /** Detalhe completo de um pedido em aberto (com os argumentos), ou undefined. */
+  /** Full detail of an open request (with arguments), or undefined. */
   detail(id: string): PermissionRequestInfo | undefined {
     const p = this.pending.get(id);
     if (p && !p.outcome) return { ...p.info, ...this.queueOf(p) };
@@ -455,8 +455,8 @@ export class PermissionRegistry {
   }
 
   /**
-   * Pedido mais antigo de cada agente (sem `input`, que só sai pelo detalhe), com quantos esperam depois
-   * dele. É o que o Office põe no snapshot.
+   * Oldest request per agent (without `input`, exposed only in details), with count of waiters
+   * behind it. Populates Office snapshot.
    */
   snapshot(): Map<string, PermissionRequestInfo> {
     const out = new Map<string, PermissionRequestInfo>();
@@ -476,15 +476,15 @@ export class PermissionRegistry {
   }
 
   /**
-   * Espera a decisão de um pedido por até `ms`. undefined = id desconhecido (o hook desiste). `cancel`
-   * desliga a espera (conexão fechada). Uma decisão já tomada volta na hora.
+   * Awaits decision for a request up to `ms`. undefined = unknown id (hook gives up). `cancel`
+   * terminates waiter (connection closed). An existing decision returns immediately.
    */
   wait(id: string, ms: number): { result: Promise<WaitResult>; cancel: () => void } | undefined {
     const p = this.pending.get(id);
     if (!p) return undefined;
     if (p.outcome) {
       const outcome = p.outcome;
-      // Entregue: não precisa mais guardar.
+      // Delivered: no longer needs retention.
       this.pending.delete(id);
       return { result: Promise.resolve(outcome), cancel: () => {} };
     }
@@ -498,7 +498,7 @@ export class PermissionRegistry {
     return { result, cancel: () => waiter && this.dropWaiter(p, waiter) };
   }
 
-  /** Decisão da página. Pedido do demo vai para `demoDecide` (com as mesmas regras para as perguntas). */
+  /** Web page decision. Demo requests route to `demoDecide` (with identical question rules). */
   decide(id: string, d: PermissionDecision): DecideResult {
     const p = this.pending.get(id);
     if (!p) {
@@ -531,8 +531,8 @@ export class PermissionRegistry {
   }
 
   /**
-   * Respostas às perguntas de um AskUserQuestion: cada pergunta mostrada respondida exatamente uma vez, com as
-   * opções dela, conferidas também contra o formato ORIGINAL (é por posição que o hook acha os textos).
+   * AskUserQuestion answers: each rendered question answered exactly once, with its
+   * options, validated against ORIGINAL format (hook resolves text by index).
    */
   private answer(p: Pending, raw: PermissionAnswer[] | undefined): DecideResult {
     const questions = p.info.questions ?? [];
@@ -544,7 +544,7 @@ export class PermissionRegistry {
     return 'ok';
   }
 
-  /** Relógio: expiração, órfãos, agente que saiu, resposta no terminal e limpeza das decisões entregues. */
+  /** Tick: expiration, orphans, departed agents, terminal answers, and cleanup of delivered decisions. */
   tick(): void {
     const now = this.now();
     this.unwatchedSince = this.opts.viewers() > 0 ? null : (this.unwatchedSince ?? now);
@@ -558,7 +558,7 @@ export class PermissionRegistry {
       else if (!p.waiters.size && now - p.idleSince >= this.orphanMs) this.release(p, 'orphan');
       else if (!present(this.opts.office.get(p.agentId))) this.release(p, 'gone');
       else if (unwatched && p.info.expiresAt - p.info.createdAt > DEFAULT_TIMEOUT_MS) this.release(p, 'unwatched');
-      // No Codex o terminal só pede a aprovação depois que o hook termina: não há resposta dada lá para procurar.
+      // In Codex terminal requests approval after hook finishes: no terminal answers to scan.
       else if (p.codex) continue;
       else if (now - p.lastScanAt >= SCAN_EVERY_MS && this.answeredInTerminal(p, now)) this.release(p, 'answered');
       else if (this.leftWaiting(p, now)) this.release(p, 'answered');
@@ -580,9 +580,9 @@ export class PermissionRegistry {
   }
 
   /**
-   * Agente do Codex de um pedido: o do thread `agent_id ?? session_id` (o subagente tem thread próprio; o principal é o
-   * thread raiz). A conta só desempata (ids de thread são UUIDs). Subagente que o Habblaud não mostra: o pedido vai
-   * para o principal, com o tipo dele.
+   * Codex agent associated with request: thread `agent_id ?? session_id` (subagent has dedicated thread; primary is
+   * root thread). Account breaks ties (thread IDs are UUIDs). Un-rendered subagents: request assigns
+   * to primary agent with its kind.
    */
   private resolveCodexAgent(sessionId: string, agentId: string | undefined, agentType: string | undefined, account: string | undefined): { id: string; subagent?: string } | undefined {
     const find = (thread: string): AgentInfo | undefined => {
@@ -598,8 +598,8 @@ export class PermissionRegistry {
   }
 
   private queueOf(p: Pending): { queued?: number } {
-    // Pela ordem de chegada (a do Map), não pelo createdAt: dois pedidos no mesmo milissegundo empatariam e cada
-    // um contaria o outro como "atrás dele".
+    // By insertion order (Map order), not createdAt: two requests in same ms would tie and
+    // count each other as "behind".
     let n = 0;
     let after = false;
     for (const o of this.pending.values()) {
@@ -609,11 +609,11 @@ export class PermissionRegistry {
     return n ? { queued: n } : {};
   }
 
-  /** O tool_result da chamada apareceu no transcript (respondido no terminal)? Nunca lança. */
+  /** Did call's tool_result appear in transcript (answered in terminal)? Never throws. */
   private answeredInTerminal(p: Pending, now: number): boolean {
     p.lastScanAt = now;
-    // Subagente que o Habblaud não acompanha (pedido mostrado no principal): o transcript dele não é
-    // conhecido e o do principal não tem a chamada; sobram a expiração e o órfão.
+    // Unmonitored subagents (prompt attributed to primary): transcript is unknown
+    // and primary transcript lacks call; handled via expiration and orphan detection.
     if (p.hookAgentId && p.agentId !== `${p.sessionId}:${p.hookAgentId}`) return false;
     const path = this.opts.transcriptPathOf?.(p.agentId);
     if (!path) return false;
@@ -627,10 +627,10 @@ export class PermissionRegistry {
   }
 
   /**
-   * Plano B da resposta no terminal, só para pedidos do principal cuja chamada não foi achada no
-   * transcript: o registro de sessões mostrou o diálogo aberto ('waiting') e depois deixou de mostrar
-   * por LEFT_WAITING_MS. (Com a chamada achada, vale só o tool_result: pedidos em sequência do mesmo
-   * agente passam por 'busy' entre um diálogo e outro.)
+   * Fallback terminal detection, strictly for primary requests whose call was not found in
+   * transcript: session registry showed open prompt ('waiting') and subsequently ceased showing
+   * for LEFT_WAITING_MS. (When call was found, strictly tool_result applies: sequential prompts
+   * transition through 'busy' between dialogues.)
    */
   private leftWaiting(p: Pending, now: number): boolean {
     if (p.hookAgentId || p.toolUseId) return false;
@@ -658,7 +658,7 @@ export class PermissionRegistry {
     p.resolvedAt = this.now();
     const delivered = p.waiters.size > 0;
     for (const w of [...p.waiters]) this.dropWaiter(p, w, outcome);
-    // Entregue a quem esperava: some já; senão fica guardado até o hook voltar (ou RESOLVED_KEEP_MS).
+    // Delivered to waiter: removed immediately; otherwise retained until hook returns (or RESOLVED_KEEP_MS).
     if (delivered) this.pending.delete(p.info.id);
     this.opts.office.markDirty();
   }

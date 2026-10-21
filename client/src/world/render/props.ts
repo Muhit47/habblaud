@@ -1,6 +1,6 @@
-// Sprites procedurais da área externa (árvores, arbustos, postes, carros...) e utilitários
-// visuais do mundo (sombra, brilhos). Mesma direção de arte do módulo de arte: contorno
-// cinza-azulado escuro, 3–4 tons por material, luz vinda de cima/esquerda.
+// Procedural exterior sprites (trees, shrubs, lamp posts, cars...) and world visual
+// utilities (shadows, radial glows). Same art direction as art module: dark slate-blue
+// outline, 3–4 shades per material, top-left directional lighting.
 import { mulberry32 } from '../../../../shared/hash';
 import type { ExteriorProp } from '../layout/types';
 
@@ -26,7 +26,7 @@ function hex(c: string): [number, number, number] {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-/** Pintor por pixel (ImageData) para formas orgânicas. */
+/** Pixel-level painter (ImageData) for organic shapes. */
 class Painter {
   readonly data: ImageData;
   constructor(
@@ -34,7 +34,7 @@ class Painter {
     readonly w: number,
     readonly h: number,
   ) {
-    // parte do conteúdo já desenhado (ex.: sombra) para não apagá-lo no putImageData
+    // copies pre-rendered content (e.g. shadow) to avoid overwriting during putImageData
     this.data = ctx.getImageData(0, 0, w, h);
   }
   set(x: number, y: number, color: string, a = 255): void {
@@ -63,7 +63,7 @@ function shadowEllipse(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx
   }
 }
 
-/** Copa arredondada: união de círculos com sombreamento por luz superior-esquerda. */
+/** Rounded canopy: union of circles with top-left directional shading. */
 function canopy(p: Painter, rng: () => number, cx: number, cy: number, r: number, tones: string[], outline: string): void {
   const blobs: [number, number, number][] = [[cx, cy, r]];
   for (let i = 0; i < 4; i++) {
@@ -84,7 +84,7 @@ function canopy(p: Painter, rng: () => number, cx: number, cy: number, r: number
         p.set(x, y, outline);
         continue;
       }
-      // luz: topo-esquerda mais claro; ruído para "folhas"
+      // lighting: lighter top-left; procedural noise for foliage
       const nx = (x - cx) / r;
       const ny = (y - cy) / r;
       const light = -nx * 0.45 - ny * 0.75 + (rng() - 0.5) * 0.55;
@@ -243,7 +243,7 @@ function rockSprite(seed: number): PropSprite {
   return { canvas: c, ax: 8, ay: 11 };
 }
 
-/** Mesa de jardim com guarda-sol listrado (vista de cima, 3/4) e duas cadeirinhas. */
+/** Garden patio table with striped umbrella (3/4 top-down view) and two folding chairs. */
 function parasolSprite(seed: number): PropSprite {
   const [c, ctx] = makeCanvas(32, 34);
   const palettes: [string, string, string][] = [
@@ -252,7 +252,7 @@ function parasolSprite(seed: number): PropSprite {
     ['#f2b33d', '#fbf4e4', '#c88a1f'],
   ];
   const [a, b, dk] = palettes[seed % palettes.length];
-  // sombra do guarda-sol no chão
+  // umbrella shadow on ground
   shadowEllipse(ctx, 16, 29, 12, 3, 0.24);
   // cadeirinhas (laterais) e mesa
   ctx.fillStyle = '#5b3c25';
@@ -270,7 +270,7 @@ function parasolSprite(seed: number): PropSprite {
   // haste
   ctx.fillStyle = '#4a5468';
   ctx.fillRect(15, 11, 2, 14);
-  // lona: octógono achatado com gomos alternados e borda escura
+  // canopy: flattened octagon with alternating segments and dark border
   const p = new Painter(ctx, 32, 34);
   const cx = 15.5;
   const cy = 8;
@@ -293,7 +293,7 @@ function parasolSprite(seed: number): PropSprite {
   return { canvas: c, ax: 16, ay: 29 };
 }
 
-/** Totem da entrada com a marca (azul-marinho e laranja, como a placa da recepção). */
+/** Entrance totem with branding (navy and orange, matching reception plaque). */
 function totemSprite(): PropSprite {
   const [c, ctx] = makeCanvas(14, 34);
   shadowEllipse(ctx, 7, 32, 6, 1.5, 0.25);
@@ -357,7 +357,7 @@ export function propSprite(prop: ExteriorProp): PropSprite {
       s = totemSprite();
       break;
     default:
-      // 'paving' e outros tipos desenhados pelo próprio renderer
+      // 'paving' and other types rendered directly by renderer
       s = { canvas: makeCanvas(1, 1)[0], ax: 0, ay: 0 };
   }
   cache.set(key, s);
@@ -373,7 +373,7 @@ const CAR_COLORS: [string, string, string][] = [
   ['#4a5468', '#323a4a', '#76819a'],
 ];
 
-/** Carro visto de lado (3/4), virado para a direita; `flip` desenha para a esquerda. */
+/** Car profile (3/4 view), facing right; `flip` renders facing left. */
 export function carSprite(variant: number, flip: boolean): PropSprite {
   const key = `car:${variant % CAR_COLORS.length}:${flip ? 1 : 0}`;
   const hit = cache.get(key);
@@ -435,7 +435,7 @@ export function shadowSprite(): PropSprite {
   return s;
 }
 
-/** Brilho radial (desenhado com composição aditiva). */
+/** Radial glow (rendered via additive composite operation). */
 export function glowSprite(color: string, size = 64): HTMLCanvasElement {
   const key = `glow:${color}:${size}`;
   const hit = cache.get(key);

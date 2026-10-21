@@ -1,6 +1,6 @@
-// A* em 4 direções sobre a WalkGrid. Buffers reaproveitados entre buscas (sem alocação por chamada,
-// exceto o array de saída fornecido pelo chamador). Penaliza curvas para gerar trajetos naturais
-// em "L" em vez de escadinhas.
+// 4-directional A* over WalkGrid. Buffers reused between queries (no allocation per call,
+// except caller-provided output array). Penalizes turns to produce natural trajectories
+// in "L" shapes rather than stairs.
 import { BLOCKED, SEAT, type WalkGrid } from './grid';
 
 const SEAT_COST = 6;
@@ -42,9 +42,9 @@ export class PathFinder {
   }
 
   /**
-   * Caminho de (sx, sy) até (gx, gy). Preenche `out` com pares [x0, y0, x1, y1, ...] SEM o ponto
-   * de partida e COM o destino. O ponto de partida pode estar bloqueado (ex.: personagem num assento).
-   * Retorna false se não houver caminho.
+   * Path from (sx, sy) to (gx, gy). Populates `out` with pairs [x0, y0, x1, y1, ...] WITHOUT start
+   * point and WITH destination. Starting point can be blocked (e.g. character in a seat).
+   * Returns false if no path exists.
    */
   find(sx: number, sy: number, gx: number, gy: number, out: number[]): boolean {
     out.length = 0;
@@ -95,7 +95,7 @@ export class PathFinder {
         if (this.stamp[ni] === gen && ng >= this.g[ni]) continue;
         this.stamp[ni] = gen;
         this.g[ni] = ng;
-        // desempate leve a favor de nós mais próximos do destino
+        // slight tie-break favoring nodes closer to destination
         const h = Math.abs(nx - gx) + Math.abs(ny - gy);
         this.f[ni] = ng + h * 1.001;
         this.from[ni] = cur;
@@ -121,7 +121,7 @@ export class PathFinder {
 
   private push(i: number): void {
     if (this.heapSize >= this.heap.length) {
-      // não deveria acontecer (cada nó entra poucas vezes); amplia por segurança
+      // should not happen (each node enqueued few times); expand defensively
       const bi = new Int32Array(this.heap.length * 2);
       bi.set(this.heap);
       this.heap = bi;

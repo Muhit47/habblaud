@@ -1,8 +1,8 @@
-// Vida social do escritório: quando dois ou mais agentes estão à toa (ociosos, ou esperando um
-// shell há um tempo), eles se juntam em rodas — TV, videogame, fliperama, ping-pong, papo na copa,
-// conversa, jokenpô valendo moedinhas e o espelho do banheiro. Este "diretor" escolhe a roda e os
-// parceiros pela personalidade, leva cada um ao seu lugar (passos da fila) e conduz o roteiro
-// (falas, comemorações, placar, apostas). A simulação chama update() a cada quadro.
+// Office social life: when two or more agents are idle (or awaiting a
+// shell for some time), they gather in groups — TV, video games, arcade, ping-pong, breakroom chats,
+// conversations, RPS with coins, and restroom mirror. This coordinator selects gathering and
+// partners by personality, navigates each to spot (path steps), and drives timeline
+// (dialogue, celebrations, score, bets). Simulation calls update() each frame.
 import type { AgentInfo } from '../../../../shared/types';
 import type { Dir, HeldItem, Pose } from '../../art/api';
 import type { AgentSocial, SocialEvent } from '../api';
@@ -39,7 +39,7 @@ import { bondBetween, hasTrait, personaFor, TRAITS, type Persona, type TraitId }
 import { DELIVERY_REWARD, TURN_REWARD, Wallets, type StorageLike } from './wallet';
 import { tr } from '../../../../shared/i18n';
 
-/** Texto flutuante sobre a cabeça ("+🪙10"), desenhado pelo overlay. */
+/** Floating text over head ("+🪙10"), rendered by overlay. */
 export interface Floater {
   charId: string;
   text: string;
@@ -50,9 +50,9 @@ export interface Floater {
 
 export type { SocialEvent } from '../api';
 
-/** Quem espera um shell só sai da mesa depois disto (antes, pipoca na mesa). */
+/** Agents waiting for shells only leave desk after this delay (beforehand, pop corn at desk). */
 export const SHELL_SOCIAL_MIN_MS = 40_000;
-/** Quem não chega ao lugar da roda em tanto tempo desiste (a roda acontece sem ele ou não acontece). */
+/** Agents failing to reach gathering spot within this timeout drop out (gathering proceeds without them or cancels). */
 const GATHER_TIMEOUT_MS = 35_000;
 const SAY_MS = 2_600;
 const FLOATER_MS = 1_900;
@@ -63,7 +63,7 @@ const LOSS_COLOR = '#ff8a8a';
 
 const KIND_LIST = Object.keys(KINDS) as GatherKind[];
 const PLACES: Readonly<Record<string, string>> = { [LOUNGE_ID]: tr('Lounge'), [CAFE_ID]: tr('Copa'), [RECEPTION_ID]: tr('Recepção'), [RESTROOM_ID]: tr('Banheiros') };
-/** O que se perde/ganha em cada jogo (texto do extrato: "Perdeu no jokenpô para Rafaela"). */
+/** Statement description of game outcomes (e.g. "Lost in rock-paper-scissors to Rafaela"). */
 const MATCH_WHAT: Partial<Record<GatherKind, string>> = {
   rps: tr('no jokenpô'),
   pingpong: tr('no pingue-pongue'),
@@ -75,10 +75,10 @@ function between(rng: () => number, a: number, b: number): number {
   return a + rng() * (b - a);
 }
 
-/** Plano de lugares de uma roda: um spot por participante inicial + extras para quem chegar depois. */
+/** Seating arrangement for a gathering: one spot per initial participant + extras for late arrivals. */
 interface SeatPlan {
   seats: SpotDef[];
-  /** Todos os spots que a roda reserva (inclui `seats`). */
+  /** All spots reserved by gathering (includes `seats`). */
   pool: SpotDef[];
 }
 
@@ -101,8 +101,8 @@ export class Social {
   // =================================================================== disponibilidade
 
   /**
-   * Pode entrar numa roda agora: ocioso (ou esperando um shell há SHELL_SOCIAL_MIN_MS), sentado na
-   * própria mesa, sem nada planejado. Quem cochila de tão ocioso pode ser acordado por um convite.
+   * Eligible to join a gathering: idle (or waiting on shell for SHELL_SOCIAL_MIN_MS), seated at
+   * own desk, with no pending tasks. Agents napping from inactivity can be awakened by invitation.
    */
   canJoin(c: Character, now: number): boolean {
     if (c.gone || c.leaving || c.arriving || c.inside || c.gathering) return false;
@@ -120,17 +120,17 @@ export class Social {
     return out;
   }
 
-  /** Há alguém livre para uma roda com `ch`? */
+  /** Is anyone available to gather with `ch`? */
   hasCompany(ch: Character, now: number): boolean {
     for (const c of this.sim.chars.values()) if (c !== ch && this.canJoin(c, now)) return true;
     return [...this.gatherings].some((g) => this.openSpotFor(g, ch) !== undefined);
   }
 
-  // =================================================================== começar / entrar
+  // =================================================================== start / join
 
   /**
-   * `ch` quer companhia: entra numa roda em andamento (TV, torcida, papo) ou começa uma nova com
-   * colegas livres. `groupOnly` (esperando shell): nada de atividade sozinho.
+   * `ch` seeks company: joins active gathering (TV, spectators, chat) or starts new one with
+   * available colleagues. `groupOnly` (waiting on shell): no solo activity.
    */
   tryInitiate(ch: Character, now: number, groupOnly: boolean): boolean {
     if (!this.canJoin(ch, now)) return false;
@@ -160,12 +160,12 @@ export class Social {
     return this.start(kind, ch, [], now, false, 0);
   }
 
-  /** Força uma roda (depuração). Usa `ids` (se vierem) como participantes. */
+  /** Force-starts a gathering (debug). Uses `ids` (if supplied) as participants. */
   force(kind: GatherKind, now: number, ids?: string[]): string[] | null {
     const pool = ids?.length ? ids.map((id) => this.sim.chars.get(id)).filter((c): c is Character => !!c) : [...this.sim.chars.values()];
     for (const c of pool) {
       if (c.gathering) this.sim.clearPlan(c);
-      // depuração: levanta quem estiver passeando e põe na mesa na hora
+      // debug: resets roaming agents immediately to desks
       if ((c.mode === 'idle' || c.mode === 'shell') && !c.leaving && (c.step || c.queue.length)) this.sim.clearPlan(c);
     }
     const free = pool.filter((c) => !c.leaving && !c.gone && (c.mode === 'idle' || c.mode === 'shell') && c.homeSpot && c.atSpot === c.homeSpot && !c.step && !c.queue.length);
@@ -188,7 +188,7 @@ export class Social {
     else if (kind === 'kitchen') want = 1 + Math.floor(rng() * 2.4);
     else if (kind === 'mirror') want = groupOnly ? 1 : cands.some((c) => hasTrait(personaFor(c.info.seed), 'vaidade')) && rng() < 0.5 ? 1 : 0;
     else want = info.min - 1;
-    // torcida já na largada, às vezes
+    // spectators present from start, occasionally
     if (wantOverride === undefined && (kind === 'pingpong' || kind === 'videogame' || kind === 'rps') && rng() < 0.3) want++;
     want = Math.max(0, Math.min(want, cands.length, info.max - 1));
     const ranked = cands
@@ -201,7 +201,7 @@ export class Social {
       })
       .sort((a, b) => b.s - a.s);
     let chosen = ranked.slice(0, want).map((x) => x.c);
-    // dorminhocos (ociosos há muito tempo) às vezes nem acordam com o convite
+    // napping agents (idle for extended time) may sleep through invitations
     if (!forced) chosen = chosen.filter((c, i) => i < info.min - 1 || !this.sim.longIdle(c, now) || rng() < 0.35);
     if (chosen.length + 1 < (kind === 'mirror' ? (groupOnly ? 2 : 1) : info.min)) return false;
     const plan = this.plan(kind, chosen.length + 1, host);
@@ -245,7 +245,7 @@ export class Social {
       if (!spot && role === 'watcher') m.tile = this.standNear(g, c) ?? undefined;
       g.members.push(m);
     });
-    // aposta entre os dois jogadores
+    // bet between the two players
     if (info.match) {
       const [a, b] = everyone;
       g.bet = betFor(kind, hp, personaFor(b.info.seed), this.wallets.coins(a.id), this.wallets.coins(b.id), bondBetween(a.info.seed, b.info.seed), g.rng);
@@ -260,7 +260,7 @@ export class Social {
     return { id: c.id, role, spot: spot?.id ?? null, arrived: false, left: false, pose: 'stand', held: 'none', actPose: null, actHeld: 'none', actUntil: 0, carry: 'none' };
   }
 
-  /** Convite (quem chamou) e o "bora!" de cada convidado, um pouco depois. */
+  /** Invitation (inviter) and "let's go!" from each invitee shortly after. */
   private invite(g: Gathering, host: Character, guests: Character[], now: number): void {
     const rng = g.rng;
     const hp = personaFor(host.info.seed);
@@ -296,7 +296,7 @@ export class Social {
     });
   }
 
-  /** Coloca o personagem a caminho do seu lugar na roda (e de volta à mesa no fim). */
+  /** Dispatches character to gathering spot (and back to desk upon finish). */
   private dispatch(g: Gathering, m: Member, ch: Character, now: number): void {
     const sim = this.sim;
     ch.gathering = g;
@@ -306,7 +306,7 @@ export class Social {
     if (ch.atSpot) steps.push({ t: 'exit' });
     let held: HeldItem = 'none';
     if (g.kind === 'kitchen') {
-      // passa na cafeteira (ou no bebedouro) antes de sentar para o papo
+      // visits coffee machine (or water cooler) before sitting down to chat
       const kind = hasTrait(personaFor(ch.info.seed), 'cafeina') || ch.rng() < 0.65 ? 'coffee' : 'water';
       const stop = sim.spots.findFree(kind, { by: ch.id, rng: ch.rng }) ?? sim.spots.findFree(kind === 'coffee' ? 'water' : 'coffee', { by: ch.id, rng: ch.rng });
       if (stop && ch.rng() < 0.8 && sim.reserveTemp(ch, stop)) {
@@ -331,7 +331,7 @@ export class Social {
 
   // =================================================================== rodas em andamento
 
-  /** Roda em andamento que aceita mais um (TV, torcida do jogo, papo na copa), pelo gosto de `ch`. */
+  /** Active gathering accepting another participant (TV, gaming, pantry chat), matching `ch` affinity. */
   private joinable(ch: Character, p: Persona): Gathering | null {
     let best: Gathering | null = null;
     let bestScore = 0;
@@ -356,7 +356,7 @@ export class Social {
     return best;
   }
 
-  /** Lugar livre para mais um na roda: spot do pool (TV, torcida, copa) ou tile em pé (jokenpô). undefined = não cabe. */
+  /** Available spot for an extra participant: pool spot (TV, spectator, breakroom) or standing tile (RPS). undefined = full. */
   private openSpotFor(g: Gathering, ch: Character): SpotDef | null | undefined {
     if (g.phase === 'final' || g.phase === 'ended') return undefined;
     if (g.kind === 'talk' || g.kind === 'arcade' || g.kind === 'mirror') return undefined;
@@ -378,7 +378,7 @@ export class Social {
       if (!t) return false;
       m.tile = t;
     }
-    // chegando com a roda já rolando: pose da roda desde já
+    // arriving when gathering is ongoing: adopt gathering pose immediately
     if (g.phase === 'run') this.basePose(g, m, now);
     g.members.push(m);
     this.dispatch(g, m, ch, now);
@@ -387,7 +387,7 @@ export class Social {
     return true;
   }
 
-  /** Tile livre em pé perto dos jogadores (torcida do jokenpô), virado para eles. */
+  /** Free standing tile near players (RPS spectators), facing players. */
   private standNear(g: Gathering, ch: Character): { x: number; y: number; dir: Dir } | null {
     const ps = g.members.filter((m) => m.role === 'player' && !m.left);
     const spots = ps.map((m) => (m.spot ? this.sim.spots.get(m.spot) : undefined)).filter((s): s is SpotDef => !!s);
@@ -399,7 +399,7 @@ export class Social {
     const taken = new Set(g.members.filter((m) => m.tile && !m.left).map((m) => m.tile!.y * grid.w + m.tile!.x));
     let best: { x: number; y: number } | null = null;
     let bestD = Infinity;
-    // de preferência na fileira de trás (rosto para a câmera, olhando a partida); depois dos lados
+    // preferably in back row (facing camera, watching match); sides secondarily
     const rowCost = (dy: number) => (dy === -1 ? 0 : dy === -2 ? 1.2 : dy === 1 ? 2.5 : dy === 0 ? 2 : 4);
     for (let dy = -2; dy <= 2; dy++) {
       for (let dx = -2; dx <= 3; dx++) {
@@ -408,7 +408,7 @@ export class Social {
         const k = y * grid.w + x;
         if (grid.get(x, y) !== FREE || busy.has(k) || taken.has(k)) continue;
         if (spots.some((s) => s.tx === x && s.ty === y)) continue;
-        // bem atrás de um jogador, some atrás dele
+        // directly behind a player, obscured from view
         const hidden = spots.some((s) => s.tx === x && s.ty === y + 1);
         const d = Math.abs(x + 0.5 - cx) + rowCost(dy) + (hidden ? 3 : 0);
         if (d >= bestD) continue;
@@ -420,9 +420,9 @@ export class Social {
     return { ...best, dir: facing(best.x * TILE, best.y * TILE, cx * TILE, cy * TILE) };
   }
 
-  // =================================================================== lugares de cada roda
+  // =================================================================== circle positions
 
-  /** Lugares para `n` participantes da roda (null = não há lugar livre agora). */
+  /** Locations for `n` participants in gathering (null = insufficient spots). */
   plan(kind: GatherKind, n: number, ch: Character): SeatPlan | null {
     const spots = this.sim.spots;
     const free = (s: SpotDef) => spots.isFree(s.id, ch.id) && !this.inPool(s.id);
@@ -434,7 +434,7 @@ export class Social {
         const sofa = seats.filter((s) => s.kind === 'sofa').sort((a, b) => a.tx - b.tx);
         const chairs = seats.filter((s) => s.kind !== 'sofa');
         if (kind === 'videogame') {
-          // os dois jogadores lado a lado no sofá, de frente para a TV
+          // two players seated side-by-side on sofa, facing TV
           for (let i = 0; i + 1 < sofa.length; i++) {
             if (sofa[i + 1].tx !== sofa[i].tx + 1) continue;
             const pair = [sofa[i], sofa[i + 1]];
@@ -477,8 +477,8 @@ export class Social {
   }
 
   /**
-   * Mesa da copa: pares de cadeiras frente a frente (mesa comprida: norte/sul; mesinhas: oeste/leste).
-   * Para 3–4, dois pares vizinhos da mesa comprida.
+   * Pantry table: facing chair pairs (long table: north/south; small tables: west/east).
+   * For 3–4, two adjacent pairs on long table.
    */
   private kitchenSeats(n: number, free: (s: SpotDef) => boolean, rng: () => number): SeatPlan | null {
     const seats = this.sim.spots.ofKind('cafe_seat').filter((s) => s.areaId === CAFE_ID);
@@ -507,7 +507,7 @@ export class Social {
     }
     if (!blocks.length) return null;
     const blk = blocks[Math.floor(rng() * blocks.length)];
-    // os dois primeiros frente a frente, depois os vizinhos
+    // first two face each other, then neighbors
     const order = [blk[0], blk[2], blk[1], blk[3]];
     return { seats: order.slice(0, n), pool: order };
   }
@@ -517,13 +517,13 @@ export class Social {
     return !!owner && owner.startsWith('g:');
   }
 
-  /** A TV do lounge está ocupada (programa ou videogame). */
+  /** Lounge TV is occupied (broadcast program or video game). */
   tvBusy(): boolean {
     for (const g of this.gatherings) if ((g.kind === 'tv' || g.kind === 'videogame') && g.phase !== 'ended') return true;
     return false;
   }
 
-  /** O que a TV do lounge mostra agora (null = programação normal). */
+  /** What lounge TV displays currently (null = standard broadcast). */
   tvScreen(): { mode: 'show' | 'game'; seed: number } | null {
     for (const g of this.gatherings) {
       if (g.phase !== 'run' && g.phase !== 'final') continue;
@@ -539,9 +539,9 @@ export class Social {
     return null;
   }
 
-  // =================================================================== passo 'gather' (por personagem)
+  // =================================================================== 'gather' step (per character)
 
-  /** Pose do participante enquanto a roda dura. Retorna true quando ele deve sair (roda acabou). */
+  /** Participant pose while gathering lasts. Returns true when participant should depart (gathering ended). */
   stepGather(ch: Character, g: Gathering, now: number): boolean {
     const m = g.members.find((x) => x.id === ch.id);
     if (!m || m.left || g.phase === 'ended') return true;
@@ -555,7 +555,7 @@ export class Social {
     return false;
   }
 
-  // =================================================================== saída de alguém
+  // =================================================================== participant exit
 
   /** O plano de `ch` foi descartado (trabalho chamou, foi embora...): sai da roda. */
   leave(ch: Character, now: number): void {
@@ -569,7 +569,7 @@ export class Social {
     const rest = active(g);
     if (!rest.length) return this.end(g, now);
     if (g.phase === 'gather') {
-      // ainda indo para o lugar: sem quórum, desfaz a roda
+      // still en route: if quorum lost, aborts gathering
       const need = KINDS[g.kind].match ? 2 : g.kind === 'mirror' ? 1 : KINDS[g.kind].min;
       const left = KINDS[g.kind].match ? players(g).length : rest.length;
       if (left < need) this.end(g, now);
@@ -608,7 +608,7 @@ export class Social {
     const tag = ownerTag(g);
     for (const id of g.pool) this.sim.spots.release(id, tag);
     g.pool.length = 0;
-    // quem ainda estava a caminho volta direto para a mesa
+    // participants still en route return directly to desk
     for (const m of g.members) {
       if (m.left || m.arrived) continue;
       const c = this.sim.chars.get(m.id);
@@ -617,7 +617,7 @@ export class Social {
     void now;
   }
 
-  /** Encerra tudo (aba volta do segundo plano). */
+  /** Terminates all (tab returns from background). */
   reset(now: number): void {
     for (const g of this.gatherings) this.end(g, now);
     this.gatherings.clear();
@@ -648,7 +648,7 @@ export class Social {
     }
   }
 
-  /** Baixa frequência: limpa rodas encerradas e grava as carteiras. */
+  /** Low frequency: clears terminated gatherings and flushes dirty wallets. */
   housekeeping(now: number): void {
     for (const g of this.gatherings) if (g.phase === 'ended') this.gatherings.delete(g);
     if (now >= this.nextSaveAt) {
@@ -676,7 +676,7 @@ export class Social {
     const min = g.kind === 'mirror' ? 1 : KINDS[g.kind].min;
     if (ready.length === need.length && ready.length >= min) return this.begin(g, now);
     if (now - g.createdAt < GATHER_TIMEOUT_MS) return;
-    // alguém não chegou: segue com quem está lá (se der) ou desfaz
+    // a participant failed to arrive: proceed with attendees (if quorum holds) or cancel
     if (!KINDS[g.kind].match && ready.length >= min) {
       for (const m of need) if (!m.arrived) this.dropMember(g, m);
       return this.begin(g, now);
@@ -727,14 +727,14 @@ export class Social {
     }
   }
 
-  /** Pose de base de cada um enquanto a roda rola. */
+  /** Base pose for each avatar while gathering continues. */
   private basePose(g: Gathering, m: Member, now: number): void {
     const rng = g.rng;
     const c = this.sim.chars.get(m.id);
     const p = c ? personaFor(c.info.seed) : null;
     switch (g.kind) {
       case 'tv':
-        // pipoca para quem é de séries/sonecas (e às vezes para os outros)
+        // popcorn for series/napping traits (and occasionally others)
         if (p && (hasTrait(p, 'series') || hasTrait(p, 'sonecas') || rng() < 0.3)) [m.pose, m.held] = ['wait', 'popcorn'];
         else [m.pose, m.held] = ['sit', 'none'];
         break;
@@ -791,7 +791,7 @@ export class Social {
       return;
     }
     g.nextAt = now + between(rng, 3_500, 6_500);
-    // quem é de sonecas cochila no sofá na segunda metade
+    // nap-prone agents doze off on sofa in second half
     for (const m of ms) {
       const c = this.charOf(m);
       if (c && m.pose !== 'sleep' && hasTrait(personaFor(c.info.seed), 'sonecas') && now - g.startAt > (g.until - g.startAt) * 0.5) {
@@ -805,7 +805,7 @@ export class Social {
     const r = rng();
     switch (g.program) {
       case 'futebol': {
-        // o gol da tela (a cada lance): gol do "nosso" time (direita) = festa; do outro = lamento
+        // goal on screen (each play): "our" team score (right) = celebration; opponent score = dismay
         const lance = this.sim.footballLance(now);
         const goal = lance ? lance.progress >= lance.goalAt && g.step !== lance.lance : r < 0.25;
         if (lance) {
@@ -847,7 +847,7 @@ export class Social {
     }
   }
 
-  /** Videogame (melhor de 3, no sofá) e fliperama (uma partida, em pé). */
+  /** Video game (best of 3, sofa) and arcade (single match, standing). */
   private beatGame(g: Gathering, now: number): void {
     const rng = g.rng;
     const ps = players(g);
@@ -857,7 +857,7 @@ export class Social {
       return;
     }
     if (now < g.until) {
-      // durante a rodada: provocações e torcida
+      // during round: banter and spectator cheers
       g.nextAt = now + between(rng, 2_000, 3_400);
       const who = ps[g.step++ % 2];
       const c = this.charOf(who);
@@ -924,7 +924,7 @@ export class Social {
     }
   }
 
-  /** Fim de uma partida: comemoração, troféu, aposta paga, placar registrado. */
+  /** Match finish: celebration, trophy, settled bet, recorded score. */
   private finishMatch(g: Gathering, w: Member, l: Member, now: number): void {
     const rng = g.rng;
     const cw = this.charOf(w);
@@ -946,7 +946,7 @@ export class Social {
     g.until = now + 3_400;
   }
 
-  /** Paga a aposta (se houver), registra o placar e conta para a interface. */
+  /** Pays bet (if any), records score, and notifies UI. */
   private settle(g: Gathering, w: Member, l: Member, now: number): void {
     const cw = this.charOf(w);
     const cl = this.charOf(l);
@@ -973,7 +973,7 @@ export class Social {
       return;
     }
     g.nextAt = now + between(rng, 2_400, 4_200);
-    // quem fala: não repete o último; quem é mais sociável fala mais
+    // speaker selection: avoid repeating previous speaker; more sociable agents speak more
     const pool = ms.filter((m) => m.id !== g.lastSpeaker);
     let speaker = pool[0];
     let best = -1;
@@ -1003,11 +1003,11 @@ export class Social {
       const lc = this.charOf(this.randomOf(listeners, rng));
       if (lc) g.pending.push({ id: lc.id, at: now + 1_100, text: L.pick(L.CHAT.react, rng) });
     }
-    // um gole de café de vez em quando
+    // occasional sip of coffee
     for (const m of ms) if (m !== speaker && (m.held === 'coffee' || m.held === 'water') && rng() < 0.2) this.act(m, 'drink', m.held, 1_400, now);
   }
 
-  /** Assunto da fala: o do traço de quem fala, o dia/hora, trabalho ou papo genérico. */
+  /** Dialogue topic: speaker's trait topic, time/day, work, or general chit-chat. */
   private topicLine(g: Gathering, c: Character, p: Persona, now: number): { line: string; topic: string } {
     const rng = g.rng;
     const vars = { nome: this.otherName(g, c, rng), sala: this.roomName(c, rng) };
@@ -1035,7 +1035,7 @@ export class Social {
     const ca = this.charOf(a);
     const cb = this.charOf(b);
     if (!ca || !cb) return;
-    // passos: 0..2 contagem "jo-ken-pô"; 3 revela; 4 resultado
+    // steps: 0..2 countdown "rock-paper-scissors"; 3 reveal; 4 result
     if (g.step <= 2) {
       for (const m of ps) this.act(m, 'rps', 'none', 540, now);
       this.say(ca, L.RPS.count[g.step], now, 700);
@@ -1085,7 +1085,7 @@ export class Social {
       const wc = watcher ? this.charOf(watcher) : undefined;
       if (wc) g.pending.push({ id: wc.id, at: now + 600, text: L.pick(L.RPS.watch, rng) });
       this.settle(g, w, l, now);
-      // revanche: quem perdeu e é de competição/apostas pede mais uma (se ainda tem moedinhas)
+      // rematch: loser with competitive/betting traits asks for rematch (if coins remain)
       const lp = personaFor(cl.info.seed);
       const keen = hasTrait(lp, 'competicao') || hasTrait(lp, 'apostas');
       if (keen && g.rematches < 1 && rng() < 0.6 && (!g.bet || this.wallets.coins(cl.id) >= 1)) {
@@ -1131,7 +1131,7 @@ export class Social {
 
   // =================================================================== dinheiro do trabalho
 
-  /** Snapshot: garante a carteira e paga tarefas concluídas (com "+🪙" quando é ao vivo). */
+  /** Snapshot: ensures wallet and rewards completed tasks (with "+🪙" in live mode). */
   syncAgent(ch: Character, a: AgentInfo, now: number, live: boolean): void {
     const { created } = this.wallets.ensure(a, now);
     if (created) return;
@@ -1139,13 +1139,13 @@ export class Social {
     if (paid && live) this.earned(ch, paid, now);
   }
 
-  /** Pedido do usuário atendido (fim de turno do principal). */
+  /** User request fulfilled (turn completion for primary agent). */
   turnDone(ch: Character, now: number): void {
     const v = this.wallets.credit(ch.id, TURN_REWARD, '💬', tr('Pedido atendido'), now);
     if (v) this.earned(ch, v, now);
   }
 
-  /** Subagente entregou o resultado: a tarefa dele está paga. */
+  /** Subagent delivered result: task is rewarded. */
   delivered(ch: Character, now: number): void {
     const v = this.wallets.credit(ch.id, DELIVERY_REWARD, '📦', tr('Entregou: {0}', [ch.info.title ?? tr('resultado')]), now);
     if (v) this.earned(ch, v, now);
@@ -1158,7 +1158,7 @@ export class Social {
 
   // =================================================================== consulta (interface)
 
-  /** "Vendo TV com Rafaela e Bia" — o que o agente está fazendo numa roda, se estiver. */
+  /** "Watching TV with Rafaela and Bia" — agent's active gathering role, if any. */
   doing(id: string): string | null {
     const ch = this.sim.chars.get(id);
     const g = ch?.gathering;
@@ -1173,7 +1173,7 @@ export class Social {
     return `${KINDS[g.kind].emoji} ${label}${others.length ? ` com ${joinNames(others)}` : ''}${bet}${going}`;
   }
 
-  /** Tudo o que a interface mostra da vida social de um agente presente (null se não está no escritório). */
+  /** Everything UI displays for an agent's social status (null if absent from office). */
   info(id: string): AgentSocial | null {
     const ch = this.sim.chars.get(id);
     if (!ch) return null;
@@ -1243,7 +1243,7 @@ export class Social {
     return list.length ? list[Math.floor(rng() * list.length) % list.length] : undefined;
   }
 
-  /** Nome de um colega para a fofoca: de preferência alguém de fora da roda. */
+  /** Colleague name for gossip: preferably someone outside active gathering. */
   private otherName(g: Gathering, c: Character, rng: () => number): string | undefined {
     const inside = new Set(g.members.map((m) => m.id));
     const all = [...this.sim.chars.values()].filter((o) => o !== c && !o.leaving);

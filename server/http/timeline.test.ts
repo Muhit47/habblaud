@@ -63,7 +63,7 @@ async function start(): Promise<Env> {
   };
 }
 
-/** Requisição crua: o caminho vai exatamente como escrito (o fetch normalizaria "..", "%2F" etc.). */
+/** Raw request: path sent verbatim (fetch would normalize "..", "%2F", etc.). */
 function raw(base: string, path: string, opts: { method?: string; headers?: Record<string, string> } = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
   const u = new URL(base);
   return new Promise((ok, fail) => {
@@ -129,14 +129,14 @@ describe('API da linha do tempo', () => {
       expect(res.status, path).toBe(400);
       expect(res.body.toString()).not.toContain('não pode sair');
     }
-    // Caminhos com mais segmentos não casam com a rota do dia.
+    // Paths with extra segments do not match day route.
     expect((await raw(env.base, '/api/timeline/2026-10-07/../../segredo.jsonl')).status).not.toBe(200);
     expect((await raw(env.base, '/api/timeline/x/2026-10-07')).status).toBe(400);
   });
 
   it('dia sem gravação = 404; outros métodos = 405', async () => {
     expect((await raw(env.base, '/api/timeline/2026-10-01')).status).toBe(404);
-    // (o guard da borda já exige JSON em métodos que não são leitura)
+    // (edge guard already requires JSON on non-read methods)
     const post = await raw(env.base, '/api/timeline/days', { method: 'DELETE', headers: { 'Content-Type': 'application/json' } });
     expect(post.status).toBe(405);
     expect(post.headers.allow).toBe('GET');

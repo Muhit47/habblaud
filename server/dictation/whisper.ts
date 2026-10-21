@@ -1,10 +1,10 @@
-// Ditado: transforma o áudio gravado no navegador em texto com o Whisper LOCAL (whisper.cpp: `whisper-cli`), sem mandar
-// a voz para nenhum serviço. O idioma é detectado sozinho (`-l auto`); como o ditado é em português ou inglês, um
-// resultado em outra língua (o Whisper às vezes confunde português com espanhol ou galego) é refeito em português.
-// Precisa do whisper-cli, do ffmpeg (o áudio do celular vem em mp4/webm) e de um modelo multilíngue ggml-*.bin (os
-// ".en" só entendem inglês e ficam de fora). Roda onde está o Whisper: o servidor no modo Node, o auxiliar do host
-// (scripts/codex-bridge.ts) no Docker. Sem shell (execFile), com prazo, numa pasta temporária apagada no fim.
-// Node puro e sem dependências: também é importado pelo auxiliar do host (via tsx).
+// Dictation: converts browser-recorded audio into text using LOCAL Whisper (whisper.cpp: `whisper-cli`),
+// without transmitting voice data to cloud services. Language is detected automatically (`-l auto`);
+// since dictation is in Portuguese or English, results in unexpected languages are retried in Portuguese.
+// Requires whisper-cli, ffmpeg (mobile audio arrives in mp4/webm), and a multilingual ggml-*.bin model
+// (".en" models understand English only and are excluded). Runs co-located with Whisper: Node server or
+// host bridge (scripts/codex-bridge.ts) in Docker. Shell-less execution (execFile) with timeout in cleanup directory.
+// Pure Node zero-dependency: also imported by host bridge (via tsx).
 import { execFile } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -12,9 +12,9 @@ import { delimiter, join } from 'node:path';
 import { tr } from '../../shared/i18n';
 
 export const TRANSCRIBE_TIMEOUT_MS = 120_000;
-/** Idiomas do ditado: o primeiro é o de reserva quando o detectado não está na lista. */
+/** Dictation languages: first entry is fallback when detected language is not listed. */
 export const DEFAULT_LANGS = ['pt', 'en'] as const;
-/** Do melhor para o mais leve: usa o primeiro que existir. */
+/** From highest quality to lightest: uses first available model. */
 const MODELS = ['ggml-large-v3-turbo.bin', 'ggml-large-v3.bin', 'ggml-medium.bin', 'ggml-small.bin', 'ggml-base.bin', 'ggml-tiny.bin'];
 
 export interface WhisperSetup {
@@ -26,7 +26,7 @@ export interface WhisperSetup {
 
 export interface Transcript {
   text: string;
-  /** Código ISO do idioma reconhecido (ex.: "pt", "en"). */
+  /** ISO code of recognized language (e.g. "pt", "en"). */
   lang: string;
 }
 
@@ -41,7 +41,7 @@ function onPath(name: string, env: NodeJS.ProcessEnv): string | undefined {
   return undefined;
 }
 
-/** Acha o whisper-cli, o ffmpeg e o melhor modelo multilíngue; undefined (com o motivo) se faltar algum. */
+/** Locates whisper-cli, ffmpeg, and optimal multilingual model; undefined (with reason) if missing. */
 export function findWhisper(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): WhisperSetup | { missing: string } {
   const home = env.HOME || homedir();
   const bin = env.HABBLAUD_WHISPER_BIN?.trim() || ['/opt/homebrew/bin/whisper-cli', '/usr/local/bin/whisper-cli'].find(exists) || onPath('whisper-cli', env);
@@ -82,7 +82,7 @@ export function parseWhisperJson(raw: string): Transcript {
   return { text, lang: typeof d.result?.language === 'string' ? d.result.language : '' };
 }
 
-/** Transcritor com o whisper-cli; a pasta temporária some no fim, com ou sem erro. */
+/** Transcriber using whisper-cli; temporary directory is removed at completion, with or without error. */
 export function createWhisperTranscriber(setup: WhisperSetup, timeoutMs = TRANSCRIBE_TIMEOUT_MS): Transcriber {
   return async (audio) => {
     const dir = mkdtempSync(join(tmpdir(), 'habblaud-dictation-'));
@@ -100,7 +100,7 @@ export function createWhisperTranscriber(setup: WhisperSetup, timeoutMs = TRANSC
       };
       const first = await pass('auto');
       if (!first.lang || setup.langs.includes(first.lang) || !first.text) return first;
-      // Detectou uma língua fora da lista (ex.: "es" para português): refaz no idioma principal.
+      // Detected language outside supported list (e.g. "es" for Portuguese): retries in primary language.
       const again = await pass(setup.langs[0]);
       return { text: again.text, lang: setup.langs[0] };
     } finally {

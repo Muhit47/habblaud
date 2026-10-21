@@ -1,8 +1,8 @@
-// Servidor de teste para "responder pelo escritório": Office + Hub + rotas de verdade (guard, app e
-// /api/permissions) numa porta livre do 127.0.0.1, com um agente principal na sessão "sess-1".
-// Usado pelos testes das rotas e do hook (mod/habblaud-permissoes/hooks/permission-hook.mjs rodado como processo).
-// Com `codex`, também um agente principal do Codex (conta ".codex", thread CODEX_THREAD) e a fonte do Codex ao vivo
-// (`codexLive`, um falso) para o hook do Codex (mod/habblaud-codex/hook.mjs).
+// Test server for "answering via office": real Office + Hub + routes (guard, app, and
+// /api/permissions) on free 127.0.0.1 port with primary agent in "sess-1".
+// Used by route tests and hook process tests (mod/habblaud-permissoes/hooks/permission-hook.mjs).
+// With `codex`, also provides mock Codex agent (account ".codex", thread CODEX_THREAD) and live Codex source
+// (`codexLive`, mock) for Codex hook (mod/habblaud-codex/hook.mjs).
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { AccountsService } from '../accounts/service';
@@ -18,7 +18,7 @@ import { tempDir } from './fixtures';
 
 export const MAIN = 'acc:1';
 export const SESSION = 'sess-1';
-/** Thread (sintético) do agente do Codex do servidor de teste. */
+/** Mock thread ID for test server Codex agent. */
 export const CODEX_THREAD = '0199b0c0-1234-7abc-8def-0123456789ab';
 export const CODEX_MAIN = `.codex:${CODEX_THREAD}`;
 
@@ -27,7 +27,7 @@ export interface PermissionServer {
   port: number;
   office: Office;
   registry?: PermissionRegistry;
-  /** Páginas locais "abertas" (o que Hub.localSize diria). */
+  /** Mock active local pages (what Hub.localSize reports). */
   setViewers(n: number): void;
   close(): Promise<void>;
 }
@@ -105,7 +105,7 @@ export async function servePermissions(
   };
 }
 
-/** Requisição crua (dá para trocar Host, Origin e Content-Type). */
+/** Raw request (allows custom Host, Origin, and Content-Type). */
 export function request(
   base: string,
   path: string,
@@ -135,7 +135,7 @@ export function request(
   });
 }
 
-/** JSON do hook PermissionRequest (sintético) para a sessão de teste. */
+/** Synthetic PermissionRequest hook payload for test session. */
 export function hookJson(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     session_id: SESSION,

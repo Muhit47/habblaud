@@ -1,4 +1,4 @@
-// Dormitórios e áreas de descanso para os agentes.
+// Dorms and rest areas for agents.
 import type { WallStyle } from '../../art/api';
 import { COL_W, DOOR_W, DOOR_X, NORTH_Y, ROOM_H, SOUTH_Y } from '../constants';
 import { AreaBuilder } from './builder';

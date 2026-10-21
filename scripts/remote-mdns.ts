@@ -1,10 +1,10 @@
-// npm run remote:mdns — anuncia <HABBLAUD_REMOTE_NAME>.local na rede local (mDNS), apontando para o IP deste
-// computador, para o celular abrir https://<nome>.local sem decorar IP. O container não consegue fazer isso (no
-// Docker Desktop ele não está na rede do Wi-Fi), então este processo roda no host — o `npm run remote:setup` o deixa
-// como serviço (LaunchAgent no macOS, serviço de usuário do systemd no Linux).
+// npm run remote:mdns — advertises <HABBLAUD_REMOTE_NAME>.local on local network (mDNS), pointing to this host's
+// IP, allowing mobile devices to access https://<name>.local without memorizing IPs. The container cannot perform this
+// (in Docker Desktop it sits outside host Wi-Fi network), so this runs on host — `npm run remote:setup` registers it
+// as a background service (LaunchAgent on macOS, systemd user service on Linux).
 //
-// macOS: `dns-sd -P` (já vem no sistema). Linux: `avahi-publish -a -R` (pacote avahi-utils). Confere o IP a cada 20 s
-// e refaz o anúncio quando ele muda (outro Wi-Fi, DHCP) ou quando o processo do anúncio cai.
+// macOS: `dns-sd -P` (built-in). Linux: `avahi-publish -a -R` (avahi-utils package). Verifies IP every 20 s
+// and re-advertises when it changes (network switch, DHCP renewal) or if the advertiser process exits.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';

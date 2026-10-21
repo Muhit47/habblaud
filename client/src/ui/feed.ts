@@ -1,4 +1,4 @@
-// Feed de atividade (painel inferior recolhível): últimos eventos do escritório, do mais antigo ao mais recente.
+// Activity feed (collapsible bottom panel): latest office events, oldest to newest.
 import { partsKey } from '../../../shared/appearance';
 import type { AgentInfo, FeedItem } from '../../../shared/types';
 import { createAvatar, createAvatarPlaceholder, updateAvatar } from './avatar';
@@ -29,7 +29,7 @@ export class FeedPanel implements UiComponent {
   private toggleBtn: HTMLButtonElement;
   private empty: HTMLElement;
   private filterNote: HTMLElement;
-  /** Aparência/conta dos agentes com eventos guardados (o feed sobrevive à saída do agente). */
+  /** Appearance/account of agents with stored events (feed outlives departed agent). */
   private meta = new Map<string, AgentMeta>();
 
   constructor(private ctx: UiContext) {
@@ -61,7 +61,7 @@ export class FeedPanel implements UiComponent {
       ),
       scroller,
     );
-    // Pausa a rolagem enquanto o mouse está sobre a lista.
+    // Pause scrolling while mouse is over list.
     scroller.addEventListener('mouseenter', () => (this.hovering = true));
     scroller.addEventListener('mouseleave', () => {
       this.hovering = false;
@@ -73,7 +73,7 @@ export class FeedPanel implements UiComponent {
       ctx.invalidate();
     });
     this.appendPending(ctx.store.feed.slice(-VISIBLE));
-    // Partidas e apostas resolvidas no escritório (vida social) entram no feed como eventos locais.
+    // Matches and bets settled in office (social life) enter feed as local events.
     ctx.world.onSocialEvent?.((e) => {
       const a = ctx.agent(e.agentId);
       if (!a) return;
@@ -102,7 +102,7 @@ export class FeedPanel implements UiComponent {
     if (this.pending.length && (!paused || !open)) this.flush();
     this.pruneMeta();
 
-    // Filtro por conta da barra lateral: também vale para o feed.
+    // Sidebar account filter: also applies to feed.
     const hidden = this.ctx.prefs.hiddenAccounts;
     const filtering = hidden.length > 0;
     const visible = filtering ? this.items.filter((f) => this.visible(f)) : this.items;
@@ -111,7 +111,7 @@ export class FeedPanel implements UiComponent {
     for (const [account, count] of this.pendingCounts) if (!account || !hidden.includes(account)) newCount += count;
     setHidden(this.newPill, !(paused && newCount > 0 && open));
     if (newCount) setText(this.newPill, newCount === 1 ? tr('1 nova') : tr('{0} novas', [Math.min(newCount, 99)]));
-    // Escritório vazio: o cartão central já explica; o feed só mostra o que houver de antes.
+    // Empty office: central card already explains; feed only displays previous events.
     setHidden(this.empty, visible.length > 0 || officeIsEmpty(this.ctx));
     setText(
       this.empty,
@@ -132,11 +132,11 @@ export class FeedPanel implements UiComponent {
     setTitle(this.toggleBtn, label);
     setAttr(this.toggleBtn, 'aria-expanded', String(open));
 
-    // Contas podem ter mudado de cor/nome (ou o filtro mudou): atualiza as linhas visíveis.
+    // Accounts may have changed color/name (or filter changed): sync visible rows.
     if (open) this.rows.sync(visible);
   }
 
-  /** Conta do evento: a do próprio item (servidor novo) ou a do agente, se já apareceu. */
+  /** Event account: from item itself (new server) or agent's, if seen before. */
   private accountOf(f: FeedItem): string | undefined {
     return f.account ?? this.meta.get(f.agentId)?.account ?? this.ctx.agent(f.agentId)?.account;
   }
@@ -147,7 +147,7 @@ export class FeedPanel implements UiComponent {
   }
 
   private appendPending(fresh: FeedItem[]): void {
-    // A contagem por conta sobrevive ao descarte das pendências mais antigas.
+    // Per-account count survives discarding older pending items.
     for (const f of fresh) {
       const account = this.accountOf(f);
       this.pendingCounts.set(account, (this.pendingCounts.get(account) ?? 0) + 1);
@@ -157,7 +157,7 @@ export class FeedPanel implements UiComponent {
     this.pruneMeta();
   }
 
-  /** Esquece quem saiu do escritório e não tem mais evento guardado. */
+  /** Forget agents who left office and have no stored events remaining. */
   private pruneMeta(): void {
     const needed = new Set([...this.items, ...this.pending].map((f) => f.agentId));
     for (const a of this.ctx.store.snapshot?.agents ?? []) needed.add(a.id);
@@ -227,7 +227,7 @@ export class FeedPanel implements UiComponent {
     setText(text, f.activity.text);
     li.classList.toggle('is-error', !!f.activity.error);
     li.classList.toggle('is-social', f.id.startsWith('social:'));
-    // Fim de um shell (✅ terminou / ❌ falhou ou foi interrompido): linha com destaque próprio.
+    // End of shell (✅ finished / ❌ failed or interrupted): highlighted row.
     const done = shellDoneKind(f.activity);
     li.classList.toggle('is-shell-ok', done === 'ok');
     li.classList.toggle('is-shell-fail', done === 'fail');

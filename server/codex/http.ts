@@ -1,12 +1,11 @@
-// Eventos dos hooks do Codex (mod/habblaud-codex/hook.mjs, que npm run codex:install acrescenta em
-// <CODEX_HOME>/hooks.json): SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, Stop,
-// SubagentStart, SubagentStop e SessionEnd chegam aqui com a conta e vão para a fonte do Codex (CodexLive), que
-// atualiza o agente na hora, sem esperar a conversa chegar ao arquivo. Os eventos só observam (a resposta nunca volta
-// para a sessão), mas só valem vindos do próprio computador: a trava (Host local e, fora do Docker, conexão pelo
-// loopback) é conferida em http/app.ts (o hook roda no Mac e fala com 127.0.0.1; no Docker, pela porta publicada). O
-// guard (http/guard.ts) já exigiu JSON.
+// Codex hook events (mod/habblaud-codex/hook.mjs, registered in <CODEX_HOME>/hooks.json by
+// npm run codex:install): SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, Stop,
+// SubagentStart, SubagentStop, and SessionEnd arrive with account ID and route to Codex source (CodexLive),
+// updating the agent immediately without waiting for transcripts to flush to disk. Events are read-only (responses
+// never return to session), accepted strictly from local computer: security locks (local Host and loopback
+// connection outside Docker) enforced in http/app.ts. Edge guard (http/guard.ts) enforces JSON content type.
 //
-//   POST /api/codex/events   (hook)   {account?, codexHome?, event: <stdin do hook, textos cortados>}: 200 {ok}
+//   POST /api/codex/events   (hook)   {account?, codexHome?, event: <hook stdin, truncated text>}: 200 {ok}
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { isAbsolute, resolve } from 'node:path';
 import type { AccountEntry } from '../accounts/service';
@@ -18,11 +17,11 @@ import { tr } from '../../shared/i18n';
 type Rec = Record<string, unknown>;
 
 export interface CodexHookEvent {
-  /** Conta calculada pelo hook (basename do CODEX_HOME). */
+  /** Account inferred by hook (basename of CODEX_HOME). */
   account?: string;
-  /** Pasta CODEX_HOME da sessão, no computador onde o hook roda. */
+  /** Session CODEX_HOME directory on host running the hook. */
   codexHome?: string;
-  /** O stdin do hook (hook_event_name, session_id...). */
+  /** Hook stdin payload (hook_event_name, session_id...). */
   event: Rec;
 }
 
@@ -34,11 +33,11 @@ function shortStr(v: unknown, max: number): string | undefined {
   return typeof v === 'string' && v.trim() && v.length <= max ? v.trim() : undefined;
 }
 
-/** Corpo de POST /api/codex/events. Sem `event` (objeto com hook_event_name): 400. */
+/** Body of POST /api/codex/events. Missing `event` (object with hook_event_name): 400. */
 export function parseCodexEvent(raw: unknown): CodexHookEvent {
   const r = rec(raw);
   const event = rec(r?.event);
-  if (!r || !event || typeof event.hook_event_name !== 'string') throw new HttpError(400, 'esperado {account?, codexHome?, event: <JSON do hook do Codex>}');
+  if (!r || !event || typeof event.hook_event_name !== 'string') throw new HttpError(400, 'expected {account?, codexHome?, event: <Codex hook JSON>}');
   const out: CodexHookEvent = { event };
   const account = shortStr(r.account, 200);
   const codexHome = shortStr(r.codexHome, 4_096);
@@ -48,8 +47,8 @@ export function parseCodexEvent(raw: unknown): CodexHookEvent {
 }
 
 /**
- * Conta do Codex de um evento do hook: a da pasta CODEX_HOME que ele mandou (pelo caminho do host, AccountInfo.configDir,
- * ou pelo lido por este processo); senão a que ele calculou (o basename não sabe dos ids desambiguados, ex. ".codex~2").
+ * Codex account for a hook event: matches CODEX_HOME path sent (host path, AccountInfo.configDir,
+ * or path read by this process); falls back to calculated account (basename unaware of disambiguated IDs, e.g. ".codex~2").
  */
 export function codexAccountOf(entries: readonly AccountEntry[], account: string | undefined, codexHome: string | undefined): string | undefined {
   if (codexHome && isAbsolute(codexHome)) {
@@ -60,7 +59,7 @@ export function codexAccountOf(entries: readonly AccountEntry[], account: string
   return account;
 }
 
-/** Trata POST /api/codex/events (método e Host já conferidos). `ok` = a fonte do Codex aproveitou o evento. */
+/** Handles POST /api/codex/events (method and Host pre-validated). `ok` = Codex source consumed the event. */
 export async function handleCodexEvent(
   req: IncomingMessage,
   res: ServerResponse,

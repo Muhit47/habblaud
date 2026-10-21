@@ -1,16 +1,16 @@
-// Ditado pelo escritório (microfone no "Novo agente"): o navegador grava, manda o áudio em POST /api/dictation (JSON
-// base64: o guard exige JSON em todo POST) e consulta GET /api/dictation/:id até o texto chegar. Quem transcreve é o
-// Whisper local (dictation/whisper.ts):
-// - modo Node: o próprio servidor, se achou o whisper-cli, o ffmpeg e um modelo;
-// - Docker: o auxiliar do host (scripts/codex-bridge.ts) busca em POST /api/host/dictation/poll e devolve o texto em
-//   POST /api/host/dictation/ack. Ele só busca quando tem o Whisper, então "disponível" = auxiliar visto há pouco.
-// O áudio fica só na memória e some assim que é entregue; o texto, até ser lido (ou 5 min).
+// Office dictation (microphone in "New agent"): browser records audio, submits via POST /api/dictation (base64
+// JSON: edge guard enforces JSON across all POST requests), and polls GET /api/dictation/:id until transcription arrives.
+// Transcribed via local Whisper (dictation/whisper.ts):
+// - Node mode: local server process if whisper-cli, ffmpeg, and model are discovered;
+// - Docker: host bridge (scripts/codex-bridge.ts) polls POST /api/host/dictation/poll and returns text via
+//   POST /api/host/dictation/ack. Bridge polls strictly when Whisper is available ("available" = recent bridge heartbeat).
+// Audio buffers reside strictly in memory and are discarded upon delivery; transcribed text persists until read (or 5 min).
 import { randomUUID } from 'node:crypto';
 import { tr } from '../../shared/i18n';
 import { HostWait, pollWithWait } from '../host-wait';
 import type { Transcriber } from './whisper';
 
-/** Áudio de até ~3 min (o celular grava AAC/Opus, bem menos que isso por minuto). */
+/** Audio up to ~3 min (mobile devices record AAC/Opus, far less bandwidth per minute). */
 export const AUDIO_MAX_BYTES = 12 * 1024 * 1024;
 export const AUDIO_BODY_MAX = Math.ceil((AUDIO_MAX_BYTES * 4) / 3) + 16 * 1024;
 export const HOST_PRESENCE_MS = 10_000;
@@ -39,7 +39,7 @@ interface Entry {
 }
 
 export interface DictationServiceOptions {
-  /** Modo Node com Whisper: transcreve aqui. Ausente: fila para o auxiliar do host. */
+  /** Node mode with Whisper: transcribes locally. Omitted: queues for host bridge. */
   transcriber?: Transcriber;
   now?: () => number;
   newId?: () => string;
@@ -47,7 +47,7 @@ export interface DictationServiceOptions {
 
 export type DictationSubmit = { dictation: DictationInfo } | { error: 'invalid' | 'unavailable' | 'too-many'; reason: string };
 
-/** Confere o corpo de POST /api/dictation: {type, data (base64)}. */
+/** Validates body of POST /api/dictation: {type, data (base64)}. */
 export function parseAudio(raw: unknown): { type: string; data: Buffer } | { error: string } {
   const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const type = typeof r.type === 'string' && /^audio\/[\w.+-]+(;\s*codecs=[\w.,"' -]+)?$/i.test(r.type) ? r.type : '';
@@ -97,7 +97,7 @@ export class DictationService {
     return e && { ...e.info };
   }
 
-  /** Rodada do auxiliar: marca presença e entrega o áudio da fila (base64), que sai da memória aqui. */
+  /** Bridge poll: registers presence and dequeues queued audio (base64), purged from memory. */
   poll(): Array<{ id: string; type: string; data: string }> {
     this.host.seen();
     this.prune();
@@ -112,7 +112,7 @@ export class DictationService {
     return out;
   }
 
-  /** Rodada com espera (?wait=1): sem áudio na fila, fica parada até chegar um ou passar `ms`. */
+  /** Long-poll (?wait=1): holds connection until audio arrives or timeout expires. */
   pollWait(ms: number, signal?: AbortSignal): Promise<Array<{ id: string; type: string; data: string }>> {
     return pollWithWait(this.host, () => this.poll(), ms, signal);
   }

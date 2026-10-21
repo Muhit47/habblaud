@@ -1,12 +1,12 @@
-// Chamadas à API do terminal interativo (server/http/pty.ts). Erros viram Error com a mensagem do servidor.
+// API calls for interactive terminal (server/http/pty.ts). Errors map to Error with server message.
 import { isDemoId } from '../../../shared/timeline';
 import type { AgentInfo, PtyInfo } from '../../../shared/types';
 import { providerOf } from './provider';
 import { tr } from '../../../shared/i18n';
 
 /**
- * Dá para encerrar ou assumir este agente pelo escritório? Só o agente principal de uma sessão do Claude Code: o
- * Codex não tem registro de sessões nem `--resume` aqui, e os agentes do demo não existem de verdade.
+ * Can this agent be terminated or taken over via the office? Only main agents of Claude Code sessions:
+ * Codex lacks session registry and `--resume` support here, and demo agents are ephemeral mocks.
  */
 export function ptyControllable(a: Pick<AgentInfo, 'id' | 'kind' | 'provider'> | null | undefined): boolean {
   return !!a && a.kind === 'main' && providerOf(a) === 'claude' && !isDemoId(a.id);
@@ -27,17 +27,17 @@ export async function postPty<T = unknown>(url: string, body: unknown): Promise<
 
 const SIZE = { cols: 120, rows: 32 };
 
-/** Sessão nova do Claude Code na pasta (e conta) indicada. */
+/** New Claude Code session in specified folder (and account). */
 export function createPty(cwd: string, account?: string): Promise<PtyInfo | undefined> {
   return postPty<PtyInfo>('/api/pty', { cwd, account, ...SIZE });
 }
 
-/** Encerra a sessão noutro terminal e continua a mesma conversa aqui. */
+/** Terminates session in external terminal and resumes the same conversation here. */
 export function takeoverAgent(agentId: string): Promise<PtyInfo | undefined> {
   return postPty<PtyInfo>(`/api/agents/${encodeURIComponent(agentId)}/takeover`, SIZE);
 }
 
-/** Encerra o agente (aqui ou noutro terminal). */
+/** Stops the agent (whether running locally or in another terminal). */
 export async function stopAgent(agentId: string): Promise<void> {
   await postPty(`/api/agents/${encodeURIComponent(agentId)}/stop`, {});
 }

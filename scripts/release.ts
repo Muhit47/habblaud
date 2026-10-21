@@ -1,9 +1,9 @@
-// Publica a versão do package.json no GitHub: confere se o CHANGELOG.md tem a seção dela, cria a tag vX.Y.Z e a
-// release com o texto dessa seção como notas (é o que o Habblaud abre em Configurações › Sobre › Ver o que mudou).
-//   npm run release                -> publica (precisa do gh autenticado)
-//   npm run release -- --dry-run   -> só confere e mostra as notas
-// Antes: suba a versão no package.json (npm version minor --no-git-tag-version), escreva a seção no CHANGELOG.md e
-// faça o merge na main.
+// Publishes package.json version to GitHub: checks that CHANGELOG.md has a matching section, creates tag vX.Y.Z and
+// release using that section's text as release notes (what Habblaud links to in Settings › About › View changelog).
+//   npm run release                -> publish (requires authenticated gh)
+//   npm run release -- --dry-run   -> check and display notes only
+// Before: bump package.json version (npm version minor --no-git-tag-version), document section in CHANGELOG.md, and
+// merge to main.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,8 +28,8 @@ export function parseReleaseArgs(argv: string[]): ReleaseArgs {
 }
 
 /**
- * Texto da seção `## [versão]` do CHANGELOG (sem o título e sem os links do fim), ou undefined se não houver
- * seção ou se ela estiver vazia.
+ * Text of CHANGELOG `## [version]` section (excluding title and trailing links), or undefined if missing
+ * or empty.
  */
 export function changelogSection(changelog: string, version: string): string | undefined {
   const lines = changelog.split(/\r?\n/);
@@ -47,8 +47,8 @@ export function changelogSection(changelog: string, version: string): string | u
 }
 
 /**
- * Junta as linhas quebradas só para caber em 120 colunas: nas notas da release o GitHub mostra cada quebra de linha,
- * e as frases apareceriam cortadas no meio. Títulos, itens novos, citações, tabelas e blocos de código ficam como estão.
+ * Joins lines wrapped solely for 120-column limits: GitHub release notes preserve raw newlines,
+ * which would otherwise break sentences awkwardly. Headers, list items, quotes, tables, and code blocks are preserved as-is.
  */
 export function unwrapMarkdown(text: string): string {
   const out: string[] = [];

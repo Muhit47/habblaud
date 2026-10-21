@@ -1,10 +1,10 @@
-// Markdown pequeno e seguro para as respostas do agente no terminal.
-// O tokenizador (blocos e trechos inline) é puro e testado em ui/markdown.test.ts; a montagem usa só
-// createElement/textContent: nenhum texto do transcript passa por innerHTML.
+// Lightweight, safe Markdown parser for agent responses in the terminal.
+// The tokenizer (blocks and inline spans) is pure and tested in ui/markdown.test.ts; DOM assembly uses only
+// createElement/textContent: no transcript text ever touches innerHTML.
 //
-// Cobertura (o que o Claude Code costuma escrever): blocos ``` com linguagem, `código`, **negrito**, *itálico*,
-// títulos #, listas com marcador e numeradas (com aninhamento), citação >, linha horizontal, tabelas
-// (preservadas como texto pré-formatado) e links (viram texto; o endereço fica na dica).
+// Coverage (what Claude Code typically outputs): fenced ``` blocks with language, `code`, **bold**, *italic*,
+// titles #, lists with marker and numbered (with nesting), > blockquote, horizontal rule, tables
+// (preserved as preformatted text) and links (rendered as text; URL in tooltip).
 
 export type MdInline =
   | { type: 'text'; text: string }
@@ -14,9 +14,9 @@ export type MdInline =
   | { type: 'link'; text: string; href: string };
 
 export interface MdListItem {
-  /** Nível de aninhamento (0 = primeiro nível). */
+  /** Nesting depth (0 = top level). */
   depth: number;
-  /** Marcador original: "-", "*", "+" ou "1.", "2)"... */
+  /** Original marker: "-", "*", "+" or "1.", "2)"... */
   marker: string;
   ordered: boolean;
   text: string;
@@ -38,7 +38,7 @@ const HEADING_RE = /^ {0,3}(#{1,6})(?:\s+(.*?))?\s*$/;
 const RULE_RE = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/;
 const QUOTE_RE = /^ {0,3}>\s?(.*)$/;
 const LIST_RE = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
-/** Linha separadora de tabela: | --- | :---: | (com ou sem as barras das pontas). */
+/** Table delimiter row: | --- | :---: | (with or without edge pipes). */
 const TABLE_SEP_RE = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)+\|?\s*$|^\s*\|\s*:?-+:?\s*\|\s*$/;
 
 function isFenceClose(line: string, fence: string): boolean {
@@ -50,23 +50,23 @@ function isTableStart(lines: readonly string[], i: number): boolean {
   const line = lines[i];
   if (!line.includes('|')) return false;
   if (i + 1 < lines.length && TABLE_SEP_RE.test(lines[i + 1])) return true;
-  // Sem separador: só conta como tabela se houver ao menos duas linhas seguidas começando com "|".
+  // Without delimiter: only treat as table if at least two consecutive lines start with "|".
   return line.trimStart().startsWith('|') && i + 1 < lines.length && lines[i + 1].trimStart().startsWith('|');
 }
 
-/** Uma linha que interrompe um parágrafo (começa outro bloco). */
+/** A line that interrupts a paragraph (starts a new block). */
 function startsBlock(lines: readonly string[], i: number): boolean {
   const line = lines[i];
   if (FENCE_RE.test(line) || HEADING_RE.test(line) || QUOTE_RE.test(line) || RULE_RE.test(line)) return true;
   const li = LIST_RE.exec(line);
-  // Como no CommonMark, uma lista numerada só interrompe um parágrafo se começar em 1.
+  // CommonMark compliant: numbered lists only interrupt paragraphs when starting at 1.
   if (li && (!/^\d/.test(li[2]) || /^1[.)]$/.test(li[2]))) return true;
   return isTableStart(lines, i);
 }
 
 const blank = (line: string) => line.trim() === '';
 
-/** Divide o texto em blocos. Puro. */
+/** Splits text into blocks. Pure function. */
 export function tokenizeBlocks(src: string): MdBlock[] {
   const lines = src.replace(/\r\n?/g, '\n').split('\n');
   const out: MdBlock[] = [];
@@ -83,7 +83,7 @@ export function tokenizeBlocks(src: string): MdBlock[] {
       const indent = line.length - line.trimStart().length;
       const body: string[] = [];
       i++;
-      // Bloco sem fechamento (resposta ainda sendo escrita ou cortada): vai até o fim.
+      // Unclosed fence (in-flight streaming or cut-off response): spans to end of input.
       while (i < lines.length && !isFenceClose(lines[i], fence[1])) {
         body.push(lines[i].replace(new RegExp(`^ {0,${indent}}`), ''));
         i++;
@@ -128,7 +128,7 @@ export function tokenizeBlocks(src: string): MdBlock[] {
       const items: MdListItem[] = [];
       const indents: number[] = [];
       const indentOf = (m: RegExpExecArray) => m[1].replace(/\t/g, '    ').length;
-      // Trocar de marcador para número (ou o contrário) no primeiro nível começa outra lista.
+      // Switching marker style (bullet vs number) at the top level starts a new list.
       const sameList = (m: RegExpExecArray) => !items.length || indentOf(m) > indents[0] || /^\d/.test(m[2]) === items[0].ordered;
       while (i < lines.length) {
         const cur = lines[i];
@@ -143,7 +143,7 @@ export function tokenizeBlocks(src: string): MdBlock[] {
           continue;
         }
         if (blank(cur)) {
-          // Lista "solta" (itens separados por linha em branco): continua se o próximo item vier logo depois.
+          // Loose list (items separated by blank lines): continues if the next item follows shortly.
           let j = i;
           while (j < lines.length && blank(lines[j])) j++;
           const next = j < lines.length ? LIST_RE.exec(lines[j]) : null;
@@ -153,7 +153,7 @@ export function tokenizeBlocks(src: string): MdBlock[] {
           }
           break;
         }
-        // Continuação do item anterior (linha recuada que não é outro bloco).
+        // Continuation of previous item (indented line that is not another block).
         if (/^\s{2,}\S/.test(cur) && !FENCE_RE.test(cur)) {
           items[items.length - 1].text += `\n${cur.trim()}`;
           i++;
@@ -183,7 +183,7 @@ function pushText(out: MdInline[], text: string): void {
   else out.push({ type: 'text', text });
 }
 
-/** Fim de um delimitador simples (* ou _) a partir de `from`, pulando os duplos (**, __). -1 se não houver. */
+/** End of a simple delimiter (* or _) starting from `from`, skipping double ones (**, __). -1 if not found. */
 function findSingleClose(src: string, from: number, ch: string): number {
   let j = from;
   while (j < src.length) {
@@ -192,7 +192,7 @@ function findSingleClose(src: string, from: number, ch: string): number {
       continue;
     }
     if (src[j] === '`') {
-      // Não fecha dentro de código inline.
+      // Does not close inside inline code.
       const end = src.indexOf('`', j + 1);
       if (end === -1) return -1;
       j = end + 1;
@@ -210,7 +210,7 @@ function findSingleClose(src: string, from: number, ch: string): number {
   return -1;
 }
 
-/** Trechos inline de uma linha/parágrafo (código, negrito, itálico, links). Puro. */
+/** Inline spans of a line/paragraph (code, bold, italic, links). Pure function. */
 export function tokenizeInline(src: string): MdInline[] {
   const out: MdInline[] = [];
   let i = 0;
@@ -228,7 +228,7 @@ export function tokenizeInline(src: string): MdInline[] {
       while (src[i + run] === '`') run++;
       const fence = '`'.repeat(run);
       let j = src.indexOf(fence, i + run);
-      // A sequência de fechamento precisa ter exatamente o mesmo tamanho.
+      // The closing sequence must match the exact length.
       while (j !== -1 && src[j + run] === '`') {
         let k = j;
         while (src[k] === '`') k++;
@@ -290,9 +290,9 @@ export function tokenizeInline(src: string): MdInline[] {
   return out;
 }
 
-// ---------------------------------------------------------------- montagem (DOM)
+// ---------------------------------------------------------------- DOM assembly
 
-/** Marcadores de lista por nível, como no Claude Code. */
+/** List markers per nesting level, matching Claude Code style. */
 const BULLETS = ['•', '◦', '▪', '▫'];
 
 function appendInline(parent: HTMLElement, nodes: readonly MdInline[]): void {
@@ -316,7 +316,7 @@ function appendInline(parent: HTMLElement, nodes: readonly MdInline[]): void {
         break;
       }
       case 'link': {
-        // Link vira texto (nada clicável vindo do transcript); o endereço fica na dica.
+        // Links render as text (nothing clickable from transcript); URL is in the tooltip.
         const el = document.createElement('span');
         el.className = 'ui-md__link';
         el.textContent = n.text || n.href;
@@ -334,7 +334,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLEle
   return node;
 }
 
-/** Monta o markdown como nós de DOM (só textContent: seguro para texto vindo do transcript). */
+/** Assembles markdown as DOM nodes (textContent only: safe for transcript text). */
 export function renderMarkdown(src: string): DocumentFragment {
   const frag = document.createDocumentFragment();
   for (const b of tokenizeBlocks(src)) {

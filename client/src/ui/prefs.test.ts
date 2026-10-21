@@ -10,7 +10,7 @@ function memoryStorage(initial: Record<string, string> = {}) {
   };
 }
 
-/** Com o que a migração precisa a mais: listar (key/length) e apagar. */
+/** Additional methods needed for migration: list keys (key/length) and clear. */
 function listableStorage(initial: Record<string, string> = {}) {
   const st = memoryStorage(initial);
   return {
@@ -114,7 +114,7 @@ describe('migração do nome antigo (CodeTown)', () => {
       },
     };
     expect(migrateLegacyKeys(blocked)).toBe(0);
-    // cota cheia: a chave antiga fica para a próxima vez
+    // storage full: old key deferred to next attempt
     const full = listableStorage({ 'codetown:prefs': '{}' });
     full.setItem = () => {
       throw new Error('cheio');

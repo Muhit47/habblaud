@@ -1,12 +1,12 @@
-// Detector de eventos do GitHub: saídas SINTÉTICAS de cada comando (sucesso, falha e ruído que não
-// pode disparar). Nada aqui vem de transcripts reais.
+// GitHub event detector: SYNTHETIC outputs for each command (success, failure, and noise that
+// must not trigger). Nothing here comes from real transcripts.
 import { describe, expect, it } from 'vitest';
 import type { GitHubEvent } from '../../shared/github';
 import { bashCall, detectGitHubNotification, detectGitHubResult, githubCallOf, scriptSegments } from './github';
 import { createTranscriptState, parseLine, type TranscriptSignal } from './transcript';
 import { L } from '../test/fixtures';
 
-/** Roda um Bash fictício: comando + saída (+ erro / gitOperation). */
+/** Runs mock Bash execution: command + output (+ error / gitOperation). */
 function bash(command: string, output: string, o: { error?: boolean; tur?: Record<string, unknown>; branch?: string } = {}): GitHubEvent | undefined {
   const call = githubCallOf('Bash', { command });
   if (!call) return undefined;

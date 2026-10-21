@@ -1,17 +1,17 @@
-// Seção "Vida social" da gaveta do agente: o que está fazendo numa roda, carteira de moedinhas,
-// placar, personalidade, amizades/rivalidades com quem está no escritório e o extrato.
+// Agent drawer "Social life" section: current circle activity, coin wallet,
+// scoreboard, personality, friendships/rivalries with office members, and statement ledger.
 import type { AgentSocial } from '../world/api';
 import type { UiContext } from './context';
 import { h, setHidden, setText, setTitle } from './dom';
 import { plural, relativeTime } from './format';
 import { tr } from '../../../shared/i18n';
 
-/** "+🪙10" / "−🪙10" (sinal tipográfico de menos). */
+/** "+🪙10" / "−🪙10" (typographical minus sign). */
 export function coinDelta(delta: number): string {
   return `${delta >= 0 ? '+' : '−'}🪙${Math.abs(delta)}`;
 }
 
-/** "3 vitórias · 1 derrota" (ou "Sem partidas ainda"). */
+/** "3 wins · 1 loss" (or "No matches yet"). */
 export function recordText(wins: number, losses: number): string {
   if (!wins && !losses) return tr('Sem partidas ainda');
   return `${plural(wins, tr('vitória'), tr('vitórias'))} · ${plural(losses, tr('derrota'), tr('derrotas'))}`;
@@ -34,7 +34,7 @@ export class SocialSection {
   private rivalsRow: HTMLElement;
   private ledger: HTMLElement;
   private ledgerBox: HTMLDetailsElement;
-  /** Assinaturas do que já está no DOM (só refaz as listas quando mudam). */
+  /** Signatures of what is already in DOM (only rebuilds lists when changed). */
   private keys = { traits: '', bonds: '', ledger: '' };
 
   constructor(private ctx: UiContext) {
@@ -73,7 +73,7 @@ export class SocialSection {
     );
   }
 
-  /** Atualiza com o agente `id`; some quando o mundo não sabe dele (já saiu, ou mundo antigo). */
+  /** Updates with agent `id`; hides when world is unaware of it (already left, or legacy world). */
   render(id: string, now: number): void {
     const s: AgentSocial | null = this.ctx.world.social?.(id) ?? null;
     setHidden(this.el, !s);

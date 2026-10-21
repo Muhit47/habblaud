@@ -1,6 +1,6 @@
-// Notificações (opt-in): Notification do navegador para alertas com a aba oculta, sons de aviso
-// (sino de "precisa de você", estalo de conclusão; pela mesa de som da UI) e o contador no título da
-// aba quando há agentes esperando você.
+// Notifications (opt-in): Browser Notification API for alerts when the tab is hidden, sound effects
+// ("needs you" chime, completion pop; routed through UI SoundBoard), and tab title badge count
+// when agents are waiting on you.
 import type { Notice } from '../../../shared/types';
 import type { SoundBoard } from '../audio/board';
 import type { UiComponent, UiContext } from './context';
@@ -26,7 +26,7 @@ export class Notifier implements UiComponent {
     ctx.store.on('notice', (n) => this.onNotice(n));
   }
 
-  /** Pede permissão de notificação ao ligar a opção. Devolve o estado final. */
+  /** Requests notification permission when toggling the option. Returns final permission state. */
   async enableBrowserNotifications(): Promise<NotificationState> {
     const state = notificationState();
     if (state === 'unsupported' || state === 'denied' || state === 'granted') return state;
@@ -38,7 +38,7 @@ export class Notifier implements UiComponent {
   }
 
   render(): void {
-    // Ao vivo, mesmo durante o timelapse: o título da aba avisa quem precisa de você agora.
+    // Always live, even during timelapse: tab title alerts who needs you right now.
     const waiting = computeCounters(this.ctx.store.liveSnapshot).waiting;
     const title = waiting > 0 ? `(${waiting}) ${BASE_TITLE}` : BASE_TITLE;
     if (title !== this.lastTitle) {
@@ -49,7 +49,7 @@ export class Notifier implements UiComponent {
 
   private onNotice(n: Notice): void {
     const prefs = this.ctx.prefs;
-    // o sino toca mesmo com a aba oculta (é ele que chama você de volta); o estalo, só com ela à vista
+    // Chime plays even with hidden tab (beckoning you back); pop plays only when tab is visible.
     if (n.level === 'alert') this.sounds.play('chime');
     else if (n.level === 'success') this.sounds.play('pop');
     if (n.level === 'alert' && prefs.browserNotifications && document.hidden && notificationState() === 'granted') {
@@ -65,7 +65,7 @@ export class Notifier implements UiComponent {
           notification.close();
         };
       } catch {
-        // Alguns navegadores só permitem notificações via service worker; o toast continua aparecendo.
+        // Some browsers only permit notifications via service worker; in-app toast still appears.
       }
     }
   }

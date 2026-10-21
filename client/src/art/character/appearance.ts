@@ -1,6 +1,6 @@
-// Geração determinística de aparência a partir de uma semente (puro, sem DOM). O sorteio e as paletas moraram aqui e
-// foram para shared/world/appearance-flat.ts (o mesmo sorteio serve o escritório e o Habblaud World); este módulo
-// re-exporta e guarda o que é só do editor do personagem.
+// Deterministic appearance generation from seed (pure, no DOM). Generator and palettes originally lived here and
+// moved to shared/world/appearance-flat.ts (same generator serves office and Habblaud World); this module
+// re-exports and holds editor-specific character state.
 import { ACCESSORIES, BOTTOM_STYLES, FACIAL_HAIR, HAIR_STYLES, TOP_STYLES, type PartKey } from '../../../../shared/appearance';
 import {
   ACC_COLORS,
@@ -23,12 +23,12 @@ import { tr } from '../../../../shared/i18n';
 export { appearanceFromSeed, SKINS } from '../../../../shared/world/appearance-flat';
 export type { BottomStyle, FacialHair } from '../../../../shared/world/appearance-flat';
 
-// O formato de shared/world/appearance-flat.ts e o da arte (art/api.ts) não podem se separar.
+// The schemas of shared/world/appearance-flat.ts and art (art/api.ts) must remain aligned.
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 const _sameAppearance: Same<SeedAppearance, Appearance> = true;
 void _sameAppearance;
 
-/** Chave estável de uma aparência (para cache de sprites). */
+/** Stable cache key of an appearance (for sprite caching). */
 export function appearanceKey(a: Appearance): string {
   return [
     a.skin, a.hair, a.hairStyle, a.eyes, a.top, a.topAccent, a.topStyle, a.bottom, a.shoes, a.accessory,
@@ -36,13 +36,13 @@ export function appearanceKey(a: Appearance): string {
   ].join('|');
 }
 
-// ------------------------------------------------------------------ editor do personagem
+// ------------------------------------------------------------------ character editor
 
 const uniq = (list: readonly string[]): readonly string[] => [...new Set(list)];
 const colorsOf = (pairs: readonly (readonly [string, number])[]): string[] => pairs.map(([c]) => c);
 const ACCENTS = uniq([...LIGHT_ACCENTS, ...TOP_COLORS]);
 
-/** Cores da parte de cima e do detalhe para cada estilo: as mesmas que o sorteio usa. */
+/** Upper body and accent colors for each style: matches appearance pool. */
 function topPalettes(style: TopStyle): { top: readonly string[]; topAccent: readonly string[] } {
   switch (style) {
     case 'shirt_tie':
@@ -56,7 +56,7 @@ function topPalettes(style: TopStyle): { top: readonly string[]; topAccent: read
 
 export type EditorOptions = Readonly<Record<PartKey, readonly string[]>>;
 
-/** Opções de cada peça no editor do personagem, conforme a aparência atual (as cores da roupa dependem do estilo). */
+/** Piece options in character editor based on current appearance (clothing palette depends on style). */
 export function editorOptions(a: Appearance): EditorOptions {
   const top = topPalettes(a.topStyle);
   return {
@@ -79,7 +79,7 @@ export function editorOptions(a: Appearance): EditorOptions {
 const TALL_HAIR: readonly string[] = ['afro', 'bun', 'mohawk', 'pigtails'];
 const SHORT_HAIR: readonly string[] = ['bald', 'buzz'];
 
-/** Combinação que o sorteio evita (o editor desabilita a opção): devolve o motivo, ou undefined se pode. */
+/** Combination avoided by generator (editor disables option): returns reason, or undefined if permitted. */
 export function editorConflict(a: Appearance, key: PartKey, value: string): string | undefined {
   if (key === 'accessory') {
     if ((value === 'cap' || value === 'beanie') && TALL_HAIR.includes(a.hairStyle)) return tr('Não combina com este cabelo');
@@ -92,7 +92,7 @@ export function editorConflict(a: Appearance, key: PartKey, value: string): stri
   return undefined;
 }
 
-/** Depois de trocar um estilo: cores que não existem na paleta nova caem na primeira dela. */
+/** After changing style: colors absent from new palette fall back to its first color. */
 export function fitToOptions(a: Appearance): Appearance {
   const o = editorOptions(a);
   const fit = (v: string, list: readonly string[]): string => (list.includes(v) ? v : list[0]);

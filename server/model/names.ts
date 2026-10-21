@@ -1,6 +1,6 @@
-// Nomes dos personagens, persistidos por sessão/subagente em <dataDir>/names.json para que cada um mantenha o nome
-// entre reinícios do servidor, e o personagem escolhido para cada projeto (sala) no editor (ver Office.setCharacter),
-// com a sessão dona dele, para que um reinício não o entregue a outra sessão aberta.
+// Character names, persisted per session/subagent in <dataDir>/names.json so each keeps its name
+// across server restarts, and custom character picked per project (room) in editor (see Office.setCharacter),
+// with owning session ID so restarts do not reassign it to another open session.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { parseAppearanceParts, parseCharacterName, parseSeed, type AppearanceParts } from '../../shared/appearance';
@@ -15,8 +15,8 @@ interface StoredName {
 }
 
 /**
- * Personagem escolhido para uma sala (chave: cwd normalizado). `owner` = sessionId da sessão que o está usando;
- * `at` = último uso, para a expiração.
+ * Custom character picked for a room (key: normalized cwd). `owner` = sessionId using it;
+ * `at` = last used timestamp, for expiration.
  */
 export interface StoredCharacter {
   name: string;
@@ -35,7 +35,7 @@ interface NamesFile {
   rooms?: Record<string, StoredCharacter>;
 }
 
-/** Entrada de `rooms` lida do arquivo, ou null se algo estiver fora do formato. */
+/** Room entry read from file, or null if schema invalid. */
 function parseStoredCharacter(raw: unknown): StoredCharacter | null {
   if (!raw || typeof raw !== 'object') return null;
   const v = raw as Record<string, unknown>;
@@ -45,7 +45,7 @@ function parseStoredCharacter(raw: unknown): StoredCharacter | null {
   if (!name || seed === null || (v.look !== 'f' && v.look !== 'm') || !parts) return null;
   const c: StoredCharacter = { name, look: v.look, seed, at: typeof v.at === 'number' ? v.at : 0 };
   if (Object.keys(parts).length) c.parts = parts;
-  // Dono fora do formato não invalida a entrada: ela volta a valer para quem chegar primeiro.
+  // Invalid owner format does not invalidate entry: reverts to first-come first-served.
   if (typeof v.owner === 'string' && v.owner && v.owner.length <= MAX_OWNER_LENGTH) c.owner = v.owner;
   return c;
 }
@@ -63,7 +63,7 @@ export class NameStore {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly now: () => number;
 
-  /** `file` null = só em memória (testes ou diretório de dados indisponível). */
+  /** `file` null = in-memory only (tests or unavailable data directory). */
   constructor(
     private readonly file: string | null,
     opts: { now?: () => number } = {},
@@ -90,7 +90,7 @@ export class NameStore {
     }
   }
 
-  /** Nome de `key`: o persistido, se não colidir com `used`; senão um novo do pool. */
+  /** Name for `key`: persisted name if not colliding with `used`; otherwise new from pool. */
   assign(key: string, used: ReadonlySet<string>): PersonName {
     const stored = this.names.get(key);
     if (stored && !used.has(stored.name)) {
@@ -103,7 +103,7 @@ export class NameStore {
     return person;
   }
 
-  /** Associa `person` a mais uma chave (ex.: a sessão nova depois de um /clear). */
+  /** Associates `person` with another key (e.g. new session following /clear). */
   remember(key: string, person: PersonName): void {
     this.names.set(key, { name: person.name, look: person.look, at: this.now() });
     this.scheduleFlush();
@@ -114,14 +114,14 @@ export class NameStore {
     return s ? { name: s.name, look: s.look } : undefined;
   }
 
-  // ---------------------------------------------------------------- personagem de cada sala (projeto)
+  // ---------------------------------------------------------------- character for each room (project)
 
   character(roomId: string): StoredCharacter | undefined {
     const c = this.rooms.get(roomId);
     return c ? copyCharacter(c) : undefined;
   }
 
-  /** A sessão `sessionId` passa a usar o personagem da sala: vira a dona e renova a expiração. */
+  /** Session `sessionId` adopts room character: becomes owner and refreshes expiration. */
   claimCharacter(roomId: string, sessionId: string): void {
     const c = this.rooms.get(roomId);
     if (!c) return;
@@ -139,7 +139,7 @@ export class NameStore {
     if (this.rooms.delete(roomId)) this.scheduleFlush();
   }
 
-  /** Nomes escolhidos para as salas (nome -> sala), sem a `exceptRoom`. */
+  /** Custom names assigned to rooms (name -> room), excluding `exceptRoom`. */
   reservedNames(exceptRoom?: string): Map<string, string> {
     const out = new Map<string, string>();
     for (const [roomId, c] of this.rooms) if (roomId !== exceptRoom) out.set(c.name, roomId);

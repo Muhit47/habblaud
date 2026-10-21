@@ -1,17 +1,17 @@
-// Interpretação dos rollouts do Codex (<CODEX_HOME>/sessions/AAAA/MM/DD/rollout-<hora>-<thread>.jsonl): cada linha
-// atualiza um CodexState (modelo, título, números, turno aberto...) e pode gerar atividades (o que o personagem está
-// fazendo) e sinais (turno começou/terminou, uso do plano, evento do GitHub).
+// Interpretation of Codex rollouts (<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<thread>.jsonl): each line
+// updates a CodexState (model, title, metrics, open turn...) and can generate activities (what the character is
+// doing) and signals (turn started/ended, plan usage, GitHub event).
 //
-// Formatos (o `history_mode` do session_meta; ausente = legacy):
-// - paginated (padrão desde a 0.158): a conversa sai de `event_msg` `item_completed` (UserMessage, AgentMessage,
-//   Reasoning, CommandExecution, FileChange, McpToolCall...). Os `response_item` são o contexto mandado ao modelo
-//   (há mensagens injetadas): só as chamadas de ferramenta ainda sem resultado entram, como atividade em andamento;
-// - legacy (threads antigos): `event_msg` user_message/agent_message/agent_reasoning e os pares `response_item`
-//   function_call/function_call_output (o exec_command_end só existiu em versões antigas). Só o básico.
-// Os ids das atividades usam o call_id (= id do item concluído = tool_use_id dos hooks): a chamada vista em
-// andamento, o hook PreToolUse e o item concluído caem na mesma atividade.
-// Tokens: o `total_token_usage` do token_count é cumulativo e o cache JÁ está dentro de input (não soma de novo).
-// Tipos de linha desconhecidos são ignorados; uma linha inválida nunca derruba a leitura.
+// Formats (`history_mode` from session_meta; absent = legacy):
+// - paginated (default since 0.158): conversation derives from `event_msg` `item_completed` (UserMessage, AgentMessage,
+//   Reasoning, CommandExecution, FileChange, McpToolCall...). `response_item` entries represent prompt context
+//   (with injected messages): only pending tool calls enter, as in-progress activity;
+// - legacy (older threads): `event_msg` user_message/agent_message/agent_reasoning and `response_item`
+//   function_call/function_call_output pairs (exec_command_end existed only in older versions). Basics only.
+// Activity IDs use call_id (= completed item id = hook tool_use_id): in-progress call,
+// PreToolUse hook, and completed item map to the same activity.
+// Tokens: token_count's `total_token_usage` is cumulative and cached tokens are ALREADY included in input (no double-counting).
+// Unknown line types are ignored; an invalid line never crashes the reader.
 import { fileURLToPath } from 'node:url';
 import { describePrompt, describeTool, maskSecrets, SPECIAL, truncate, type ActivityDescription } from '../../../shared/activity';
 import type { GitHubEvent } from '../../../shared/github';
@@ -51,25 +51,25 @@ export function isThreadId(v: unknown): v is string {
 
 export type HistoryMode = 'paginated' | 'legacy';
 
-/** O que o session_meta (1ª linha do rollout) diz sobre o thread. */
+/** What session_meta (1st line of rollout) reveals about the thread. */
 export interface RolloutMeta {
   threadId?: string;
-  /** Thread raiz da sessão (num subagente, o do agente principal). */
+  /** Root thread of the session (in a subagent, the main agent's thread). */
   sessionId?: string;
   cwd?: string;
   cliVersion?: string;
   historyMode: HistoryMode;
   gitBranch?: string;
   startedAt?: number;
-  /** Thread interno do Codex (guardian, review, compactação, memória...): fica fora do escritório. */
+  /** Internal Codex thread (guardian, review, compaction, memory...): excluded from office. */
   internal: boolean;
-  /** Subagente (spawn_agent): o thread pai e o que se sabe dele. */
+  /** Subagent (spawn_agent): parent thread and known metadata. */
   parentThreadId?: string;
   agentNickname?: string;
   agentRole?: string;
 }
 
-/** Chaves de um objeto em minúsculas e sem `_` (o Codex já gravou `subagent`, `subAgent`, `thread_spawn`...). */
+/** Object keys in lowercase without `_` (Codex has recorded `subagent`, `subAgent`, `thread_spawn`...). */
 function looseGet(o: Rec, name: string): unknown {
   const want = name.toLowerCase().replace(/_/g, '');
   for (const [k, v] of Object.entries(o)) if (k.toLowerCase().replace(/_/g, '') === want) return v;
@@ -126,7 +126,7 @@ export function parseSessionMeta(payload: Rec, at?: number): RolloutMeta {
 
 // ------------------------------------------------------------------ uso do plano
 
-/** Janelas do Codex pela duração (não pela posição): 300 min = sessão de 5 h, 10080 min = semana. */
+/** Codex windows by duration (not position): 300 min = 5 h session, 10080 min = week. */
 const WINDOW_BY_MINUTES: Record<number, 'fiveHour' | 'sevenDay'> = { 300: 'fiveHour', 10080: 'sevenDay' };
 
 function usageWindow(raw: unknown): { key: 'fiveHour' | 'sevenDay'; window: UsageWindow } | undefined {
@@ -142,13 +142,13 @@ function usageWindow(raw: unknown): { key: 'fiveHour' | 'sevenDay'; window: Usag
 }
 
 /**
- * `token_count.rate_limits` → uso da conta (source 'codex', `fetchedAt` = horário da linha). `primary` nulo com
- * `rate_limit_reached_type` = sem cota nem créditos (`noQuota`), não 0%. Sem nenhuma janela e com cota = undefined.
+ * `token_count.rate_limits` → account usage (source 'codex', `fetchedAt` = timestamp of line). Null `primary` with
+ * `rate_limit_reached_type` = out of quota or credits (`noQuota`), not 0%. Without windows and with quota = undefined.
  */
 export function usageFromRateLimits(raw: unknown, at: number): AccountUsage | undefined {
   const rl = rec(raw);
   if (!rl) return undefined;
-  // Só a cota padrão ("codex"); modelos com cota própria (outro limit_id) fariam o número pular entre as duas.
+  // Standard quota only ("codex"); models with dedicated quotas (different limit_id) would cause jumping numbers.
   const limit = str(rl.limit_id);
   if (limit && limit !== 'codex') return undefined;
   const usage: AccountUsage = { source: 'codex', fetchedAt: at };
@@ -165,8 +165,8 @@ export function usageFromRateLimits(raw: unknown, at: number): AccountUsage | un
 const SHELLS = /^(?:.*\/)?(?:ba|z|da|k|fi)?sh$/;
 
 /**
- * O comando legível de um CommandExecution/exec: `command` é uma lista (`["/bin/zsh", "-lc", "npm test"]`) ou um
- * texto. O invólucro do shell (`-lc`, `-c`) sai; o resto é juntado com espaços (palavras com espaço entre aspas).
+ * Human-readable command for CommandExecution/exec: `command` is an array (`["/bin/zsh", "-lc", "npm test"]`) or a
+ * string. Shell wrappers (`-lc`, `-c`) are stripped; remainder is joined with spaces (space-containing tokens quoted).
  */
 export function commandText(cmd: unknown): string {
   if (typeof cmd === 'string') return cmd.trim();
@@ -188,11 +188,11 @@ export function patchFiles(patch: string): Array<{ path: string; kind: 'add' | '
   return out;
 }
 
-/** Uma mudança de arquivo de um FileChange: o mapa {caminho: {type, content | unified_diff}} ou a lista {path, kind, diff}. */
+/** A file change from FileChange: {path: {type, content | unified_diff}} map or {path, kind, diff} list. */
 export interface FileChangeEntry {
   path: string;
   kind: 'add' | 'update' | 'delete';
-  /** Diff unificado (update) ou o conteúdo (add/delete). */
+  /** Unified diff (update) or file contents (add/delete). */
   text: string;
   movePath?: string;
 }
@@ -219,8 +219,8 @@ export function fileChanges(raw: unknown): FileChangeEntry[] {
   return out;
 }
 
-/** Caminho de um `file://` (cwd e caminhos do Codex vêm como URL). Drive ou host UNC viram caminho
- *  Windows: o rollout pode ter sido gravado em outro sistema. */
+/** Path from `file://` URL (cwd and Codex paths arrive as URLs). Drive letters or UNC hosts become Windows
+ *  paths: rollout may have been recorded on another system. */
 export function pathFromUri(v: unknown): string | undefined {
   const s = str(v);
   if (!s) return undefined;
@@ -228,7 +228,7 @@ export function pathFromUri(v: unknown): string | undefined {
   try {
     const url = new URL(s);
     const path = decodeURIComponent(url.pathname);
-    // localhost o parser do file:// já esvazia; host que sobra é UNC. Letra de drive também é Windows.
+    // localhost is already cleared by file:// parser; remaining host is UNC. Drive letters also indicate Windows.
     const windows = (url.hostname !== '' && url.hostname !== 'localhost') || /^\/[A-Za-z]:/.test(path);
     return fileURLToPath(url, { windows });
   } catch {
@@ -240,7 +240,7 @@ export function pathFromUri(v: unknown): string | undefined {
   }
 }
 
-/** Argumentos de uma chamada de função: string JSON (o normal) ou objeto. */
+/** Function call arguments: JSON string (typical) or parsed object. */
 export function parseArguments(raw: unknown): Rec {
   if (rec(raw)) return rec(raw)!;
   if (typeof raw !== 'string' || !raw.trim()) return {};
@@ -251,14 +251,14 @@ export function parseArguments(raw: unknown): Rec {
   }
 }
 
-/** Nome MCP no formato do Claude Code: `mcp__<servidor>__<ferramenta>`. */
+/** MCP name in Claude Code format: `mcp__<server>__<tool>`. */
 export function mcpName(server: unknown, tool: unknown): string {
   return `mcp__${String(server ?? '?')}__${String(tool ?? '?')}`;
 }
 
 /**
- * Mensagem do agente para você no code mode do app: a ferramenta `user_messaging.send_message` (MCP do próprio app,
- * `{text}`) faz o papel da resposta. Devolve o texto, ou undefined se não for essa ferramenta.
+ * Agent-to-user message in app's code mode: `user_messaging.send_message` tool (app's internal MCP,
+ * `{text}`) serves as response. Returns text, or undefined if not that tool.
  */
 export function userMessagingText(server: unknown, tool: unknown, args: unknown): string | undefined {
   if (!/user_messag(?:e|ing)[_.]*send_message$/i.test(`${String(server ?? '')}__${String(tool ?? '')}`)) return undefined;
@@ -270,8 +270,8 @@ const DELIVERY_COMPLETE = 'codex:code-mode-delivery:v1:complete';
 const DELIVERY_INCOMPLETE = 'codex:code-mode-delivery:v1:incomplete:';
 
 /**
- * Resposta entregue no code mode, gravada como `response_item` message/assistant com
- * `metadata.delivered_assistant_message` (o marcador; no "incomplete", o texto cortado vem nele). Undefined = não é.
+ * Response delivered in code mode, recorded as `response_item` message/assistant with
+ * `metadata.delivered_assistant_message` (marker; for "incomplete", truncated text resides there). Undefined = not a delivered response.
  */
 export function deliveredMessage(line: Rec): { id?: string; text: string } | undefined {
   const marker = str(rec(line.metadata)?.delivered_assistant_message);
@@ -285,7 +285,7 @@ export function deliveredMessage(line: Rec): { id?: string; text: string } | und
   return id ? { id, text } : { text };
 }
 
-/** Atividade de uma instrução recebida pelo Codex: "Recebeu “…”" (kind 'prompt', a base do "Concluiu em X"). */
+/** Activity for instruction received by Codex: "Received “…”" (kind 'prompt', basis for "Finished in X"). */
 export function describeCodexPrompt(text: string): ActivityDescription {
   const shown = truncate(maskSecrets(text.slice(0, 1_000)), 34);
   return { ...describePrompt(text), text: truncate(tr('Recebeu “{0}”', [shown]), 46) };
@@ -293,7 +293,7 @@ export function describeCodexPrompt(text: string): ActivityDescription {
 
 const PLAN_STATUS = new Set<string>(['pending', 'in_progress', 'completed']);
 
-/** Passos do `update_plan` ({plan: [{step, status}]}) como tarefas. */
+/** `update_plan` steps ({plan: [{step, status}]}) represented as tasks. */
 export function planTasks(args: Rec): TaskItem[] | undefined {
   if (!Array.isArray(args.plan)) return undefined;
   const out: TaskItem[] = [];
@@ -308,9 +308,9 @@ export function planTasks(args: Rec): TaskItem[] | undefined {
 }
 
 /**
- * Atividade de uma ferramenta do Codex pelo nome que ela tem no rollout, no hook ou no app (exec_command, shell,
- * Bash, apply_patch, mcp__…, spawn_agent, exec do code mode...). `name` volta normalizado (Bash, Edit, Write,
- * mcp__…) para o Activity.tool.
+ * Activity for a Codex tool by its name in rollout, hook, or app (exec_command, shell,
+ * Bash, apply_patch, mcp__…, spawn_agent, code mode exec...). `name` returns normalized (Bash, Edit, Write,
+ * mcp__…) for Activity.tool.
  */
 export function describeCodexTool(rawName: string, input: Rec, namespace?: string): { desc: ActivityDescription; tool: string } {
   const name = namespace && /^mcp__/.test(namespace) ? `${namespace.replace(/_+$/, '')}__${rawName}` : rawName;
@@ -337,7 +337,7 @@ export function describeCodexTool(rawName: string, input: Rec, namespace?: strin
       return { desc, tool };
     }
     case 'exec':
-      // Code mode do app: o argumento é JavaScript; o comando legível só aparece no CommandExecution ao concluir.
+      // App code mode: argument is JavaScript; human-readable command surfaces in CommandExecution upon completion.
       return { desc: { kind: 'run', icon: '⚙️', text: tr('Executando código') }, tool: name };
     case 'update_plan':
       return { desc: { kind: 'plan', icon: '🗒️', text: tr('Atualizando o plano') }, tool: name };
@@ -372,23 +372,23 @@ export function describeCodexTool(rawName: string, input: Rec, namespace?: strin
 // ------------------------------------------------------------------ estado
 
 export interface CodexState {
-  /** session_meta (lido do começo do arquivo, à parte da janela do fim). */
+  /** session_meta (read from head of file, separate from tail window). */
   meta?: RolloutMeta;
-  /** Formato: o do session_meta; sem ele, deduzido (o primeiro item paginated ou evento legacy decide). */
+  /** Format: from session_meta; if absent, inferred (first paginated item or legacy event determines). */
   mode?: HistoryMode;
   model?: string;
   gitBranch?: string;
-  /** Primeira instrução (título da sessão), já mascarada e cortada. */
+  /** Initial instruction (session title), already masked and truncated. */
   title?: string;
   tasks: TaskItem[];
   stats: AgentStats;
-  /** Turno aberto (task_started sem task_complete/turn_aborted); undefined = nenhum evento de turno visto. */
+  /** Open turn (task_started without task_complete/turn_aborted); undefined = no turn event seen. */
   turnOpen?: boolean;
   firstAt?: number;
   lastAt?: number;
-  /** Chamadas de ferramenta ainda sem resultado (call_id → nome). */
+  /** Tool calls still awaiting results (call_id → name). */
   pending: Map<string, string>;
-  /** Uso do plano mais recente (rate_limits) e o plano. */
+  /** Most recent plan usage (rate_limits) and plan. */
   usage?: AccountUsage;
   planType?: string;
   current?: { id: string; kind: Activity['kind']; at: number; callId?: string };
@@ -407,11 +407,11 @@ export function applyMeta(s: CodexState, meta: RolloutMeta): void {
   if (meta.gitBranch) s.gitBranch ??= meta.gitBranch;
 }
 
-/** Sinais de uma linha para quem acompanha o thread. */
+/** Signals from a line for thread tracker. */
 export type CodexSignal =
   | { type: 'turnStart' }
   | { type: 'turnEnd'; aborted: boolean }
-  /** Algo concluiu dentro do turno (tira a espera por aprovação). */
+  /** Operation completed within turn (clears waiting for approval). */
   | { type: 'progress' }
   | { type: 'usage'; usage: AccountUsage; plan?: string }
   | { type: 'github'; event: GitHubEvent; key: string }
@@ -420,26 +420,26 @@ export type CodexSignal =
 export interface CodexLineResult {
   activities: ParsedActivity[];
   signals: CodexSignal[];
-  /** Título, números, modelo ou tarefas mudaram. */
+  /** Title, metrics, model, or tasks changed. */
   changed: boolean;
-  /** Epoch ms da linha (o `timestamp` dela ou o `now` do contexto). */
+  /** Epoch ms of line (its `timestamp` or `now` from context). */
   at: number;
 }
 
 export interface CodexParseContext {
-  /** Prefixo dos ids de atividade (o id do agente). */
+  /** Activity ID prefix (agent id). */
   idPrefix: string;
   now: number;
-  /** false = só atualiza o estado (sem montar atividades). */
+  /** false = updates state only (without constructing activities). */
   activities?: boolean;
 }
 
 const TITLE_MAX = 90;
 const MAX_PENDING = 128;
-/** Texto injetado pelo Codex que não é instrução sua. */
+/** Codex-injected text that is not a user prompt. */
 const INJECTED = /^<(environment_context|user_instructions|turn_aborted|subagent_notification|user_shell_command_output|collaboration_mode)\b/;
 
-/** Texto de UserMessage.content ([{type: 'text', text}, {type: 'image'...}]) ou de uma lista de blocos {text}. */
+/** Text from UserMessage.content ([{type: 'text', text}, {type: 'image'...}]) or {text} block list. */
 export function contentText(content: unknown): { text: string; images: number } {
   if (typeof content === 'string') return { text: content, images: 0 };
   if (!Array.isArray(content)) return { text: '', images: 0 };
@@ -455,14 +455,14 @@ export function contentText(content: unknown): { text: string; images: number } 
   return { text: texts.join(''), images };
 }
 
-/** Instrução de verdade (não contexto injetado), limpa; '' = nada a mostrar. */
+/** Genuine prompt (not injected context), sanitized; '' = nothing to display. */
 export function promptText(raw: string): string {
   const text = raw.trim();
   if (!text || INJECTED.test(text)) return '';
   return text;
 }
 
-/** Saída de uma ferramenta (function_call_output): texto, JSON {output, metadata: {exit_code}} ou blocos. */
+/** Tool output (function_call_output): string, JSON {output, metadata: {exit_code}}, or blocks. */
 function outputOf(raw: unknown): { text: string; exitCode?: number } {
   if (typeof raw === 'string') {
     try {
@@ -500,8 +500,8 @@ class RolloutLineParser {
   }
 
   /**
-   * Chave estável de uma atividade sem id próprio: o `ordinal` da linha (quando o Codex grava) ou o horário dela,
-   * mais a posição dentro da linha. Uma releitura do arquivo gera as mesmas chaves (o Office não duplica).
+   * Stable key for an activity without its own id: line `ordinal` (when recorded by Codex) or its timestamp,
+   * plus position within line. Re-reading file yields identical keys (Office avoids duplicates).
    */
   private autoKey(): string {
     const ordinal = num(this.j.ordinal);
@@ -532,7 +532,7 @@ class RolloutLineParser {
     return this.s.mode === 'paginated';
   }
 
-  /** Um item paginated visto: o formato é esse (a janela do fim pode não ter o session_meta). */
+  /** Paginated item encountered: format confirmed (tail window may lack session_meta). */
   private sawPaginated(): void {
     this.s.mode ??= 'paginated';
   }
@@ -598,7 +598,7 @@ class RolloutLineParser {
         return this.tokens(p);
       case 'thread_settings_applied':
         return this.model(rec(p.thread_settings)?.model);
-      // ---- legacy (threads antigos): só o básico
+      // ---- legacy (older threads): basics only
       case 'user_message':
         if (this.paginated()) return;
         this.s.mode ??= 'legacy';
@@ -647,7 +647,7 @@ class RolloutLineParser {
   private tokens(p: Rec): void {
     const total = rec(rec(p.info)?.total_token_usage);
     if (total) {
-      // Cumulativo: atribui (o input já inclui o cache; o output já inclui o raciocínio).
+      // Cumulative: assign (input already includes cache; output already includes reasoning).
       const tin = num(total.input_tokens) ?? 0;
       const tout = num(total.output_tokens) ?? 0;
       if (tin !== this.s.stats.tokensIn || tout !== this.s.stats.tokensOut) {
@@ -668,7 +668,7 @@ class RolloutLineParser {
 
   private think(key?: string): void {
     const cur = this.s.current;
-    // Um único "Pensando…" seguido (o raciocínio vem em vários pedaços).
+    // Single consecutive "Thinking…" indicator (reasoning arrives in multiple chunks).
     if (cur?.kind === 'think' && this.at - cur.at < 30_000) return;
     this.push(SPECIAL.think(), { key });
   }
@@ -767,7 +767,7 @@ class RolloutLineParser {
     }
   }
 
-  /** Chamada concluída: sai da lista das em andamento e tira a espera por aprovação. */
+  /** Call completed: removes from pending list and clears approval waiting state. */
   private done(callId: string | undefined): void {
     if (callId) this.s.pending.delete(callId);
     this.progress();
@@ -784,7 +784,7 @@ class RolloutLineParser {
     }
     const failed = c.status === 'failed' || (c.exitCode !== undefined && c.exitCode !== 0);
     if (failed) this.push(SPECIAL.error('Bash', firstLine(c.output) ?? (c.exitCode !== undefined ? tr('Código de saída {0}', [c.exitCode]) : undefined)), { key: `${key}:e`, tool: 'Bash' });
-    // GitHub: a mesma detecção do Claude Code, com o comando, a saída e o código de saída.
+    // GitHub: identical detection to Claude Code, using command, output, and exit code.
     const gh = command ? githubCallOf('Bash', { command }) : undefined;
     if (gh && c.status !== 'declined') {
       const content = failed ? `Exit code ${c.exitCode ?? 1}\n${c.output}` : c.output;
@@ -811,7 +811,7 @@ class RolloutLineParser {
     const name = mcpName(server, tool);
     const input = rec(args) ?? parseArguments(args);
     const key = id ?? this.autoKey();
-    // Code mode: a mensagem para você é a resposta (a mesma chave da entrega gravada como response_item).
+    // Code mode: user-facing message is response (same key as delivery recorded in response_item).
     const said = userMessagingText(server, tool, input);
     if (said) {
       this.push(SPECIAL.respond(said), { key });
@@ -832,7 +832,7 @@ class RolloutLineParser {
   private responseItem(p: Rec): void {
     switch (p.type) {
       case 'message': {
-        // Só a resposta entregue no code mode (as outras mensagens são o contexto mandado ao modelo).
+        // Response delivered in code mode only (other messages constitute context sent to model).
         const delivered = deliveredMessage(this.j);
         if (delivered) {
           this.push(SPECIAL.respond(delivered.text), { key: delivered.id });
@@ -860,7 +860,7 @@ class RolloutLineParser {
             this.changed();
           }
         }
-        // Atividade em andamento: o item concluído (paginated) chega depois com o mesmo id e não duplica.
+        // In-progress activity: completed item (paginated) arrives later with matching id without duplicating.
         const { desc, tool } = describeCodexTool(name, input, str(p.namespace));
         this.push(desc, { key: callId, tool, callId });
         return;
@@ -881,7 +881,7 @@ class RolloutLineParser {
         const name = callId ? this.s.pending.get(callId) : undefined;
         if (callId) this.s.pending.delete(callId);
         if (this.paginated()) return;
-        // Legacy: o resultado de um comando (o item concluído não existe nesse formato).
+        // Legacy: command result (completed item does not exist in this format).
         if (!name || !/^(shell|shell_command|local_shell|exec_command|container\.exec)$/.test(name)) return;
         const out = outputOf(p.output);
         if (out.exitCode !== undefined && out.exitCode !== 0) {
@@ -900,7 +900,7 @@ class RolloutLineParser {
   }
 }
 
-/** Interpreta uma linha do rollout. Linhas inválidas ou desconhecidas não geram nada. */
+/** Interprets a rollout line. Invalid or unknown lines yield nothing. */
 export function parseRolloutLine(state: CodexState, raw: string, ctx: CodexParseContext): CodexLineResult {
   let j: unknown;
   try {
@@ -919,12 +919,12 @@ export function parseRolloutLine(state: CodexState, raw: string, ctx: CodexParse
   try {
     p.run();
   } catch {
-    // linha estranha demais: fica o que já tiver saído dela
+    // malformed line: preserve whatever was parsed from it
   }
   return p.out;
 }
 
-/** O session_meta de uma linha (a primeira do rollout), ou undefined. */
+/** session_meta from a line (1st line of rollout), or undefined. */
 export function metaFromLine(raw: string): RolloutMeta | undefined {
   try {
     const j = rec(JSON.parse(raw));

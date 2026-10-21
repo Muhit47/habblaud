@@ -75,7 +75,7 @@ describe('FileTail', () => {
   });
 
   describe('reescrita no mesmo inode', () => {
-    /** Espera o relógio do sistema de arquivos andar (o ext4 grava os tempos em ticks de alguns ms). */
+    /** Waits for filesystem clock progression (ext4 records timestamps in multi-millisecond ticks). */
     const tick = () => new Promise((ok) => setTimeout(ok, 15));
 
     it('conteúdo novo do mesmo tamanho recomeça do início', async () => {
@@ -83,7 +83,7 @@ describe('FileTail', () => {
       const t = new FileTail(file);
       expect(t.read().lines).toEqual(['aaaa', 'bbbb', 'cccc']);
       await tick();
-      writeFileSync(file, 'xxxx\nyyyy\nzzzz\n'); // mesmo inode, mesmo tamanho
+      writeFileSync(file, 'xxxx\nyyyy\nzzzz\n'); // same inode, same size
       const r = t.read();
       expect(r.reset).toBe(true);
       expect(r.lines).toEqual(['xxxx', 'yyyy', 'zzzz']);
@@ -166,7 +166,7 @@ describe('FileTail', () => {
       expect(drain(t)).toEqual([]);
       appendFileSync(file, '\n{"ok":1}\n');
       const lines = drain(t);
-      // O tamanho vem antes do texto: uma falha não despeja a linha gigante no diff.
+      // Size precedes text: a failure avoids dumping giant lines into the diff.
       expect(lines.map((l) => l.length)).toEqual([8]);
       expect(lines).toEqual(['{"ok":1}']);
       expect(warn).toHaveBeenCalledWith(`oversize-line:${file}`, expect.stringContaining('8 MiB'));

@@ -1,5 +1,5 @@
-// Fontes de agentes (SourceSet) e histórico de várias ferramentas (HistorySet): o que o servidor vê como uma
-// fonte só, o parser escolhido por agente, a falha isolada de uma fonte e o boot contado no Office.
+// Agent sources (SourceSet) and multi-tool history (HistorySet): server unified view,
+// per-agent parser selection, isolated source failures, and Office boot counting.
 import { describe, expect, it } from 'vitest';
 import type { Provider, RecentSession, SourceInfo, TerminalEntry } from '../../shared/types';
 import { setQuiet } from '../log';
@@ -18,7 +18,7 @@ const CLAUDE_LINE = JSON.stringify({
   message: { role: 'user', content: 'oi' },
 });
 
-/** Parser marcado: cada linha vira uma entrada 'user' com o id `${tag}-${n}`. */
+/** Tagged parser: each line becomes a 'user' entry with id `${tag}-${n}`. */
 function tagged(tag: string): TerminalParser {
   let n = 0;
   return { push: (): TerminalEntry[] => [{ kind: 'user', id: `${tag}-${++n}`, at: 0, text: tag }] };
@@ -57,13 +57,13 @@ describe('SourceSet', () => {
     expect(set.transcriptPathOf('.codex:t1')).toBe('/t/rollout.jsonl');
     expect(set.transcriptPathOf('ninguem')).toBeUndefined();
 
-    // Agente do Codex: o parser da fonte dele, um novo a cada chamada.
+    // Codex agent: source-provided parser, a new instance on each call.
     const p1 = set.parserFor('.codex:t1');
     const p2 = set.parserFor('.codex:t1');
     expect(p1).not.toBe(p2);
     expect(p1.push('x').map((e) => e.id)).toEqual(['cx-1']);
     expect(p2.push('x').map((e) => e.id)).toEqual(['cx-1']);
-    // Fonte sem parser próprio (ou que não devolve um), agente desconhecido: o do Claude Code.
+    // Source without custom parser (or returning none), unknown agent: Claude Code parser.
     for (const id of ['c:1', '.codex:t2', 'ninguem']) {
       const entries = set.parserFor(id).push(CLAUDE_LINE);
       expect(entries).toMatchObject([{ kind: 'user', text: 'oi' }]);
@@ -94,7 +94,7 @@ describe('SourceSet', () => {
       fakeSource('codex', { start: () => Promise.reject(new Error('assíncrona quebrou')) }),
     ]);
     const done = set.start();
-    // As síncronas já rodaram; a assíncrona segue.
+    // Synchronous sources finished; asynchronous follows.
     expect(log).toEqual(['start:claude', 'start:codex']);
     let finished = false;
     void done.then(() => (finished = true));
@@ -142,7 +142,7 @@ describe('SourceSet', () => {
   });
 });
 
-// ------------------------------------------------------------------ histórico
+// ------------------------------------------------------------------ history
 
 const session = (provider: Provider | undefined, account: string, sessionId: string, lastAt: number): RecentSession => {
   const s: RecentSession = { account, sessionId, projectDir: 'p', lastAt, size: 1, open: false };
@@ -165,7 +165,7 @@ describe('HistorySet', () => {
     const codex = fakeHistory('codex', ['.codex'], async () => [session('codex', '.codex', 'x1', 30), session('codex', '.codex', 'x0', 5)]);
     expect((await new HistorySet([claude, codex]).list()).map((s) => s.sessionId)).toEqual(['c2', 'x1', 'c1', 'x0']);
     expect((await new HistorySet([claude, codex], 3).list()).map((s) => s.sessionId)).toEqual(['c2', 'x1', 'c1']);
-    // Um provedor só: a lista dele, igual.
+    // Single provider: returns matching list unmodified.
     expect(await new HistorySet([claude]).list()).toEqual(await claude.list());
     expect(await new HistorySet().list()).toEqual([]);
   });

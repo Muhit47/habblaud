@@ -1,10 +1,10 @@
-// Tipos do layout do escritório. Módulos de layout são PUROS (sem DOM): geram descrições
-// que o render transforma em pixels e a simulação usa para caminhos e pontos de interesse.
+// Office layout types. Layout modules are PURE (DOM-free): they produce descriptions
+// converted to pixels by renderer and used by simulation for navigation paths and points of interest.
 import type { Dir, FloorKind, FurnitureKind, WallStyle } from '../../art/api';
 
 export type AreaKind = 'reception' | 'restroom' | 'cafe' | 'lounge' | 'room' | 'corridor';
 
-/** Retângulo em tiles (coordenadas absolutas do mundo). */
+/** Rectangle in tiles (absolute world coordinates). */
 export interface TileRect {
   x: number;
   y: number;
@@ -12,7 +12,7 @@ export interface TileRect {
   h: number;
 }
 
-/** Móvel de chão posicionado. */
+/** Placed floor furniture. */
 export interface FurniturePlacement {
   id: string;
   kind: FurnitureKind;
@@ -20,16 +20,16 @@ export interface FurniturePlacement {
   /** Canto superior esquerdo do footprint, em tiles absolutos. */
   tx: number;
   ty: number;
-  /** Deslocamento do desenho em px (ex.: cadeira centralizada numa mesa de 2 tiles). Não afeta o footprint. */
+  /** Rendering offset in px (e.g. chair centered on a 2-tile desk). Does not affect footprint. */
   dx?: number;
   dy?: number;
-  /** Ordem relativa na animação de montagem (0..1). */
+  /** Relative ordering in assembly animation (0..1). */
   order: number;
-  /** Para mesas: índice do lugar (a tela segue a atividade de quem senta ali). */
+  /** For desks: seat index (screen tracks activity of character seated here). */
   seat?: string;
 }
 
-/** Item montado em parede. `cx` = centro em px de mundo; `baseY` = linha do rodapé em px. */
+/** Wall-mounted item. `cx` = center in world px; `baseY` = base trim line in px. */
 export interface WallItemPlacement {
   id: string;
   kind: FurnitureKind;
@@ -46,7 +46,7 @@ export interface Doorway {
   w: number;
 }
 
-/** Trecho de parede em px de mundo. */
+/** Wall segment in world pixels. */
 export type WallSegment =
   | { kind: 'face'; x: number; y: number; w: number; style: WallStyle; doorways?: Doorway[] }
   | { kind: 'south'; x: number; y: number; w: number; style: WallStyle; doorways?: Doorway[] }
@@ -54,7 +54,7 @@ export type WallSegment =
 
 export interface FloorPatch {
   kind: FloorKind;
-  /** px de mundo */
+  /** world px */
   x: number;
   y: number;
   w: number;
@@ -74,11 +74,11 @@ export interface RugPatch {
 }
 
 export type SpotKind =
-  | 'desk' // lugar de trabalho (mesa + cadeira)
-  | 'stool' // banqueta da mesa de reunião
-  | 'nook' // poltrona/puff dentro da sala de projeto (lugar extra de trabalho, com notebook)
-  | 'stand' // ponto em pé dentro da sala (trabalho sem mesa)
-  | 'switch' // interruptor de luz
+  | 'desk' // work station (desk + chair)
+  | 'stool' // meeting table stool
+  | 'nook' // lounge chair/ottoman inside project room (secondary workspace with laptop)
+  | 'stand' // standing spot in room (desk-free work)
+  | 'switch' // light switch
   | 'whiteboard'
   | 'coffee'
   | 'water'
@@ -97,11 +97,11 @@ export type SpotKind =
   | 'sink'
   | 'elevator'
   | 'talk'
-  | 'watch'; // ponto em pé da torcida (assistir a uma partida)
+  | 'watch'; // spectator standing spot (watching match)
 
 /**
- * Ponto de interesse. O personagem anda até o tile de aproximação (tx, ty), caminhável,
- * e então "encaixa" na posição final (x, y) em px, virado para `dir`.
+ * Point of interest. Character walks to walkable approach tile (tx, ty),
+ * then snaps to final position (x, y) in px, facing `dir`.
  */
 export interface SpotDef {
   id: string;
@@ -113,24 +113,24 @@ export interface SpotDef {
   y: number;
   dir: Dir;
   seated?: boolean;
-  /** Móvel associado (cadeira, máquina, cabine...). */
+  /** Associated furniture (chair, machine, booth...). */
   furnitureId?: string;
-  /** Profundidade a usar quando ocupado (assentos: logo depois do móvel). */
+  /** Depth to use when occupied (seats: just after furniture). */
   sortY?: number;
   /** Spots em par (ping-pong, conversa) compartilham o grupo. */
   group?: string;
-  /** Mesa cuja tela acompanha quem está sentado aqui. */
+  /** Desk whose screen follows character seated here. */
   deskId?: string;
-  /** Ordem de preferência (mesas). */
+  /** Preference ordering (desks). */
   rank?: number;
-  /** Lado da ilha: 'S' = de costas (tela visível), 'N' = de frente (desk_back). */
+  /** Island side: 'S' = back to camera (screen visible), 'N' = facing camera (desk_back). */
   side?: 'S' | 'N';
 }
 
 export interface AreaLayout {
   id: string;
   kind: AreaKind;
-  /** Retângulo da área em tiles absolutos. */
+  /** Area rectangle in absolute tiles. */
   rect: TileRect;
   floors: FloorPatch[];
   rugs: RugPatch[];
@@ -138,31 +138,31 @@ export interface AreaLayout {
   wallItems: WallItemPlacement[];
   furniture: FurniturePlacement[];
   spots: SpotDef[];
-  /** Tiles caminháveis (absolutos), além dos que são bloqueados por móveis. */
+  /** Walkable tiles (absolute), beyond those blocked by furniture. */
   walkable: TileRect[];
-  /** Tiles explicitamente bloqueados (divisórias desenhadas como piso, etc.). */
+  /** Explicitly blocked tiles (dividers drawn as floor, etc.). */
   blocked?: TileRect[];
-  /** Tiles da porta (absolutos). */
+  /** Doorway tiles (absolute coordinates). */
   door?: TileRect;
-  /** Para salas de projeto: o lado do corredor em que está. */
+  /** For project rooms: corridor side. */
   side?: 'north' | 'south';
-  /** Tom (cor hex) aplicado de leve sobre o piso, para cada sala ter identidade própria. */
+  /** Hex color tint subtly applied over floor to give each room visual identity. */
   floorTint?: string;
-  /** Retângulo (px) escurecido quando a luz está apagada. */
+  /** Darkened rectangle (px) when lights are off. */
   shade?: { x: number; y: number; w: number; h: number };
-  /** Retângulo (px) da placa com o nome. */
+  /** Room nameplate rectangle (px). */
   signId?: string;
 }
 
-/** Elemento decorativo externo (árvore, arbusto, poste...) desenhado pelo próprio mundo. */
+/** External decorative element (tree, shrub, post...) rendered by world itself. */
 export interface ExteriorProp {
   kind: 'tree' | 'pine' | 'bush' | 'flowers' | 'lamp' | 'bench' | 'rock' | 'hedge' | 'parasol' | 'totem' | 'paving';
-  /** px de mundo: ponto central inferior (base). */
+  /** world px: bottom center anchor point (base). */
   x: number;
   y: number;
   seed: number;
-  /** Slot ao qual pertence (some quando há sala ali). */
+  /** Associated slot (disappears when room occupies slot). */
   slot?: number;
-  /** O contrário: só aparece quando HÁ sala neste slot (ex.: cerca viva que fecha o caminho do jardim). */
+  /** Inverse: appears only when room IS present in slot (e.g. hedge sealing garden path). */
   whenRoom?: number;
 }

@@ -1,5 +1,5 @@
-// Editor do personagem, parte pura (sem DOM): quando a gaveta oferece a edição, como as peças se agrupam, os rótulos
-// em português e o que vai para o servidor em `parts`. A interface fica em character-editor.ts.
+// Character editor, pure part (DOM-free): when the drawer offers editing, how parts are grouped, labels,
+// and what gets sent to the server in `parts`. The UI lives in character-editor.ts.
 import { PART_KEYS, type AppearanceParts, type PartKey } from '../../../shared/appearance';
 import { isDemoId } from '../../../shared/timeline';
 import type { AgentInfo } from '../../../shared/types';
@@ -7,25 +7,25 @@ import type { Appearance } from '../art/api';
 import { tr } from '../../../shared/i18n';
 
 export interface EditGate {
-  /** O agente ainda está no escritório. */
+  /** The agent is still in the office. */
   live: boolean;
-  /** meta.terminal: o Habblaud só é acessível pelo próprio computador (bind local). */
+  /** meta.terminal: Habblaud is only accessible from this computer (local bind). */
   terminal: boolean;
-  /** A página foi aberta por localhost/127.x (o servidor recusa o resto). */
+  /** Page opened from localhost/127.x (server rejects the rest). */
   local: boolean;
   replaying: boolean;
   mock: boolean;
 }
 
 /**
- * O lápis "Editar personagem" aparece? Só para o principal real, ao vivo, que não está saindo (offline: o servidor
- * responderia 404) e com acesso local (a trava do terminal).
+ * Does the "Edit character" pencil appear? Only for a real, live main agent that is not leaving
+ * (offline: server would respond 404) and with local access (terminal lock).
  */
 export function canEditCharacter(a: Pick<AgentInfo, 'id' | 'kind' | 'status'>, g: EditGate): boolean {
   return a.kind === 'main' && a.status !== 'offline' && g.live && g.terminal && g.local && !g.replaying && !g.mock && !isDemoId(a.id);
 }
 
-/** Peças que diferem da aparência sorteada pela seed (o que vai em `parts`), na ordem de PART_KEYS. */
+/** Parts that differ from appearance generated from seed (what goes into `parts`), in PART_KEYS order. */
 export function changedParts(base: Appearance, edited: Appearance): AppearanceParts {
   const out: Record<string, string> = {};
   for (const k of PART_KEYS) {
@@ -95,12 +95,12 @@ const STYLE_LABELS: Partial<Record<PartKey, Readonly<Record<string, string>>>> =
   facialHair: { none: tr('Sem barba'), stubble: tr('Por fazer'), beard: tr('Barba'), mustache: tr('Bigode'), goatee: tr('Cavanhaque') },
 };
 
-/** Rótulo em português de um estilo (cabelo, roupa, acessório...). */
+/** Display label for a style category (hair, clothing, accessory...). */
 export function styleLabel(key: PartKey, value: string): string {
   return STYLE_LABELS[key]?.[value] ?? value;
 }
 
-/** A linha aparece com esta aparência? (sem acessório, não há cor de acessório para escolher) */
+/** Is row visible for this appearance? (e.g. without accessory, accessory color is hidden) */
 export function rowVisible(r: EditorRow, a: Pick<Appearance, 'accessory'>): boolean {
   return !(r.key === 'accessoryColor' && a.accessory === 'none');
 }

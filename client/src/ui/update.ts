@@ -1,6 +1,6 @@
-// Aviso de versão nova: quando o servidor passa a servir outro build do cliente (ex.: depois de um
-// `npm run docker:up`), esta página está desatualizada — ela não conhece estados e recursos novos.
-// Mostra o aviso e recarrega sozinha em alguns segundos (dá para adiar).
+// New client build notice: when server begins serving a newer client bundle (e.g. after
+// `npm run docker:up`), this page becomes outdated and lacks newer state/feature logic.
+// Displays notice banner and auto-reloads after a short delay (can be postponed).
 import type { OfficeStore } from '../net/store';
 import { h, setHidden, setText } from './dom';
 import { tr } from '../../../shared/i18n';

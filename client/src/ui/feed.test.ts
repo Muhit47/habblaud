@@ -4,7 +4,7 @@ import type { SocialEvent } from '../world/api';
 import type { UiContext } from './context';
 import { FeedPanel } from './feed';
 
-/** Elementos mínimos para exercitar o painel no ambiente Node, sem canvas nem animações. */
+/** Minimal elements to exercise feed panel in Node environment, without canvas or animations. */
 class Element {
   children: Element[] = [];
   parentElement: Element | null = null;
@@ -104,7 +104,7 @@ describe('FeedPanel pausado', () => {
     const fresh = Array.from({ length: 120 }, (_, i) => item(`novo-${i}`, i < 70 ? shown : hidden));
     if (source === 'SSE') p.receive(fresh);
     else for (const f of fresh) p.social({ id: f.id, agentId: f.agentId, at: f.activity.at, icon: f.activity.icon, text: f.activity.text, place: f.roomName });
-    // A retenção é observada só para comprovar o teto de memória, além da saída do painel.
+    // Retention observed solely to verify memory bounds, beyond panel output.
     const retained = (p.view as unknown as { pending: FeedItem[] }).pending;
     expect(retained).toHaveLength(50);
     expect(retained.map((f) => f.id)).toEqual(fresh.slice(70).map((f) => f.id));
@@ -141,8 +141,8 @@ describe('FeedPanel pausado', () => {
     }
     const retainedIds = ['antigo', ...Array.from({ length: 50 }, (_, i) => `sessão-${i + 1}`)];
     expect([...meta.keys()]).toEqual(retainedIds);
-    // A saída do agente não apaga a aparência/conta de um evento que ainda está guardado; quem está no escritório
-    // fica mesmo sem evento (o render recriaria a cada quadro).
+    // Agent departure does not purge appearance/account of retained events; present agents
+    // persist without events (render would recreate every frame).
     p.snapshot.agents = [agent('sem-evento')];
     p.view.render();
     expect([...meta.keys()]).toEqual([...retainedIds, 'sem-evento']);

@@ -1,22 +1,22 @@
-// Mensagens pelo escritório: a fila do que a página manda aos agentes.
+// Office messaging: queue for messages sent from web app to agents.
 //
-// A página manda em POST /api/messages; o plugin habblaud-mensagens (mod/habblaud-mensagens, uma rodada a cada 2 s
-// em cada sessão aberta) busca as da própria sessão em POST /api/mod/inbox, entrega cada uma como se o usuário a
-// tivesse digitado e confirma em POST /api/mod/inbox/ack. O registro:
-// - marca a PRESENÇA de cada sessão que pergunta pela caixa de entrada (AgentInfo.canMessage, via Office);
-// - guarda as mensagens de cada agente na ordem e acompanha a situação delas (queued → sent → delivered/failed);
-// - falha as que ninguém buscou, as que a sessão não confirmou, as do agente que saiu e as de uma conversa que já
-//   trocou (/clear, /resume): cada mensagem vale só para a sessão em que foi mandada;
-// - põe a atividade "Mensagem pelo Habblaud" no agente quando a sessão confirma a entrega;
-// - simula a entrega para os agentes do demo (nada vai a uma sessão de verdade).
-// O texto vai à sessão exatamente como foi digitado (é do próprio usuário) e nunca sai nas respostas da página nem
-// no log; só a atividade do feed leva o começo dele, mascarado e cortado.
+// Web app sends via POST /api/messages; plugin habblaud-mensagens (mod/habblaud-mensagens, polling every 2 s
+// in each open session) fetches messages for its session via POST /api/mod/inbox, injects each as if typed by
+// user, and acknowledges via POST /api/mod/inbox/ack. The registry:
+// - tracks PRESENCE of each session polling inbox (AgentInfo.canMessage, via Office);
+// - stores messages per agent sequentially and monitors status (queued → sent → delivered/failed);
+// - fails messages unfetched within timeout, unacknowledged deliveries, exited agents, or conversations that
+//   reset (/clear, /resume): each message is strictly bound to the session it targeted;
+// - logs "Message via Habblaud" activity on agent upon delivery confirmation;
+// - simulates delivery for demo agents (no real session involved).
+// Raw message text is delivered exactly as entered by user and never exposed in web responses or server
+// logs; only the activity feed receives a masked and truncated snippet.
 //
-// Agentes do Codex não têm plugin: as mensagens deles vão pelo entregador do Codex (`codex queue`, messages/codex.ts),
-// nunca pela caixa de entrada. No modo Node o próprio servidor roda o comando (opção `codex.run`); no Docker, o
-// auxiliar do host (npm run codex:bridge) busca em POST /api/codex/bridge/poll e confirma em
-// POST /api/codex/bridge/ack. Mesmos estados, prazos e limites; canMessage = há entregador (o binário no modo Node ou
-// o auxiliar visto há até PRESENCE_MS). `delivered` = entrou na fila da sessão (entra quando ela ficar ociosa).
+// Codex agents lack plugins: messages are dispatched via Codex runner (`codex queue`, messages/codex.ts),
+// never through plugin inbox. In Node mode server runs command directly (`codex.run` option); in Docker, host
+// helper (npm run codex:bridge) polls POST /api/codex/bridge/poll and acks via POST /api/codex/bridge/ack.
+// Same states, timeouts, and limits; canMessage = runner available (binary in Node mode or helper seen within
+// PRESENCE_MS). `delivered` = successfully enqueued into session thread queue.
 import { randomBytes } from 'node:crypto';
 import { truncate } from '../../shared/activity';
 import { describeMessage, MESSAGE_MAX } from '../../shared/messages';
@@ -25,20 +25,20 @@ import { errMsg, log } from '../log';
 import type { CodexQueueResult, CodexQueueRunner } from './codex';
 import { tr } from '../../shared/i18n';
 
-/** Sessão que perguntou pela caixa de entrada há até este tempo: recebe mensagens (canMessage). */
+/** Session polling inbox within this window can receive messages (canMessage). */
 export const PRESENCE_MS = 10_000;
-/** Mensagem na fila que a sessão não buscou neste tempo: falha. */
+/** Queued message not fetched within this duration fails. */
 export const QUEUED_TIMEOUT_MS = 60_000;
-/** Mensagem buscada que a sessão não confirmou neste tempo: falha. */
+/** Fetched message unconfirmed within this duration fails. */
 export const SENT_TIMEOUT_MS = 30_000;
-/** Mensagem resolvida (entregue ou não) fica este tempo para GET /api/messages/:id e depois some. */
+/** Resolved message retained for this duration for GET /api/messages/:id before eviction. */
 export const KEEP_MS = 10 * 60_000;
-/** Entrega fictícia de uma mensagem a um agente do demo. */
+/** Simulated delivery duration for demo agent message. */
 export const DEMO_DELIVERY_MS = 1_000;
 export const MAX_TEXT = MESSAGE_MAX;
-/** Mensagens ainda não resolvidas por agente (a próxima recebe 429). */
+/** Maximum unresolved messages per agent (subsequent request receives 429). */
 export const MAX_OPEN = 5;
-/** Mensagens entregues ao plugin por rodada. */
+/** Maximum messages delivered to plugin per poll round. */
 export const INBOX_BATCH = 5;
 
 export const ERR_NOT_FETCHED = tr('a sessão não buscou a mensagem: o plugin habblaud-mensagens está instalado e a sessão aberta?');
@@ -58,7 +58,7 @@ const ERROR_MAX = 300;
 const ID_MAX = 300;
 const ACK_MAX = 50;
 
-/** O que o registro usa do Office (interface mínima: facilita os testes). */
+/** Minimal Office interface used by registry (simplifies unit testing). */
 export interface OfficeLike {
   get(id: string): AgentInfo | undefined;
   list(): AgentInfo[];
@@ -66,24 +66,24 @@ export interface OfficeLike {
   addActivity(id: string, activity: Activity, current: boolean): void;
 }
 
-/** Entregador do Codex (`codex queue`). */
+/** Codex queue dispatcher (`codex queue`). */
 export interface CodexDeliveryOptions {
-  /** Modo Node: roda `codex queue` daqui (ausente no Docker ou sem o binário: só o auxiliar do host entrega). */
+  /** Node mode: runs `codex queue` directly (missing in Docker or without binary: host helper dispatches). */
   run?: CodexQueueRunner;
-  /** Pasta CODEX_HOME (caminho do host: AccountInfo.configDir) de uma conta do Codex. */
+  /** CODEX_HOME directory (host path: AccountInfo.configDir) of a Codex account. */
   homeOf: (account: string) => string | undefined;
 }
 
 export interface MessageRegistryOptions {
   office: OfficeLike;
-  /** Agente do demo (Office.demoAgent): esses só existem no snapshot. */
+  /** Demo agent lookup (Office.demoAgent): exist exclusively in snapshot. */
   demoAgent?: (id: string) => AgentInfo | undefined;
-  /** Entrega fictícia a um agente do demo (Office.deliverDemoMessage); false = ele já saiu. */
+  /** Synthetic delivery to demo agent (Office.deliverDemoMessage); false = agent departed. */
   demoDeliver?: (agentId: string, text: string) => boolean;
-  /** Mensagens aos agentes do Codex; ausente = eles não recebem. */
+  /** Messaging for Codex agents; missing = feature disabled for Codex agents. */
   codex?: CodexDeliveryOptions;
   now?: () => number;
-  /** Intervalo do relógio interno (start). */
+  /** Internal tick interval (start). */
   tickMs?: number;
   presenceMs?: number;
   queuedTimeoutMs?: number;
@@ -94,37 +94,37 @@ export interface MessageRegistryOptions {
 
 export type SendResult = { message: OutboxMessage } | { error: 'not-found' | 'too-many' } | { error: 'unavailable'; reason: string };
 
-/** Mensagem entregue ao auxiliar do Codex no host (POST /api/codex/bridge/poll): ele roda `codex queue` com ela. */
+/** Message delivered to host Codex helper (POST /api/codex/bridge/poll): runs `codex queue` with it. */
 export interface CodexBridgeMessage {
   id: string;
   account: string;
-  /** CODEX_HOME da conta, no host. */
+  /** Account CODEX_HOME on host machine. */
   codexHome: string;
   thread: string;
-  /** O texto como foi digitado. */
+  /** Text exactly as entered by user. */
   text: string;
 }
 
-/** Erro de validação do corpo (vira 400). */
+/** Body validation error (translates to 400 response). */
 export class InvalidRequest extends Error {}
 
 interface Entry {
   msg: OutboxMessage;
-  /** O texto como foi digitado; esvazia quando a mensagem se resolve. */
+  /** Text as entered; cleared once message resolves. */
   text: string;
-  /** Atividade do feed quando a entrega se confirma (o começo do texto, mascarado e cortado). */
+  /** Feed activity upon delivery confirmation (masked and truncated text prefix). */
   activity: ReturnType<typeof describeMessage>;
-  /** Sessão do agente quando a mensagem foi mandada: só ela recebe (troca de conversa = falha). */
+  /** Agent session when message was submitted: strictly targeted (session switch = failure). */
   target: string;
-  /** Sessão que buscou a mensagem (sent): só ela confirma a entrega. */
+  /** Session that fetched message (sent): strictly authorized to confirm delivery. */
   session?: string;
   sentAt?: number;
-  /** Mensagem a um agente do demo: nunca sai pela caixa de entrada. */
+  /** Demo agent message: never fetched via real inbox. */
   demo?: boolean;
-  /** Mensagem a um agente do Codex: sai pelo entregador do Codex ('node' = o servidor rodou; 'bridge' = o auxiliar). */
+  /** Codex agent message: dispatched via Codex runner ('node' = direct; 'bridge' = host helper). */
   codex?: true;
   via?: 'node' | 'bridge';
-  /** Falhou por falta de confirmação: uma confirmação atrasada ainda corrige a situação. */
+  /** Failed due to missing confirmation: late ack still reconciles state. */
   late?: boolean;
 }
 
@@ -138,7 +138,7 @@ function shortStr(v: unknown, max: number): string | undefined {
   return typeof v === 'string' && v.trim() && v.length <= max ? v.trim() : undefined;
 }
 
-/** Agente que ainda está no escritório (não saiu nem concluiu). */
+/** Active agent in office (neither offline nor completed). */
 function present(a: AgentInfo | undefined): a is AgentInfo {
   return !!a && a.status !== 'offline' && a.status !== 'done';
 }
@@ -146,8 +146,8 @@ function present(a: AgentInfo | undefined): a is AgentInfo {
 const isFinal = (e: Entry) => e.msg.status === 'delivered' || e.msg.status === 'failed';
 
 /**
- * Por que o agente não recebe mensagens agora (undefined = recebe). `reachable`: a sessão tem o plugin conectado (ou,
- * no Codex, há entregador).
+ * Why agent cannot receive messages now (undefined = eligible). `reachable`: session has connected plugin (or,
+ * for Codex, runner is available).
  */
 function unavailableReason(a: AgentInfo, reachable: boolean): string | undefined {
   if (a.kind !== 'main') return tr('subagentes não recebem mensagens: mande para o agente principal');
@@ -156,7 +156,7 @@ function unavailableReason(a: AgentInfo, reachable: boolean): string | undefined
   return undefined;
 }
 
-/** Corpo de POST /api/messages: `{agentId, text}`. O texto não é alterado (nem aparado). */
+/** Body of POST /api/messages: `{agentId, text}`. Text is not modified or trimmed. */
 export function parseSend(raw: unknown): { agentId: string; text: string } {
   const r = rec(raw);
   const agentId = shortStr(r?.agentId, ID_MAX);
@@ -166,7 +166,7 @@ export function parseSend(raw: unknown): { agentId: string; text: string } {
   return { agentId, text: r.text };
 }
 
-/** Resultados de uma confirmação ({results: [{id, ok, error?}]}): os válidos, até ACK_MAX. */
+/** Confirmation results ({results: [{id, ok, error?}]}): valid entries up to ACK_MAX. */
 function ackResults(raw: unknown): Array<{ id: string; ok: boolean; error?: string }> {
   const r = rec(raw);
   if (!r || !Array.isArray(r.results)) return [];
@@ -182,9 +182,9 @@ function ackResults(raw: unknown): Array<{ id: string; ok: boolean; error?: stri
 
 export class MessageRegistry {
   private messages = new Map<string, Entry>();
-  /** Última vez que a sessão de cada agente principal perguntou pela caixa de entrada. */
+  /** Timestamp of latest inbox poll for each primary agent session. */
   private seen = new Map<string, number>();
-  /** Última vez que o auxiliar do Codex no host buscou mensagens. */
+  /** Last timestamp host Codex helper polled messages. */
   private bridgeAt?: number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private seq = 0;
@@ -221,14 +221,14 @@ export class MessageRegistry {
     this.timer = null;
   }
 
-  /** Mensagens guardadas (inclusive as já resolvidas, até sumirem). */
+  /** Stored messages (including resolved messages, until cleanup). */
   get size(): number {
     return this.messages.size;
   }
 
   /**
-   * Agentes principais presentes que recebem mensagens agora: os do Claude Code cuja sessão perguntou pela caixa de
-   * entrada há pouco e os do Codex, se há entregador. É o que o Office põe no snapshot.
+   * Active primary agents eligible to receive messages: Claude Code agents whose session recently
+   * polled inbox, and Codex agents if runner is available. Populates Office snapshot.
    */
   reachable(): Set<string> {
     const out = new Set<string>();
@@ -245,16 +245,16 @@ export class MessageRegistry {
     return present(a) && a.kind === 'main';
   }
 
-  /** Há como entregar ao Codex: o binário no modo Node ou o auxiliar do host visto há pouco. */
+  /** Whether delivery to Codex is available: direct binary in Node mode or active host helper. */
   codexAvailable(): boolean {
     const c = this.opts.codex;
     return !!c && (!!c.run || this.bridgeRecent());
   }
 
   /**
-   * Mensagem vinda da página. `{error}`: agente desconhecido (not-found), que não recebe mensagens (unavailable, com
-   * o motivo: subagente, saiu/concluiu, sessão sem o plugin ou Codex sem entregador) ou com mensagens demais esperando
-   * (too-many). Corpo inválido: lança InvalidRequest.
+   * Message received from web app. `{error}`: unknown agent (not-found), ineligible agent (unavailable, with
+   * reason: subagent, departed/completed, session without plugin, or Codex without runner), or queue limit
+   * reached (too-many). Invalid body throws InvalidRequest.
    */
   send(raw: unknown): SendResult {
     const { agentId, text } = parseSend(raw);
@@ -279,22 +279,22 @@ export class MessageRegistry {
     return { message: out };
   }
 
-  /** Situação de uma mensagem (sem o texto), ou undefined. */
+  /** Message status (excluding text), or undefined. */
   get(id: string): OutboxMessage | undefined {
     const e = this.messages.get(id);
     return e ? { ...e.msg } : undefined;
   }
 
   /**
-   * Rodada do plugin: marca a presença da sessão e entrega as próximas mensagens do agente dela (marcando-as
-   * `sent`). Sessão sem agente principal conhecido: nenhuma mensagem. Corpo inválido: lança InvalidRequest.
+   * Plugin poll round: marks session presence and delivers pending messages for its agent (marking them
+   * `sent`). Session without known primary agent: no messages. Malformed body: throws InvalidRequest.
    */
   inbox(raw: unknown): InboxMessage[] {
     const r = rec(raw);
     const session = shortStr(r?.session, ID_MAX);
     if (!r || !session) throw new InvalidRequest('esperado {session, account?}');
     const account = shortStr(r.account, ID_MAX);
-    // O plugin é do Claude Code: agentes do Codex nunca recebem por aqui.
+    // Plugin belongs to Claude Code: Codex agents never receive through this channel.
     const agent = this.opts.office
       .list()
       .find((a) => a.kind === 'main' && a.provider !== 'codex' && a.sessionId === session && (!account || a.account === account) && present(a));
@@ -303,7 +303,7 @@ export class MessageRegistry {
     const now = this.now();
     const was = this.canMessage(agent.id);
     this.seen.set(agent.id, now);
-    // Só a mudança de presença mexe no snapshot (a rodada se repete a cada 2 s).
+    // Only presence change touches snapshot (round repeats every 2s).
     if (!was) this.opts.office.markDirty();
 
     const out: InboxMessage[] = [];
@@ -319,9 +319,9 @@ export class MessageRegistry {
   }
 
   /**
-   * Confirmação do plugin: `sent` → `delivered` (ok) ou `failed` (com o motivo). Só vale da sessão que buscou a
-   * mensagem; ids desconhecidos ou em outra situação são ignorados. Uma confirmação atrasada (a mensagem já tinha
-   * falhado por falta dela) ainda corrige a situação: o plugin é quem sabe se o texto entrou.
+   * Plugin confirmation: `sent` → `delivered` (ok) or `failed` (with error reason). Strictly valid from
+   * session that fetched message; unknown or mismatched IDs ignored. Late confirmation (after timeout failure)
+   * still reconciles state: plugin authoritatively knows whether text was injected.
    */
   ack(raw: unknown): void {
     const r = rec(raw);
@@ -338,9 +338,9 @@ export class MessageRegistry {
   }
 
   /**
-   * Rodada do auxiliar do Codex no host: marca a presença dele e entrega as próximas mensagens aos agentes do Codex
-   * (marcando-as `sent`), na ordem de cada agente (nenhuma de um agente que ainda tem outra em entrega). No modo Node
-   * quem entrega é o servidor: nada sai por aqui (sem entrega dobrada).
+   * Host Codex helper round: marks its presence and delivers pending messages to Codex agents
+   * (marking them `sent`), in per-agent sequence (no messages to an agent with in-flight delivery). In Node mode
+   * server delivers directly: nothing dispatched here (avoids duplicate delivery).
    */
   codexPoll(raw: unknown): CodexBridgeMessage[] {
     if (!rec(raw)) throw new InvalidRequest(tr('esperado um objeto JSON ({})'));
@@ -370,8 +370,8 @@ export class MessageRegistry {
   }
 
   /**
-   * Confirmação do auxiliar do Codex: `sent` → `delivered` (o `codex queue` aceitou) ou `failed` (com o motivo). Só
-   * vale para as mensagens que ele buscou; a atrasada ainda corrige a situação, como no plugin. Corpo inválido: lança.
+   * Codex helper confirmation: `sent` → `delivered` (`codex queue` accepted) or `failed` (with reason). Strictly
+   * valid for messages fetched by helper; late ack reconciles state like plugin. Invalid body throws.
    */
   codexAck(raw: unknown): void {
     const r = rec(raw);
@@ -387,7 +387,7 @@ export class MessageRegistry {
     }
   }
 
-  /** Relógio: prazos, agente que saiu, entrega fictícia do demo, presença que venceu e limpeza das resolvidas. */
+  /** Clock: deadlines, departed agent, mock demo delivery, expired presence, and resolved cleanup. */
   tick(): void {
     const now = this.now();
     for (const [id, e] of this.messages) {
@@ -413,7 +413,7 @@ export class MessageRegistry {
         e.late = true;
       }
     }
-    // Presença que venceu (ou de quem saiu): o snapshot volta a dizer que não dá para mandar mensagem.
+    // Expired presence (or departed agent): snapshot updates to indicate messaging unavailable.
     for (const [agentId, at] of this.seen) {
       if (now - at < this.presenceMs && present(this.opts.office.get(agentId))) continue;
       this.seen.delete(agentId);
@@ -421,7 +421,7 @@ export class MessageRegistry {
     }
     if (this.bridgeAt !== undefined && now - this.bridgeAt >= this.presenceMs) {
       this.bridgeAt = undefined;
-      // Sem o binário no modo Node, os agentes do Codex deixam de receber.
+      // Without binary in Node mode, Codex agents cease receiving.
       if (!this.opts.codex?.run) this.opts.office.markDirty();
     }
     this.pumpCodex();
@@ -433,7 +433,7 @@ export class MessageRegistry {
     return this.bridgeAt !== undefined && this.now() - this.bridgeAt < this.presenceMs;
   }
 
-  /** Thread e pasta da conta de uma mensagem ao Codex; sem elas, a mensagem falha (e devolve undefined). */
+  /** Thread and account directory for Codex message; without them, message fails (returns undefined). */
   private codexTarget(e: Entry, now: number): { account: string; codexHome: string; thread: string } | undefined {
     const a = this.opts.office.get(e.msg.agentId);
     if (!present(a)) return void this.fail(e, now, ERR_GONE);
@@ -444,8 +444,8 @@ export class MessageRegistry {
   }
 
   /**
-   * Modo Node: roda `codex queue` para a próxima mensagem de cada agente do Codex (uma por vez por agente, na ordem;
-   * a seguinte sai quando a anterior termina).
+   * Node mode: runs `codex queue` for next message per Codex agent (one concurrent message per agent in order;
+   * next dispatches after previous finishes).
    */
   private pumpCodex(): void {
     const run = this.opts.codex?.run;
@@ -468,7 +468,7 @@ export class MessageRegistry {
     }
   }
 
-  /** Fim de um `codex queue` rodado daqui. */
+  /** Completion of `codex queue` run by this server. */
   private codexDone(e: Entry, r: CodexQueueResult): void {
     if (this.messages.get(e.msg.id) !== e) return;
     if (e.msg.status !== 'sent' && !(e.msg.status === 'failed' && e.late)) return;
@@ -483,13 +483,13 @@ export class MessageRegistry {
     e.msg.updatedAt = now;
   }
 
-  /** Resolve a mensagem: o texto não é mais necessário. */
+  /** Resolves message: text is no longer needed. */
   private finish(e: Entry, status: 'delivered' | 'failed', now: number): void {
     this.setStatus(e, status, now);
     delete e.late;
     if (status === 'delivered') {
       delete e.msg.error;
-      // A do demo vai para o agente fictício (Office.deliverDemoMessage).
+      // Demo message dispatches to synthetic agent (Office.deliverDemoMessage).
       if (!e.demo) this.opts.office.addActivity(e.msg.agentId, { id: `${e.msg.agentId}#msg:${e.msg.id}`, at: now, ...e.activity }, false);
     }
     e.text = '';

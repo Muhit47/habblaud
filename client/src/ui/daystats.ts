@@ -1,9 +1,9 @@
-// "Meu dia": janela com para onde foi o dia — o tempo dos agentes por status, com destaque para o tempo
-// esperando você (o gargalo humano), por projeto, por hora e por conta, as maiores esperas, tokens e custo.
-// Dados de GET /api/stats (no ?mock=1, do mesmo acumulador de shared/daystats.ts rodando no navegador sobre o
-// simulador). Gráficos em DOM puro: barras finas empilhadas, dica no hover e no foco, tabela equivalente em cada
-// cartão e legenda que liga e desliga cada status. Aberto no dia de hoje, atualiza a cada 30 s.
-// O modelo (destaques, escalas, rótulos) é puro e testado em ui/daystats-model.test.ts.
+// "My Day": dialog showing where time went — agent time by status, highlighting time
+// waiting for you (the human bottleneck), by project, by hour, and by account, longest waits, tokens, and cost.
+// Data from GET /api/stats (in ?mock=1, from same accumulator in shared/daystats.ts running in-browser over
+// simulator). Pure DOM charts: thin stacked bars, hover and focus tooltips, accessible table view on each
+// card, and legend toggling each status on/off. When viewing today, refreshes every 30s.
+// The model (highlights, scales, labels) is pure and tested in ui/daystats-model.test.ts.
 import {
   dayKeyOf,
   daysFromHours,
@@ -52,7 +52,7 @@ const NOTE =
   tr('“Esperando você” é o tempo de mão levantada no escritório (permissão, pergunta ou escolha). ') +
   tr('O Habblaud só conta o que acontece enquanto ele está rodando.');
 
-/** De onde vêm os números: o servidor ou, no ?mock=1, o acumulador local. */
+/** Where metrics originate: the server or, in ?mock=1, the local accumulator. */
 interface DaySource {
   days(tz: string): Promise<StatsDaysResponse>;
   day(day: string, tz: string, source?: StatsSource): Promise<DayStatsResponse>;
@@ -71,8 +71,8 @@ const httpSource: DaySource = {
 };
 
 /**
- * ?mock=1: o mesmo rastreador do servidor sobre os snapshots do simulador, com o histórico fictício do demo.
- * Começa a contar quando a página abre (não quando o painel abre).
+ * ?mock=1: same server-side tracker running over simulator snapshots, with fake demo history.
+ * Starts tracking on page load (not when dialog opens).
  */
 class LocalSource implements DaySource {
   private readonly tz = systemTimeZone();
@@ -122,7 +122,7 @@ export class DayPanel implements UiComponent {
   private days: StatsDaysResponse | null = null;
   private data: DayStatsResponse | null = null;
   private day: string | null = null;
-  /** Fonte escolhida pelo usuário (sem escolha: o servidor decide; com o demo ligado, o demo). */
+  /** Source preference selected by user (default: server decides; demo enabled defaults to demo). */
   private sourcePref: StatsSource | undefined;
   private visible = new Set<TimedStatus>(ALL_VISIBLE);
   private tables = new Set<TableKey>();
@@ -144,7 +144,7 @@ export class DayPanel implements UiComponent {
   private content: HTMLElement;
   private tip: HTMLElement;
 
-  /** `button` = o botão "Meu dia" da barra superior (ui/daystats-launcher.ts), que reflete se a janela está aberta. */
+  /** `button` = "My Day" button on topbar (ui/daystats-launcher.ts), reflecting open state. */
   constructor(
     private ctx: UiContext,
     private button: HTMLElement,
@@ -160,7 +160,7 @@ export class DayPanel implements UiComponent {
 
     this.statusText = h('span', {});
     this.retry = h('button', { class: 'ui-link-btn', type: 'button', text: tr('Tentar de novo'), hidden: true, on: { click: () => void this.load(true) } });
-    // Sem aria-live: "atualizado às…" mudaria a cada 30 s; erros são anunciados à parte.
+    // No aria-live: "updated at..." would change every 30s; errors are announced separately.
     this.status = h('p', { class: 'ui-day__status' }, this.statusText, this.retry);
     this.content = h('div', { class: 'ui-day__content' });
     this.tip = h('div', { class: 'ui-day__tip', role: 'tooltip', hidden: true, attrs: { 'aria-hidden': 'true' } });
@@ -178,7 +178,7 @@ export class DayPanel implements UiComponent {
       h('div', { class: 'ui-day__body' }, this.status, this.content, h('p', { class: 'ui-day__note', text: NOTE })),
       this.tip,
     );
-    // Clique no fundo fecha; o teclado fica dentro da janela (os atalhos do escritório não disparam por baixo).
+    // Clicking backdrop closes; keyboard focus stays inside dialog (office shortcuts don't fire underneath).
     this.el.addEventListener('click', (e) => {
       if (e.target === this.el) this.close();
     });
@@ -194,7 +194,7 @@ export class DayPanel implements UiComponent {
   open(): void {
     if (this.el.open) return;
     this.opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // Sempre abre no dia de hoje (a página pode ter ficado aberta de um dia para o outro).
+    // Always open on today (the page may have stayed open overnight).
     this.day = null;
     this.el.showModal();
     this.button.setAttribute('aria-expanded', 'true');
@@ -210,7 +210,7 @@ export class DayPanel implements UiComponent {
     else this.open();
   }
 
-  /** O demo foi ligado ou desligado com a janela aberta: recarrega (a fonte padrão muda). */
+  /** Demo was turned on or off with the dialog open: reload (default source changes). */
   render(): void {
     const demo = this.ctx.store.snapshot?.meta.demo;
     if (demo === this.demoSeen) return;
@@ -230,7 +230,7 @@ export class DayPanel implements UiComponent {
 
   private pickDay(day: string): void {
     this.day = day;
-    // Trocar de dia não troca de fonte: quem olha o demo continua no demo.
+    // Switching days does not switch source: viewing demo stays in demo.
     this.sourcePref ??= this.data?.source;
     void this.load(false);
   }
@@ -243,7 +243,7 @@ export class DayPanel implements UiComponent {
     void this.load(false);
   }
 
-  // ---------------------------------------------------------------- dados
+  // ---------------------------------------------------------------- data
 
   private async load(withDays: boolean): Promise<void> {
     const seq = ++this.seq;
@@ -255,7 +255,7 @@ export class DayPanel implements UiComponent {
         const days = await this.source.days(this.tz);
         if (seq !== this.seq) return;
         this.days = days;
-        // O demo desligou: volta para o padrão.
+        // Demo turned off: fall back to default.
         if (this.sourcePref === 'demo' && !days.demoAvailable) this.sourcePref = undefined;
       }
       const day = this.day ?? this.days.today;
@@ -269,7 +269,7 @@ export class DayPanel implements UiComponent {
       if (seq !== this.seq) return;
       this.error = err instanceof Error ? err.message : String(err);
       this.ctx.announce(tr('Não foi possível carregar as estatísticas do dia.'));
-      // O seletor volta para o dia que está na tela.
+      // The selector returns to the day shown on screen.
       if (this.data) {
         this.day = this.data.stats.day;
         this.renderControls(this.data);
@@ -290,7 +290,7 @@ export class DayPanel implements UiComponent {
     this.timer = null;
   }
 
-  // ---------------------------------------------------------------- montagem
+  // ---------------------------------------------------------------- mounting
 
   private renderStatus(): void {
     this.el.classList.toggle('is-loading', this.loading && !!this.data);
@@ -307,7 +307,7 @@ export class DayPanel implements UiComponent {
     const res = this.data;
     if (!res) return;
     this.renderControls(res);
-    // Refazer o conteúdo não pode tirar o foco de quem navega pelo teclado.
+    // Rebuilding content must not steal focus from keyboard navigation.
     const focusKey = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-focus-key]')?.dataset.focusKey;
     this.hideTip();
     this.content.replaceChildren(...this.sections(res));
@@ -352,7 +352,7 @@ export class DayPanel implements UiComponent {
     return out;
   }
 
-  // Destaques: o tempo esperando você em evidência, com a maior espera; os demais em blocos menores.
+  // Highlights: time waiting for you prominently displayed, with longest wait; others in smaller blocks.
   private kpis(hl: ReturnType<typeof highlights>): HTMLElement {
     const swatch = h('span', { class: 'ui-day__swatch is-waiting', attrs: { 'aria-hidden': 'true' } });
     const hero = h(
@@ -384,7 +384,7 @@ export class DayPanel implements UiComponent {
     );
   }
 
-  // Legenda única dos gráficos de status: cada item liga/desliga o status em todos eles (as escalas se refazem).
+  // Single legend for status charts: each item toggles status on/off across all of them (scales recalculate).
   private legend(): HTMLElement {
     const items = TIMED_STATUSES.map((s) => {
       const on = this.visible.has(s);
@@ -406,7 +406,7 @@ export class DayPanel implements UiComponent {
 
   private toggleStatus(s: TimedStatus): void {
     if (this.visible.has(s)) {
-      if (this.visible.size === 1) return; // sempre sobra pelo menos um
+      if (this.visible.size === 1) return; // always keep at least one
       this.visible.delete(s);
     } else this.visible.add(s);
     this.renderAll();
@@ -453,7 +453,7 @@ export class DayPanel implements UiComponent {
     );
   }
 
-  // ---------------------------------------------------------------- por hora
+  // ---------------------------------------------------------------- by hour
 
   private hoursCard(res: DayStatsResponse): HTMLElement {
     const narrow = this.ctx.isNarrow();
@@ -502,12 +502,12 @@ export class DayPanel implements UiComponent {
             ...TIMED_STATUSES.filter((s) => this.visible.has(s) && col.ms[s] > 0).map((s) => ({ status: s, label: STATUS_TEXT[s], value: formatAgentTime(col.ms[s]) })),
             { label: 'Total', value: formatAgentTime(col.total) },
           ];
-    // A dica sai do topo da coluna pintada (não do topo do gráfico).
+    // Tooltip emerges from top of filled column (not top of chart).
     this.bindTip(el, () => `${col.range}${col.now ? tr(' · agora') : col.future ? tr(' · ainda não chegou') : ''}`, rows, () => stack.lastElementChild ?? stack);
     return el;
   }
 
-  /** Setas, Home e End entre as colunas (só uma fica no Tab). */
+  /** Arrow keys, Home and End between columns (only one in Tab order). */
   private moveFocus(e: KeyboardEvent, list: HTMLElement): void {
     const items = [...list.children] as HTMLElement[];
     const i = items.indexOf(document.activeElement as HTMLElement);
@@ -520,7 +520,7 @@ export class DayPanel implements UiComponent {
     target.focus();
   }
 
-  // ---------------------------------------------------------------- por projeto
+  // ---------------------------------------------------------------- by project
 
   private roomsCard(rows: RoomRow[]): HTMLElement {
     const c = this.card('rooms', tr('Por projeto'), tr('Ordenado pelo tempo esperando você'), 'rooms');
@@ -562,7 +562,7 @@ export class DayPanel implements UiComponent {
     return c.el;
   }
 
-  // ---------------------------------------------------------------- maiores esperas
+  // ---------------------------------------------------------------- longest waits
 
   private waitsCard(rows: ReturnType<typeof waitRows>, res: DayStatsResponse): HTMLElement {
     const c = this.card('waits', tr('Maiores esperas'), tr('Quanto tempo cada agente ficou de mão levantada esperando você'));
@@ -607,7 +607,7 @@ export class DayPanel implements UiComponent {
     return c.el;
   }
 
-  // ---------------------------------------------------------------- por conta
+  // ---------------------------------------------------------------- by account
 
   private accountsCard(res: DayStatsResponse): HTMLElement {
     const cards = accountCards(res.stats.accounts, (id) => this.isCodexAccount(id));
@@ -638,7 +638,7 @@ export class DayPanel implements UiComponent {
           ...stat(tr('Trabalhando'), a.working),
           ...stat(tr('Esperando você'), a.waiting),
           ...stat('Tokens', a.tokens),
-          // Codex: não grava custo, só tokens.
+          // Codex: does not track cost, only tokens.
           ...(a.cost !== null ? stat(tr('Custo'), a.cost) : [h('dt', { text: tr('Custo') }), h('dd', { text: tr('só tokens'), title: tr('O Codex não grava custo, só tokens') })]),
         ),
       );
@@ -649,12 +649,12 @@ export class DayPanel implements UiComponent {
     return c.el;
   }
 
-  /** Conta do Codex: a do snapshot diz; uma conta que já saiu, o jeito do id (".codex"). */
+  /** Codex account: snapshot indicates it; an account that left, detected by id pattern (".codex"). */
   private isCodexAccount(id: string): boolean {
     return accountProvider(this.ctx.account(id), id) === 'codex';
   }
 
-  // ---------------------------------------------------------------- dica (hover e foco)
+  // ---------------------------------------------------------------- tooltip (hover and focus)
 
   private bindTip(el: HTMLElement, title: () => string, rows: () => TipRow[], anchor: () => Element = () => el): void {
     const show = (hl?: TimedStatus) => this.showTip(anchor(), title(), rows(), hl);

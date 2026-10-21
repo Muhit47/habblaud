@@ -1,10 +1,10 @@
-// Histórico do terminal (rotas /api/sessions/*):
-//   GET /api/sessions/recent                       -> RecentSessionsResponse (sessões dos últimos 7 dias)
-//   GET /api/sessions/:conta/:sessionId/terminal   -> SSE com o mesmo protocolo do terminal do agente
-// Mesma trava do terminal (ServerConfig.terminal + Host local), porque expõem títulos e conversas. A conta
-// precisa ser uma das conhecidas, o id precisa ter formato de UUID e o transcript precisa ficar dentro da
-// pasta da conta (cada ferramenta valida o seu: sources/history.ts para o Claude Code): nada de path traversal.
-// Quem lista e resolve é o HistorySet (sources/source.ts), que junta o histórico de todas as ferramentas.
+// Terminal history routes (/api/sessions/*):
+//   GET /api/sessions/recent                       -> RecentSessionsResponse (sessions from last 7 days)
+//   GET /api/sessions/:account/:sessionId/terminal -> SSE with same protocol as agent terminal
+// Same lock as terminal (ServerConfig.terminal + local Host), because they expose titles and conversations.
+// Account must be known, id must match UUID format, and transcript must reside within account directory
+// (validated per tool: sources/history.ts for Claude Code): prevents path traversal.
+// Listed and resolved by HistorySet (sources/source.ts), aggregating history across all tools.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RecentSessionsResponse } from '../../shared/types';
 import { errMsg, log } from '../log';
@@ -16,19 +16,19 @@ import type { TerminalStreams } from './terminal';
 import { tr } from '../../shared/i18n';
 
 export interface SessionRoutesDeps {
-  /** Ausente = recurso desligado (sem bind local). */
+  /** Missing = feature disabled (no local bind). */
   history?: SessionLookup;
-  /** Ausente = terminal desligado. */
+  /** Missing = terminal disabled. */
   terminals?: TerminalStreams;
-  /** Porta remota (http/remote.ts): a decisão já tomada pela API; ausente = trava do Host local, como antes. */
+  /** Remote port (http/remote.ts): decision already evaluated by API; missing = local Host lock. */
   trusted?: boolean;
 }
 
 const RECENT_ROUTE = '/api/sessions/recent';
-/** GET /api/sessions/:conta/:sessionId/terminal (segmentos sem '/'; um %2F só aparece depois de decodificar). */
+/** GET /api/sessions/:account/:sessionId/terminal (segments without '/'; %2F only after decoding). */
 const TERMINAL_ROUTE = /^\/api\/sessions\/([^/]+)\/([^/]+)\/terminal$/;
 
-/** Por que a trava recusa a requisição (undefined = liberada): os mesmos textos do terminal do agente. */
+/** Why lock rejects request (undefined = allowed): same messages as agent terminal. */
 export function sessionsLockError(enabled: boolean, host: string | undefined, trusted?: boolean): string | undefined {
   if (!enabled) return tr('terminal desligado: ele só funciona com o Habblaud acessível apenas pelo próprio computador');
   if (trusted === false) return tr('não liberado no acesso remoto (veja HABBLAUD_REMOTE_ALLOW)');
@@ -44,7 +44,7 @@ function decode(segment: string): string | undefined {
   }
 }
 
-/** Atende /api/sessions/* (a rota já foi reconhecida pelo prefixo em http/app.ts). */
+/** Handles /api/sessions/* (route already recognized by prefix in http/app.ts). */
 export function handleSessionsRoute(req: IncomingMessage, res: ServerResponse, path: string, deps: SessionRoutesDeps): void {
   const method = req.method ?? 'GET';
   const terminalMatch = TERMINAL_ROUTE.exec(path);

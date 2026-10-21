@@ -1,7 +1,7 @@
-// Timelapse no navegador: busca a linha do tempo gravada pelo servidor (GET /api/timeline/*) e
-// reconstrói o escritório num instante qualquer do dia (formato em shared/timeline.ts). A reconstrução
-// parte do keyframe anterior e aplica os deltas até o instante; andando para a frente, só aplica o que
-// falta. Também resume o dia (agentes presentes e trabalhando por minuto) para o gráfico e os picos.
+// In-browser timelapse: fetches server recorded timeline (GET /api/timeline/*) and
+// reconstructs office at any timestamp of day (schema in shared/timeline.ts). Reconstruction
+// starts from preceding keyframe and applies deltas up to target; seeking forward applies delta
+// only. Also summarizes day (active and working agents per minute) for graph and peak metrics.
 import type { Activity, OfficeSnapshot } from '../../../shared/types';
 import {
   applyChanges,
@@ -23,13 +23,13 @@ export interface TimelineDayInfo {
   /** AAAA-MM-DD. */
   day: string;
   bytes: number;
-  /** Primeiro e último registro do dia (epoch ms). */
+  /** First and last record of day (epoch ms). */
   from: number;
   to: number;
 }
 
 export interface TimelineDays {
-  /** O servidor está gravando (HABBLAUD_TIMELINE não desligou). */
+  /** Server is recording (HABBLAUD_TIMELINE not disabled). */
   recording: boolean;
   days: TimelineDayInfo[];
 }
@@ -49,7 +49,7 @@ export async function fetchTimelineDay(day: string, signal?: AbortSignal): Promi
   return parseTimeline(await res.text());
 }
 
-/** Um minuto da linha do tempo: o máximo de agentes presentes, trabalhando e esperando você. */
+/** One minute of timeline: peak concurrent present, working, and awaiting agents. */
 export interface TimelineBucket {
   at: number;
   present: number;
@@ -64,16 +64,16 @@ export interface TimelinePeak {
 }
 
 export const BUCKET_MS = 60_000;
-/** Atividades recentes de cada agente no snapshot reconstruído (como o SNAPSHOT_RECENT do servidor). */
+/** Recent activities of each agent in reconstructed snapshot (matching server SNAPSHOT_RECENT). */
 const RECENT = 8;
-/** Folga sobre ~1,5 intervalo de keyframe sem nenhum registro: daí em diante, "sem dados". */
+/** Margin over ~1.5 keyframe intervals without records: beyond this, "no data". */
 const GAP_SLACK_MS = 60_000;
 const PEAKS = 4;
-/** Distância mínima entre dois picos: 1/8 do período gravado, entre 10 min e 1 h. */
+/** Minimum spacing between peaks: 1/8 of recorded window, between 10 min and 1 h. */
 const peakSpacing = (span: number) => Math.min(60 * 60_000, Math.max(10 * 60_000, span / 8));
 
 export interface ReplayView {
-  /** Mostrar os agentes do modo demonstração. */
+  /** Display demo agents. */
   includeDemo: boolean;
 }
 
@@ -84,10 +84,10 @@ export class TimelineReplay {
   readonly to: number;
   readonly hasDemo: boolean;
   readonly hasReal: boolean;
-  /** Índices dos keyframes em `records`. */
+  /** Keyframe indices in `records`. */
   private readonly keys: number[] = [];
   private frame: TimelineFrame = emptyFrame();
-  /** Último registro aplicado (-1 = antes do primeiro). */
+  /** Last applied record index (-1 = before first). */
   private cursor = -1;
   /** Intervalo de keyframes em vigor no ponto atual. */
   private every = 300_000;
@@ -120,7 +120,7 @@ export class TimelineReplay {
     return this.records.length === 0;
   }
 
-  /** Leva a reconstrução até o instante `t` (para trás ou longe: recomeça do keyframe anterior). */
+  /** Advances or rewinds reconstruction to timestamp `t` (rewind / distant: restarts from preceding keyframe). */
   moveTo(t: number): void {
     const target = this.indexAt(t);
     if (target === this.cursor) return;
@@ -132,7 +132,7 @@ export class TimelineReplay {
     }
     let start: number;
     if (target < this.cursor || this.cursor < 0) {
-      // Para trás (ou do zero): recomeça do keyframe anterior, sem atividades "do futuro" no recent.
+      // Backward seek (or from scratch): restart from previous keyframe, omitting "future" recent activities.
       start = this.keyAtOrBefore(target);
       this.recent.clear();
       if (start < 0) {
@@ -140,7 +140,7 @@ export class TimelineReplay {
         start = 0;
       }
     } else {
-      // Para a frente: se houver um keyframe no caminho, pula direto para ele.
+      // Forward seek: if keyframe lies en route, jump directly to it.
       start = this.cursor + 1;
       const k = this.keyAtOrBefore(target);
       if (k > this.cursor) start = k;
@@ -149,7 +149,7 @@ export class TimelineReplay {
     this.cursor = target;
   }
 
-  /** Sem dados em `t`: antes da gravação, servidor parado (fim marcado) ou silêncio longo demais. */
+  /** No data at `t`: before recording start, server stopped (stop marker), or excessive silence. */
   isOff(t: number): boolean {
     if (this.cursor < 0) return true;
     const last = this.records[this.cursor];
@@ -157,13 +157,13 @@ export class TimelineReplay {
     return t - last.at > this.every * 1.5 + GAP_SLACK_MS;
   }
 
-  /** O fim marcado mais recente foi pelo limite de tamanho do dia. */
+  /** Most recent stop marker resulted from daily size limit. */
   get limited(): boolean {
     const last = this.records[this.cursor];
     return last?.t === 'end' && last.reason === 'limit';
   }
 
-  /** Snapshot do instante `t` (chame moveTo(t) antes), como se viesse do servidor. */
+  /** Snapshot at timestamp `t` (invoke moveTo(t) prior), matching server representation. */
   snapshot(t: number, view: ReplayView): OfficeSnapshot {
     const off = this.isOff(t);
     const agents = off
@@ -182,13 +182,13 @@ export class TimelineReplay {
         sources: [],
         startedAt: this.createdAt,
         version: 'timelapse',
-        // Sem terminal no replay: a conversa é do presente, não do instante reproduzido.
+        // No terminal during replay: conversation reflects live session, not historic playback timestamp.
         terminal: false,
       },
     };
   }
 
-  /** Agentes presentes, trabalhando e esperando, minuto a minuto (para o gráfico da linha do tempo). */
+  /** Present, working, and awaiting agents minute-by-minute (for timeline chart). */
   buckets(view: ReplayView): TimelineBucket[] {
     const hit = this.bucketCache.get(view.includeDemo);
     if (hit) return hit;
@@ -203,7 +203,7 @@ export class TimelineReplay {
     let counts = { present: 0, working: 0, waiting: 0 };
     let lastAt = this.from;
     const fill = (fromAt: number, toAt: number, c: typeof counts) => {
-      // Do registro anterior até este, o estado não mudou (salvo silêncio longo = servidor parado).
+      // State held static between preceding record and current (except extended silence = server stopped).
       const until = ended ? fromAt : Math.min(toAt, fromAt + every * 1.5 + GAP_SLACK_MS);
       for (let i = Math.max(0, Math.floor((fromAt - base) / BUCKET_MS)); i < n && base + i * BUCKET_MS <= until; i++) {
         const b = out[i];
@@ -233,7 +233,7 @@ export class TimelineReplay {
     return out;
   }
 
-  /** Momentos de pico (mais agentes trabalhando ao mesmo tempo), espaçados, em ordem cronológica. */
+  /** Peak activity moments (most concurrent working agents), spaced, in chronological order. */
   peaks(view: ReplayView): TimelinePeak[] {
     const ranked = this.buckets(view)
       .filter((b) => b.working > 0)
@@ -269,7 +269,7 @@ export class TimelineReplay {
     }
   }
 
-  /** Acumula a atividade atual no `recent` do agente (sem repetir a última). */
+  /** Appends current activity to agent `recent` (deduplicating latest). */
   private remember(a: TimelineAgent): void {
     if (!a.activity) return;
     const act = toActivity(a.id, a.activity);
@@ -280,7 +280,7 @@ export class TimelineReplay {
     this.recent.set(a.id, list);
   }
 
-  /** Último registro com `at` <= t (-1 = antes do primeiro). Os registros estão em ordem de `at`. */
+  /** Last record with `at` <= t (-1 = before first). Records ordered by `at`. */
   private indexAt(t: number): number {
     let lo = 0;
     let hi = this.records.length - 1;
@@ -295,7 +295,7 @@ export class TimelineReplay {
     return ans;
   }
 
-  /** Índice do último keyframe em ou antes do registro `i` (-1 = nenhum). */
+  /** Index of latest keyframe at or before record `i` (-1 = none). */
   private keyAtOrBefore(i: number): number {
     let ans = -1;
     for (const k of this.keys) {

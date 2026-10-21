@@ -1,9 +1,9 @@
-// Screenshot isolado (Chromium headless do Playwright, sem tocar no navegador do usuário).
+// Isolated screenshot (Playwright headless Chromium, without touching user browser).
 // Uso:
 //   node scripts/shot.mjs <url> <saida.png> [--size 1400x900] [--wait 3000] [--scale 1]
-//        [--eval "js executado na página antes da foto"] [--frames 3 --interval 800] [--full]
+//        [--eval "js executed on page before screenshot"] [--frames 3 --interval 800] [--full]
 //        [--clip x,y,w,h]
-// Imprime erros de console/página encontrados (útil para depurar sem DevTools).
+// Prints encountered console/page errors (useful for headless debugging without DevTools).
 import { chromium } from 'playwright-core';
 
 const [url, out, ...rest] = process.argv.slice(2);

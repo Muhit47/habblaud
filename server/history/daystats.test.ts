@@ -69,7 +69,7 @@ function setup(dir: string | null) {
     set: (s: Snap) => {
       snap = s;
     },
-    /** Amostras de segundo em segundo até `until`. */
+    /** Second-by-second samples up to `until`. */
     run(svc: DayStatsService, until: number) {
       while (clock.now < until) {
         clock.now = Math.min(until, clock.now + S);
@@ -96,10 +96,10 @@ describe('DayStatsService: persistência', () => {
       const json = JSON.parse(readFileSync(file, 'utf8'));
       expect(json.version).toBe(1);
       expect(json.day).toBe(DAY);
-      // Nada de arquivos temporários esquecidos.
+      // No lingering temporary files.
       expect(readdirSync(dir)).toEqual([`${DAY}.json`]);
 
-      // Reinício: outro processo carrega o arquivo; a espera aberta continua a mesma.
+      // Restart: another process loads file; open wait interval remains intact.
       env.clock.now = T0 + 100 * S;
       const again = env.make();
       again.load();
@@ -140,7 +140,7 @@ describe('DayStatsService: persistência', () => {
   it('disco indisponível: segue só na memória, sem exceções', () => {
     const tmp = tempDir();
     try {
-      // A "pasta" é um arquivo: nem ler nem gravar funciona.
+      // "Folder" is actually a file: neither reading nor writing succeeds.
       const dir = join(tmp.dir, 'nao-e-pasta');
       writeFileSync(dir, 'x');
       const env = setup(dir);
@@ -173,12 +173,12 @@ describe('DayStatsService: persistência', () => {
       svc.load();
       expect(readdirSync(dir).sort()).toEqual(['2026-09-08.json', '2026-10-01.json', 'outro.txt']);
       expect(svc.days('UTC').days).toEqual([DAY, '2026-10-01', '2026-09-08']);
-      // Em São Paulo, 01/10 12:00 UTC ainda é 01/10.
+      // In São Paulo, 10/01 12:00 UTC is still 10/01.
       expect(svc.days('America/Sao_Paulo').days).toContain('2026-10-01');
       expect(svc.day('2026-10-01', 'UTC')!.stats.totals.ms.working).toBe(MIN);
       expect(svc.day('2026-10-02', 'UTC')).toBeNull();
 
-      // Virada do dia: o trabalho depois da meia-noite vai para o arquivo de amanhã; 08/09 sai da retenção.
+      // Day transition: post-midnight work goes into tomorrow's file; 08/09 falls out of retention.
       env.clock.now = Date.UTC(2026, 9, 8, 23, 59, 50);
       env.set(snapOf([agent({ id: 'a' })]));
       svc.sample();
@@ -202,7 +202,7 @@ describe('DayStatsService: modo demonstração', () => {
       const svc = env.make();
       svc.load();
       const real = agent({ id: '.claude:1' });
-      // Uma pasta de conta chamada "demo" continua real.
+      // Account folder named "demo" remains real.
       const realDemoDir = agent({ id: 'demo:42', sessionId: 'sess-42', account: 'demo', status: 'idle' });
       const demo = agent({ id: 'demo:abc-1', roomId: '/demo/loja-virtual', account: 'demo:.claude', name: 'Bruno', status: 'waiting', statusSince: T0 });
       env.set(snapOf([real, realDemoDir, demo], true));
@@ -216,7 +216,7 @@ describe('DayStatsService: modo demonstração', () => {
       expect(r.stats.totals.ms).toEqual({ working: 20 * S, waiting: 0, idle: 20 * S, shell: 0 });
       expect(r.stats.rooms.map((x) => x.id)).toEqual(['/p/loja']);
 
-      // Sem `source`, com o demo ligado e o dia de hoje: o demo (histórico fictício + o que acontece ao vivo).
+      // Without `source`, with demo enabled and today's date: demo (synthetic history + live activity).
       const d = svc.day(DAY, 'UTC')!;
       expect(d.source).toBe('demo');
       expect(d.stats.rooms.map((x) => x.name)).toContain('loja-virtual');

@@ -1,4 +1,4 @@
-// Tapetes decorativos (puros): borda escura, filete claro, franjas nas pontas e padrão no campo.
+// Decorative rugs (pure): dark border, light pinstripe, end fringes, and patterned field.
 import { ramp, shade } from '../core/color';
 import { PixelBuf } from '../core/pixbuf';
 
@@ -6,7 +6,7 @@ export function renderRug(w: number, h: number, color: string, seed: number): Pi
   const b = new PixelBuf(w, h);
   const m = ramp(color, 0.06);
   const fringe = '#efe6d2';
-  // Franjas nas laterais curtas (1px para fora do corpo).
+  // Fringes on short edges (1px beyond body bounds).
   const x0 = 1;
   const x1 = w - 2;
   for (let y = 2; y < h - 2; y += 2) {
@@ -20,7 +20,7 @@ export function renderRug(w: number, h: number, color: string, seed: number): Pi
   b.rect(x0 + 2, h - 3, x1 - x0 - 3, 1, m.hi);
   b.rect(x0 + 2, 2, 1, h - 4, m.hi);
   b.rect(x1 - 2, 2, 1, h - 4, m.hi);
-  // Campo com padrão.
+  // Patterned central field.
   const fx = x0 + 3;
   const fy = 3;
   const fw = x1 - x0 - 5;

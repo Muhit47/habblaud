@@ -31,7 +31,7 @@ setQuiet(true);
 
 const SECRET = Buffer.alloc(32, 7);
 const PASSWORD = 'correct horse battery';
-// logN 10: rápido nos testes (o setup usa 15).
+// logN 10: fast in test suites (setup uses 15).
 const HASH_TEXT = await hashPassword(PASSWORD, 10);
 const CFG = { user: 'ana', passwordHash: parsePasswordHash(HASH_TEXT)!, passwordHashText: HASH_TEXT };
 const CREDS = { user: 'ana', password: PASSWORD };
@@ -55,7 +55,7 @@ describe('parseRemoteConfig', () => {
   it('liga com padrões: porta 4748, só permissões, certificado da pasta padrão', () => {
     const { config } = parseRemoteConfig({ ...base, HOME: '/h' }, false, TLS_FILES);
     expect(config).toMatchObject({ port: 4748, host: '0.0.0.0', user: 'ana' });
-    expect(config?.tls?.certFile).toBe('/h/.habblaud/remote-tls/server/server.crt');
+    expect(config?.tls?.certFile?.replace(/\\/g, '/')).toBe('/h/.habblaud/remote-tls/server/server.crt');
     expect([...config!.allow]).toEqual(['permissions']);
   });
   it('no Docker ignora porta e host (o container escuta sempre em 0.0.0.0:4748) e lê o certificado de /remote-tls', () => {
@@ -99,7 +99,7 @@ describe('RemoteSessions', () => {
     sessions.revoke('lixo');
     expect(sessions.verify(phone)).toBe(false);
     expect(sessions.verify(other)).toBe(true);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
     const restarted = new RemoteSessions(SECRET, CFG, () => now, file);
     expect(restarted.verify(phone)).toBe(false);
     expect(restarted.verify(other)).toBe(true);
@@ -110,7 +110,7 @@ describe('RemoteSessions', () => {
     const tmp = tempDir();
     const file = join(tmp.dir, 'data', 'remote-secret');
     const a = loadSecret(file);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(readFileSync(file, 'utf8')).toBe(a.toString('hex'));
     expect(loadSecret(file).equals(a)).toBe(true);
     tmp.cleanup();
@@ -140,7 +140,7 @@ describe('LoginThrottle', () => {
       expect(t.begin()).toBe(false);
       t.end(false);
     }
-    // 5ª tentativa: já conta antes do fim, então a 6ª espera mesmo com a 5ª ainda conferindo.
+    // 5th attempt: counted eagerly before completion, so 6th is delayed while 5th is verifying.
     expect(t.begin()).toBe(true);
     expect(t.retryAfter()).toBe(1);
     t.end(false);
@@ -175,7 +175,7 @@ afterEach(async () => {
   while (closers.length) await closers.pop()!();
 });
 
-/** Uma porta local (sem login) e uma remota (com login), sobre a MESMA API, como no server/index.ts. */
+/** One local port (no login) and one remote port (with login) over SAME API, as in server/index.ts. */
 async function start(allow: RemoteFeature[] = ['permissions']): Promise<Harness> {
   const tmp = tempDir();
   const dir = join(tmp.dir, '.claude');
@@ -190,7 +190,7 @@ async function start(allow: RemoteFeature[] = ['permissions']): Promise<Harness>
     accountName: () => undefined,
   });
   const allowSet = new Set(allow);
-  // Mesma regra do server/index.ts.
+  // Same rule as in server/index.ts.
   const hub = new Hub(office, {
     throttleMs: 10,
     canAnswer: (req) => (isRemoteRequest(req) ? allowSet.has('permissions') : isLoopbackHost(req.headers.host)),
@@ -269,7 +269,7 @@ async function start(allow: RemoteFeature[] = ['permissions']): Promise<Harness>
   };
 }
 
-/** Requisição crua (o fetch do Node não deixa trocar o Host). */
+/** Raw request (Node fetch does not permit overriding Host). */
 function request(
   base: string,
   path: string,
@@ -329,13 +329,13 @@ describe('porta remota', () => {
     }
     expect(s.permissionCalls).toEqual([]);
     expect(s.ptyCalls).toEqual([]);
-    // O que o celular usa continua passando: o detalhe e a decisão do pedido.
+    // Data consumed by mobile continues through: request details and decision.
     expect((await request(s.remoteBase, '/api/permissions/p1', { headers })).status).toBe(200);
     expect((await request(s.remoteBase, '/api/permissions/p1/decision', { method: 'POST', body: { behavior: 'allow' }, headers })).status).toBe(200);
     expect(JSON.parse((await request(s.remoteBase, '/api/health', { headers })).body).pty).toBe(false);
-    // O modo demonstração vale para todo mundo: o celular não liga nem desliga.
+    // Demo mode is global: remote client cannot toggle it.
     expect((await request(s.remoteBase, '/api/demo', { method: 'POST', body: { enabled: true }, headers })).status).toBe(403);
-    // Na porta local, o hook e o terminal interativo seguem como antes.
+    // On local port, hook and interactive terminal function as before.
     expect((await request(s.localBase, '/api/permissions', { method: 'POST', body: {} })).status).toBe(200);
     expect((await request(s.localBase, '/api/pty')).status).toBe(200);
   });
@@ -378,7 +378,7 @@ describe('porta remota', () => {
     }
     expect(s.worldCalls).toEqual([]);
     expect(JSON.parse((await request(s.remoteBase, '/api/access', { headers })).body).world).toBe(false);
-    // Na porta local, com Host local, as rotas chegam ao Habblaud World.
+    // On local port with local Host, routes reach Habblaud World.
     expect((await request(s.localBase, '/api/world/status')).status).toBe(200);
     expect((await request(s.localBase, '/api/world/status', { headers: { Host: '192.168.0.10:4747' } })).status).toBe(403);
     expect(s.worldCalls).toEqual(['GET /api/world/status']);
@@ -395,12 +395,12 @@ describe('porta remota', () => {
     const t = await start(['permissions', 'spawn']);
     const c2 = await login(t.remoteBase);
     expect(JSON.parse((await request(t.remoteBase, '/api/access', { headers: { Cookie: c2 } })).body).spawn).toBe(true);
-    // Sem o auxiliar do host rodando: 409 com o motivo.
+    // Without host helper running: 409 with reason.
     const off = await request(t.remoteBase, '/api/spawn', { method: 'POST', body, headers: { Cookie: c2 } });
     expect(off.status).toBe(409);
     expect(off.body).toMatch(/codex:bridge/);
     expect((await request(t.remoteBase, '/api/host/spawn/poll', { method: 'POST', body: {}, headers: { Cookie: c2 } })).status).toBe(403);
-    // O auxiliar (porta local) passa: o celular pede, o auxiliar busca, abre e confirma.
+    // Host helper (local port) succeeds: remote client requests, helper polls, spawns, and acks.
     expect(JSON.parse((await request(t.localBase, '/api/host/spawn/poll', { method: 'POST', body: {} })).body)).toEqual({ spawns: [] });
     const made = await request(t.remoteBase, '/api/spawn', { method: 'POST', body, headers: { Cookie: c2 } });
     expect(made.status).toBe(201);
@@ -540,7 +540,7 @@ describe('porta local (inalterada)', () => {
   });
 });
 
-/** Abre o stream (SSE) e espera o primeiro pedaço; devolve como fechar. */
+/** Opens SSE stream and waits for first chunk; returns close callback. */
 function openStream(base: string, headers: Record<string, string>): Promise<{ status: number; close: () => void }> {
   return new Promise((ok, fail) => {
     const req = http.request(new URL('/api/stream', base), { headers }, (res) => {

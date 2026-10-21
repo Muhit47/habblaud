@@ -1,15 +1,15 @@
-// Histórico fictício do "Meu dia" para o modo demonstração. Puro (sem Node/DOM): o servidor usa no balde do
-// demo e o navegador no ?mock=1. Preenche de ontem (desde a meia-noite) até agora com dias de trabalho plausíveis
-// (manhã e tarde movimentadas, almoço mais calmo, noite quase parada) nos projetos e contas do próprio demo, para o
-// painel ter o que mostrar assim que o demo liga. Determinístico pela semente; nada aqui vem de dados reais.
-// Salas da conta do Codex só somam tokens (o Codex não grava custo).
+// Mock "My Day" history for demo mode. Pure (no Node/DOM): server uses in demo
+// bucket and browser in ?mock=1. Fills from yesterday (midnight) to now with plausible work days
+// (busy morning and afternoon, calmer lunch, quiet night) across demo projects and accounts, so
+// panel has data as soon as demo starts. Deterministic by seed; nothing comes from real data.
+// Rooms for Codex account only sum tokens (Codex does not record cost).
 import { addDays, dayKeyOf, dayStart, HOUR_MS, hourStart, localHourOf, type AgentRef, type StatsBook, type StatsView, type TimedStatus } from '../daystats';
 import { hash32, mulberry32 } from '../hash';
 import { pickName } from '../names';
 import { DEMO_PROJECT_NAMES } from './simulator';
 import { tr } from '../i18n';
 
-/** Intensidade do trabalho por hora local (0 = parado, 1 = pico). */
+/** Work intensity by local hour (0 = idle, 1 = peak). */
 const PROFILE = [0.03, 0.01, 0, 0, 0, 0, 0.02, 0.1, 0.4, 0.75, 0.95, 0.85, 0.4, 0.55, 0.9, 1, 0.95, 0.8, 0.55, 0.35, 0.3, 0.25, 0.15, 0.06];
 
 const REASONS = [tr('aprovar uma permissão'), tr('responder uma pergunta'), tr('escolher uma opção'), tr('aprovar o plano')];
@@ -19,31 +19,31 @@ interface FakeRoom {
   name: string;
   account: string;
   accountMeta?: { name: string; short: string; color: string };
-  /** Sala da conta do Codex: tokens, sem custo. */
+  /** Room for Codex account: tokens, zero cost. */
   codex: boolean;
-  /** Peso do movimento da sala e o quanto ela costuma esperar por você. */
+  /** Room activity weight and how much it typically waits for you. */
   weight: number;
   waitiness: number;
   people: string[];
 }
 
 /**
- * Semeia `book` com horas fictícias de ontem 00:00 (no fuso `tz`) até `now`, para os projetos do demo (os de
- * `view` e os demais da lista do simulador) e as contas de `view.accounts` (passe só as do demo).
- * `tz` decide o "horário comercial" do perfil (o fuso do servidor, ou o do navegador no ?mock=1).
+ * Seeds `book` with mock hours from yesterday 00:00 (in timezone `tz`) until `now`, for demo projects (those in
+ * `view` and remaining simulator list) and accounts in `view.accounts` (pass demo ones only).
+ * `tz` determines profile "business hours" (server timezone, or browser timezone in ?mock=1).
  */
 export function seedDemoHistory(book: StatsBook, view: StatsView, now: number, tz: string, seed = hash32(`meu-dia:${hourStart(now)}`)): void {
   const rng = mulberry32(seed);
   const between = (a: number, b: number) => a + rng() * (b - a);
   const accounts = view.accounts.map((a) => ({ id: a.id, codex: 'provider' in a && a.provider === 'codex', meta: { name: a.name, short: a.short, color: a.color } }));
-  // Os outros projetos: metade na primeira conta do Claude Code, 30% na última e 20% na do Codex (quando há).
+  // Other projects: half in first Claude Code account, 30% in last, and 20% in Codex (when present).
   const claude = accounts.filter((a) => !a.codex);
   const codex = accounts.find((a) => a.codex);
   const accountFor = (r: number) => (codex && claude.length ? (r < 0.5 ? claude[0] : r < 0.8 ? claude[claude.length - 1] : codex) : accounts[r < 0.6 ? 0 : accounts.length - 1]);
   const roomNames = new Map(view.rooms.map((r) => [r.id, r.name]));
   const usedNames = new Set(view.agents.map((a) => a.name));
 
-  // Salas com agentes agora (na conta mais comum entre eles) e, ao lado delas, os outros projetos do demo.
+  // Rooms with agents currently (in most common account among them) and, alongside them, other demo projects.
   const byRoom = new Map<string, Map<string, number>>();
   for (const a of view.agents) {
     const accs = byRoom.get(a.roomId) ?? new Map<string, number>();
@@ -60,7 +60,7 @@ export function seedDemoHistory(book: StatsBook, view: StatsView, now: number, t
     byRoom.set(id, new Map([[accountFor(rng()).id, 1]]));
     extra.push(id);
   }
-  // O Codex sempre tem algum projeto no histórico (o painel mostra os tokens dele, sem custo).
+  // Codex always has some project in history (panel displays its tokens, without cost).
   const extraCodex = extra.some((id) => byRoom.get(id)!.has(codex?.id ?? ''));
   if (codex && extra.length && !extraCodex) byRoom.set(extra[extra.length - 1], new Map([[codex.id, 1]]));
   const rooms: FakeRoom[] = [...byRoom].map(([id, accs]) => {
@@ -113,7 +113,7 @@ export function seedDemoHistory(book: StatsBook, view: StatsView, now: number, t
         ['idle', idle],
       ];
       for (const [status, ms] of parts) for (const r of mainRefs) book.addMsAt(r, status, hs, ms / mains, Math.min(now, hs + span));
-      // Subagentes: um pouco de trabalho extra, em horas movimentadas.
+      // Subagents: some extra work during busy hours.
       const subs = Math.round(level * between(0, 2.2));
       for (let j = 0; j < subs; j++) book.addMsAt(ref(`s:demo-dia-${ri}-${hs}-${j}`), 'working', hs, working * between(0.15, 0.45), Math.min(now, hs + span));
 
@@ -129,7 +129,7 @@ export function seedDemoHistory(book: StatsBook, view: StatsView, now: number, t
       book.addCount(r0, 'tokensOut', tokensOut, at);
       if (!room.codex) book.addCount(r0, 'costUSD', Math.round((tokensIn * 0.3e-6 + tokensOut * 15e-6) * 10_000) / 10_000, at);
 
-      // As esperas da hora viram 1 a 3 episódios de quem estava na sala.
+      // Hour's waits become 1 to 3 episodes of whoever was in the room.
       if (waiting >= 30_000) {
         const n = 1 + Math.floor(rng() * Math.min(3, waiting / 60_000));
         let left = waiting;
@@ -138,7 +138,7 @@ export function seedDemoHistory(book: StatsBook, view: StatsView, now: number, t
           left -= dur;
           const start = hs + rng() * Math.max(0, span - dur);
           const who = room.people[Math.floor(rng() * room.people.length)];
-          // O Codex só espera para aprovar (o sorteio acontece igual, para não mudar o resto).
+          // Codex only waits for approval (random draw runs identically, preserving sequence).
           const reason = REASONS[Math.floor(rng() * REASONS.length)];
           book.addWait({
             agentId: `demo-dia:${ri}:${who}`,

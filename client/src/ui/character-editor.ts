@@ -1,6 +1,6 @@
-// Editor do personagem na gaveta do agente: nome, "Sortear" e as peças (pele, cabelo, roupa...) com prévia de corpo
-// inteiro (appearance-fields.ts, o mesmo do personagem do Habblaud World). "Salvar" grava o personagem do projeto (a
-// sala) no servidor; as regras puras (quando aparece, rótulos, o que vai em `parts`) estão em character-model.ts.
+// Character editor in the agent drawer: name, "Randomize", and parts (skin, hair, shirt...) with full-body
+// preview (appearance-fields.ts, same as Habblaud World character). "Save" writes project character (the
+// room) to the server; pure rules (when visible, labels, what goes into `parts`) live in character-model.ts.
 import { NAME_MAX } from '../../../shared/appearance';
 import type { AgentInfo } from '../../../shared/types';
 import { appearanceFromSeed } from '../art';
@@ -18,9 +18,9 @@ function randomSeed(): number {
 }
 
 export class CharacterEditor {
-  /** Lápis "Editar personagem", ao lado do nome no topo da gaveta. */
+  /** "Edit character" pencil button, next to name at top of drawer. */
   readonly button: HTMLButtonElement;
-  /** Painel do editor (escondido enquanto não está editando). */
+  /** Editor panel (hidden while not editing). */
   readonly el: HTMLElement;
   private agentId = '';
   private editId = 0;
@@ -29,7 +29,7 @@ export class CharacterEditor {
   private confirmingReset = false;
   private seed = 0;
   private look: 'f' | 'm' = 'f';
-  /** Aparência sorteada pela seed (sem peças): o que não mudar não vai em `parts`. */
+  /** Random appearance from seed (no parts): unmodified items don't go to `parts`. */
   private base: Appearance | null = null;
   private readonly fields = new AppearanceFields();
   private readonly nameInput: HTMLInputElement;
@@ -64,13 +64,13 @@ export class CharacterEditor {
     );
   }
 
-  /** Outro agente na gaveta: descarta a edição em andamento. */
+  /** Different agent selected in drawer: discards in-flight edits. */
   open(id: string): void {
     if (id !== this.agentId) this.close();
     this.agentId = id;
   }
 
-  /** A cada render da gaveta: o lápis só aparece quando dá para editar; o editor fecha se o agente saiu. */
+  /** On drawer render: edit pencil visible only when editable; editor closes if agent departs. */
   render(a: AgentInfo, live: boolean): void {
     const store = this.ctx.store;
     const allowed = canEditCharacter(a, {
@@ -108,7 +108,7 @@ export class CharacterEditor {
     this.nameInput.select();
   }
 
-  /** Fecha o editor e descarta o rascunho (também quando a gaveta fecha ou sai do agente). */
+  /** Closes editor and discards draft (also on drawer close or switching agent). */
   close(): void {
     if (!this.editing) return;
     this.editing = false;

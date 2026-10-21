@@ -88,7 +88,7 @@ describe('parseRecentSessions', () => {
     const out = parseRecentSessions(raw);
     expect(out.map((s) => s.sessionId)).toEqual(['s2', 's1']);
     expect(out[0]).toEqual({ account: '.claude', sessionId: 's2', projectDir: '', lastAt: 20, size: 0, open: true, agentId: '.claude:7' });
-    // agentId só vale para sessão aberta.
+    // agentId valid for active session only.
     expect(out[1]).toEqual({ account: '.claude', sessionId: 's1', projectDir: '-p', project: '/p', title: 'Um', firstAt: 1, lastAt: 10, size: 99, open: false });
     expect(parseRecentSessions(null)).toEqual([]);
     expect(parseRecentSessions({ sessions: 'x' })).toEqual([]);

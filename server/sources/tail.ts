@@ -1,38 +1,38 @@
-// Leitura incremental de arquivos append-only (JSONL): devolve só as linhas completas novas,
-// guarda a linha parcial para o próximo ciclo (até MAX_LINE_BYTES) e detecta truncamento/rotação.
+// Incremental reader for append-only files (JSONL): yields only complete new lines,
+// buffers partial lines for next cycle (up to MAX_LINE_BYTES), and detects truncation/rotation.
 import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { log } from '../log';
 import { tr } from '../../shared/i18n';
 
 export interface TailRead {
   lines: string[];
-  /** O arquivo foi truncado ou substituído: a leitura recomeçou do início. */
+  /** File was truncated or replaced: reading restarted from beginning. */
   reset: boolean;
-  /** O arquivo não existe (ainda ou mais). */
+  /** File does not exist (yet or any longer). */
   missing: boolean;
-  /** Ainda há bytes não lidos (o limite por leitura foi atingido). */
+  /** Unread bytes still remain (read limit reached). */
   more: boolean;
 }
 
 const NL = 0x0a;
-/** Quanto do começo do arquivo guardar para confirmar uma troca que só o birthtime aponta (ver `replaced`). */
+/** How many bytes of file head to retain to verify a replacement indicated solely by birthtime (see `replaced`). */
 const HEAD_BYTES = 256;
 /**
- * Teto de uma linha JSONL. Em conversas reais do Claude Code e do Codex a maior linha ficou
- * em 5,8 MiB (tool_result grande, que precisa ser lido inteiro para virar atividade). 8 MiB
- * cobre isso com folga; acima, a linha é descartada até o `\n`.
+ * JSONL line limit. In real Claude Code and Codex conversations, the largest observed line
+ * reached 5.8 MiB (large tool_result requiring full parsing for activity). 8 MiB
+ * provides comfortable headroom; beyond that, lines are discarded up to `\n`.
  */
 export const MAX_LINE_BYTES = 8 * 1024 * 1024;
 
-/** Avisa uma vez por arquivo que uma linha passou do teto e foi ignorada. Sem o conteúdo da linha. */
+/** Warns once per file when a line exceeds limit and is dropped. Line content omitted. */
 export function warnOversizedLine(path: string): void {
   const mb = MAX_LINE_BYTES / (1024 * 1024);
   log.warnOnce(`oversize-line:${path}`, tr('Linha com mais de {0} MiB em {1} foi ignorada até a próxima quebra.', [mb, path]));
 }
 
 /**
- * Linha incompleta em pedaços: só junta quando acha `\n`. Cada leitura copia só o pedaço novo;
- * acima de `max`, solta o acumulado e descarta até a próxima quebra.
+ * Incomplete line in chunks: assembled only when `\n` is encountered. Each read copies only the new slice;
+ * above `max`, releases buffer and discards up to next newline.
  */
 export class LineBuffer {
   private pieces: Buffer[] = [];
@@ -47,7 +47,7 @@ export class LineBuffer {
     this.skipping = false;
   }
 
-  /** Consome `chunk` e devolve as linhas fechadas, sem o `\n`. */
+  /** Consumes `chunk` and returns closed lines, omitting `\n`. */
   push(chunk: Buffer): { lines: Buffer[]; discarded: number } {
     const lines: Buffer[] = [];
     let discarded = 0;
@@ -84,7 +84,7 @@ export class LineBuffer {
     return { lines, discarded };
   }
 
-  /** Resto sem `\n` no fim do arquivo; null se estiver vazio ou se a linha estourou o teto. */
+  /** Remainder without `\n` at EOF; null if empty or if line exceeded limit. */
   flush(): Buffer | null {
     if (this.skipping || this.bytes === 0) return null;
     const out = this.pieces.length === 1 ? this.pieces[0] : Buffer.concat(this.pieces);
@@ -100,23 +100,23 @@ export class LineBuffer {
   }
 }
 
-/** Os primeiros `max` bytes do arquivo, numa leitura posicional (não mexe no offset da leitura incremental). */
+/** First `max` bytes of file via positional read (does not modify incremental read offset). */
 function readHead(fd: number, max: number): Buffer {
   const buf = Buffer.alloc(max);
   return max > 0 ? buf.subarray(0, readSync(fd, buf, 0, max, 0)) : buf;
 }
 
 export class FileTail {
-  /** Próximo byte a ler. */
+  /** Next byte offset to read. */
   offset = 0;
   size = 0;
   mtimeMs = 0;
-  /** Linha ainda sem `\n`. Acima de MAX_LINE_BYTES, o resto é descartado até a quebra. */
+  /** Incomplete line without `\n`. Above MAX_LINE_BYTES, remainder discarded until newline. */
   private pending = new LineBuffer();
   private ino: number | undefined;
-  /** Momento de criação do arquivo (0 quando o sistema de arquivos não informa). */
+  /** File creation timestamp (0 when file system does not provide it). */
   private birthtimeMs = 0;
-  /** Começo do arquivo (até HEAD_BYTES); null = ainda não lido. */
+  /** File head (up to HEAD_BYTES); null = not yet read. */
   private head: Buffer | null = null;
   private readonly maxChunk: number;
 
@@ -128,8 +128,8 @@ export class FileTail {
   }
 
   /**
-   * Posiciona a leitura nos últimos `maxBytes` do arquivo, alinhada no início da linha seguinte
-   * (a linha cortada é descartada). Devolve o offset escolhido (0 = arquivo inteiro).
+   * Positions reading at the last `maxBytes` of file, aligned to beginning of next line
+   * (the cut-off line is discarded). Returns chosen offset (0 = entire file).
    */
   seekTail(maxBytes: number): number {
     this.pending.reset();
@@ -151,7 +151,7 @@ export class FileTail {
         this.offset = 0;
         return 0;
       }
-      // Procura a primeira quebra de linha a partir de (início da janela - 1).
+      // Find first newline starting from (window start - 1).
       let pos = st.size - maxBytes - 1;
       const buf = Buffer.allocUnsafe(64 * 1024);
       while (pos < st.size) {
@@ -171,7 +171,7 @@ export class FileTail {
     }
   }
 
-  /** Posiciona no fim do arquivo (só o que for escrito daqui em diante será lido). */
+  /** Positions at EOF (only bytes written from this point forward will be read). */
   seekEnd(): void {
     this.pending.reset();
     this.head = null;
@@ -188,14 +188,14 @@ export class FileTail {
   }
 
   /**
-   * O arquivo foi trocado por outro? O inode diferente basta, mas o sistema de arquivos pode reaproveitar o
-   * número de um arquivo apagado (ext4): por isso, quando os dois lados informam o momento de criação, ele também
-   * conta. Só que no Linux sem statx (WSL1, seccomp antigo) o Node devolve o ctime no lugar dele, e o ctime muda a
-   * cada escrita: a mudança do birthtime só vale se o começo do arquivo também mudou. Um arquivo novo que comece com
-   * os mesmos bytes passa como o mesmo, como antes de o birthtime contar.
-   * O mesmo vale para o mtime: reescrever o arquivo no mesmo inode (`writeFileSync` sobre ele) não muda o inode nem o
-   * birthtime, e com o mesmo tamanho (ou maior) o `size < offset` também não pega. Acrescentar linhas muda o mtime
-   * sem mexer no começo, então só uma mudança no começo conta como troca.
+   * Was the file replaced with another? A different inode suffices, but the filesystem may reuse the
+   * number of a deleted file (ext4): therefore, when both sides report creation timestamp, it also
+   * counts. However, on Linux without statx (WSL1, legacy seccomp), Node returns ctime instead, and ctime changes on
+   * every write: birthtime changes only count if the file head also changed. A new file starting with
+   * identical bytes passes as the same, as before birthtime was tracked.
+   * The same applies to mtime: rewriting file in-place on the same inode (`writeFileSync` over it) alters neither inode nor
+   * birthtime, and with equal (or larger) size, `size < offset` fails to trigger. Appending lines modifies mtime
+   * without touching the head, so only a change in the head qualifies as replacement.
    */
   private replaced(fd: number, st: { ino: number; birthtimeMs: number; mtimeMs: number }): boolean {
     if (this.ino === undefined) return false;
@@ -227,7 +227,7 @@ export class FileTail {
       this.birthtimeMs = st.birthtimeMs;
       this.size = st.size;
       this.mtimeMs = st.mtimeMs;
-      // O começo só é relido enquanto o arquivo ainda não chegou a HEAD_BYTES.
+      // Head is only re-read while file length remains under HEAD_BYTES.
       const headLen = Math.min(st.size, HEAD_BYTES);
       if (!this.head || this.head.length < headLen) this.head = readHead(fd, headLen);
       const avail = st.size - this.offset;

@@ -1,6 +1,6 @@
-// Os arquivos que o servidor do Habblaud World guarda como cópia exata (protocol.ts e city.ts, com o SHA-256 conferido
-// lá) não importam nada nem usam Node ou DOM: copiados byte a byte, compilam do outro lado. Fica aqui (e não ao lado
-// deles, em shared/) porque precisa ler o disco.
+// Files stored as exact copies on Habblaud World server (protocol.ts and city.ts, with SHA-256 verified
+// there) have zero dependencies and use neither Node nor DOM: copied byte-for-byte, they compile on the other side. Kept here
+// (rather than alongside in shared/) because disk access is required.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';

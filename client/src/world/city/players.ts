@@ -1,44 +1,44 @@
-// Jogadores na rua (puro): o meu (movimento local imediato, colisão pelo `isWalkable` do city.ts, caminho do A*,
-// envio de `move` até 10 por segundo) e os outros (amostras de posição a 5/s para os 20 mais perto e a 2,5/s para os
-// outros, desenhados um pouco atrás e interpolados entre elas; o atraso acompanha o intervalo entre as amostras de
-// cada um). Posições em TILES (o ponto dos pés; o mesmo do protocolo).
+// Street players (pure): local player (immediate local motion, collision via city.ts `isWalkable`, A* pathing,
+// `move` dispatch up to 10/s) and others (position samples at 5/s for 20 nearest and 2.5/s for
+// others, rendered slightly delayed and interpolated; delay tracks inter-sample interval of
+// each player). Positions in TILES (feet anchor; matching protocol).
 import type { Dir } from '../../art/api';
 import type { Direction } from '../../../../shared/world/protocol';
 import { walkable as cityWalkable } from './layout';
 
-/** Velocidades (tiles/s): as do escritório. O servidor aceita até 6 × 1,2. */
+/** Speeds (tiles/s): matching office. Server permits up to 6 × 1.2. */
 export const WALK_TPS = 3.2;
 export const RUN_TPS = 6;
 /**
- * Atraso com que os outros são desenhados (ms): o maior intervalo recente entre as amostras de cada um mais uma folga
- * para a rede, para sempre haver uma amostra adiante (5/s: ~260 ms; 2,5/s: ~460 ms), entre o mínimo e o máximo.
+ * Delay for rendering others (ms): largest recent sample interval per player plus network margin,
+ * ensuring a future sample is always available (5/s: ~260 ms; 2.5/s: ~460 ms), bounded by min and max.
  */
 export const INTERP_MIN_MS = 150;
 export const INTERP_MAX_MS = 700;
 const INTERP_MARGIN_MS = 60;
-/** Intervalos maiores que isto não são a cadência (o jogador parou e o servidor não mandou nada): não contam. */
+/** Intervals larger than this do not reflect cadence (player stopped, server sent nothing): ignored. */
 const CADENCE_MAX_GAP_MS = 1_000;
-/** Quantos intervalos recentes contam. */
+/** Count of recent intervals tracked. */
 const CADENCE_GAPS = 4;
-/** Quanto o atraso muda por ms de relógio (subindo, o desenho anda a 0,5×; descendo, a 1,25×): nunca volta atrás. */
+/** Delay adjustment per clock ms (increasing, rendering progresses at 0.5×; decreasing, at 1.25×): never regresses. */
 const DELAY_UP_RATE = 0.5;
 const DELAY_DOWN_RATE = 0.25;
-/** Intervalo mínimo entre dois `move` (10/s). */
+/** Minimum interval between `move` dispatches (10/s). */
 export const MOVE_INTERVAL_MS = 100;
-/** Amostras guardadas por jogador. */
+/** Buffered samples per player. */
 const MAX_SAMPLES = 10;
 
 export const DIR_TO_PROTO: Readonly<Record<Dir, Direction>> = { up: 'n', down: 's', left: 'w', right: 'e' };
 export const PROTO_TO_DIR: Readonly<Record<Direction, Dir>> = { n: 'up', s: 'down', w: 'left', e: 'right' };
 
-/** Direção dominante de um deslocamento (mantém a anterior parado). */
+/** Dominant displacement direction (preserves previous direction when stopped). */
 export function dirOf(dx: number, dy: number, fallback: Dir): Dir {
   if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return fallback;
   if (Math.abs(dx) >= Math.abs(dy)) return dx > 0 ? 'right' : 'left';
   return dy > 0 ? 'down' : 'up';
 }
 
-// ------------------------------------------------------------------ outros jogadores
+// ------------------------------------------------------------------ other players
 
 export interface Sample {
   t: number;
@@ -48,7 +48,7 @@ export interface Sample {
   moving: boolean;
 }
 
-/** Guarda a amostra em ordem de tempo, com limite. */
+/** Buffers sample in chronological order, capped at limit. */
 export function pushSample(samples: Sample[], s: Sample): void {
   const last = samples[samples.length - 1];
   if (last && s.t < last.t) s = { ...s, t: last.t };
@@ -61,11 +61,11 @@ export interface Interpolated {
   y: number;
   dir: Direction;
   moving: boolean;
-  /** Velocidade estimada (tiles/s) entre as duas amostras. */
+  /** Estimated velocity (tiles/s) between two samples. */
   speed: number;
 }
 
-/** Atraso alvo (ms) para as amostras de um jogador: o maior dos últimos intervalos entre elas, mais a folga. */
+/** Target delay (ms) for player samples: largest of recent inter-sample intervals plus margin. */
 export function interpDelay(samples: readonly Sample[]): number {
   let worst = 0;
   let n = 0;
@@ -78,15 +78,15 @@ export function interpDelay(samples: readonly Sample[]): number {
   return Math.min(INTERP_MAX_MS, Math.max(INTERP_MIN_MS, worst + INTERP_MARGIN_MS));
 }
 
-/** Leva o atraso atual até o alvo aos poucos (`dtMs` de relógio), sem o desenho voltar no tempo. */
+/** Adjusts current delay toward target gradually (`dtMs` clock), preventing temporal regression. */
 export function stepDelay(current: number, target: number, dtMs: number): number {
   if (target > current) return Math.min(target, current + dtMs * DELAY_UP_RATE);
   return Math.max(target, current - dtMs * DELAY_DOWN_RATE);
 }
 
 /**
- * Posição no instante `t` (o "agora" menos o atraso): linear entre as duas amostras que o cercam; antes da primeira,
- * a primeira; depois da última, a última (parado se ela já é velha).
+ * Position at timestamp `t` ("now" minus delay): linear interpolation between enclosing samples; before first,
+ * returns first; after last, returns last (stationary if sample has gone stale).
  */
 export function sampleAt(samples: readonly Sample[], t: number): Interpolated | null {
   const n = samples.length;
@@ -103,18 +103,18 @@ export function sampleAt(samples: readonly Sample[], t: number): Interpolated | 
     return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, dir: b.dir, moving: dist > 1e-3 || b.moving, speed: (dist * 1000) / span };
   }
   const last = samples[n - 1]!;
-  // a última amostra dizia "andando", mas faz tempo: parou (a próxima chega quando ele mexer)
+  // last sample indicated "moving", but elapsed time is long: stopped (next arrives on movement)
   const stale = t - last.t > 400;
   return { x: last.x, y: last.y, dir: last.dir, moving: last.moving && !stale, speed: 0 };
 }
 
-// ------------------------------------------------------------------ meu jogador
+// ------------------------------------------------------------------ local player
 
 export type Walkable = (x: number, y: number) => boolean;
 
 /**
- * Anda (dx, dy) tiles a partir de (x, y), um eixo de cada vez (desliza na parede), sem entrar onde não dá para pisar.
- * Passos grandes são quebrados em pedaços de no máximo meio tile, para não atravessar quinas.
+ * Moves (dx, dy) tiles from (x, y), one axis at a time (sliding along obstacles), avoiding unwalkable cells.
+ * Large steps are subdivided into at most half-tile increments to prevent corner clipping.
  */
 export function stepMove(x: number, y: number, dx: number, dy: number, can: Walkable = cityWalkable): { x: number; y: number; blocked: boolean } {
   const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 0.5));
@@ -131,7 +131,7 @@ export function stepMove(x: number, y: number, dx: number, dy: number, can: Walk
 }
 
 export interface MoveIntent {
-  /** Direção das teclas (-1..1 em cada eixo; 0,0 = nenhuma). */
+  /** Key movement direction (-1..1 along each axis; 0,0 = none). */
   dx: number;
   dy: number;
   run: boolean;
@@ -143,11 +143,11 @@ export class LocalPlayer {
   dir: Dir = 'down';
   moving = false;
   running = false;
-  /** Pontos (tiles) do caminho do clique, já no formato [x0, y0, x1, y1...]. */
+  /** Click path points (tiles), formatted as [x0, y0, x1, y1...]. */
   private path: number[] = [];
   private pathI = 0;
   private pathRun = false;
-  /** Tempo (ms) na pose atual, para os quadros da animação. */
+  /** Duration (ms) in current pose, for animation frames. */
   animT = 0;
 
   constructor(
@@ -163,7 +163,7 @@ export class LocalPlayer {
     return this.pathI < this.path.length;
   }
 
-  /** Caminho (pontos em tiles) a seguir. */
+  /** Path (tile points) to navigate. */
   follow(points: number[], run: boolean): void {
     this.path = points;
     this.pathI = 0;
@@ -175,14 +175,14 @@ export class LocalPlayer {
     this.pathI = 0;
   }
 
-  /** Correção do servidor (`pos`): vai para lá na hora e esquece o caminho. */
+  /** Server correction (`pos`): snaps there immediately and discards path. */
   correct(x: number, y: number): void {
     this.x = x;
     this.y = y;
     this.stopPath();
   }
 
-  /** Avança `dt` segundos. Teclas têm prioridade sobre o caminho do clique. */
+  /** Advances `dt` seconds. Key inputs take precedence over click path. */
   update(dt: number, intent: MoveIntent): void {
     const prevMoving = this.moving;
     const prevRun = this.running;
@@ -192,7 +192,7 @@ export class LocalPlayer {
     if (dx || dy) {
       this.stopPath();
       const len = Math.hypot(dx, dy);
-      // diagonal normalizada: nunca mais rápido que a velocidade de corrida
+      // normalized diagonal: never faster than sprint speed
       dx /= len;
       dy /= len;
       const v = (intent.run ? RUN_TPS : WALK_TPS) * dt;
@@ -238,12 +238,12 @@ export class LocalPlayer {
   }
 }
 
-/** Converte o caminho do A* (tiles inteiros da grade local) em pontos (centro dos tiles) até o destino fino. */
+/** Converts A* path (integer local grid tiles) into points (tile centers) to fine destination. */
 export function pathPoints(cells: readonly number[], ox: number, oy: number, goal: { x: number; y: number } | null): number[] {
   const out: number[] = [];
   for (let i = 0; i < cells.length; i += 2) out.push(cells[i]! + ox + 0.5, cells[i + 1]! + oy + 0.5);
   if (goal && out.length >= 2) {
-    // o último ponto vira o ponto exato do clique (dentro do mesmo tile)
+    // final point snaps to exact click coordinate (within same tile)
     out[out.length - 2] = goal.x;
     out[out.length - 1] = goal.y;
   } else if (goal && !out.length) out.push(goal.x, goal.y);
@@ -251,17 +251,17 @@ export function pathPoints(cells: readonly number[], ox: number, oy: number, goa
 }
 
 /**
- * Posição para o fio, em centésimos de tile, sempre truncada para baixo: arredondar poderia levar quem parou rente à
- * borda norte ou oeste de um lote (y = 11,996) para dentro dele (12,00), e o servidor devolveria `pos`. Truncar
- * nunca troca de tile.
+ * Wire position in hundredths of a tile, always truncated down: rounding could place a character flush with
+ * north or west lot edge (y = 11.996) inside lot (12.00), triggering server `pos` correction. Truncating
+ * never changes tile.
  */
 export function wirePos(v: number): number {
   return Math.floor(v * 100) / 100;
 }
 
 /**
- * Quando mandar `move`: no máximo um a cada 100 ms, só quando a posição ou o "andando" mudou desde o último. O
- * "parei" sempre sai (no próximo intervalo livre).
+ * When to dispatch `move`: at most once per 100 ms, only when position or "moving" state changed since last. Stop
+ * state always dispatches (in next available interval).
  */
 export class MoveSender {
   private lastAt = -Infinity;
@@ -281,8 +281,8 @@ export class MoveSender {
   }
 
   /**
-   * Repete a posição parada (aba em segundo plano: o servidor não tira o jogador da rua).
-   * Sem hora: quem chama usa outro relógio que o `tick`, e guardar a hora dele calava os envios até um `reset`.
+   * Re-emits stopped position (background tab: server keeps player in street).
+   * Timeless: caller uses different clock from `tick`; storing its timestamp previously silenced dispatches until `reset`.
    */
   keepAlive(p: { x: number; y: number; dir: Dir }): void {
     const cur = { x: wirePos(p.x), y: wirePos(p.y), dir: DIR_TO_PROTO[p.dir], moving: false };
@@ -291,7 +291,7 @@ export class MoveSender {
     this.send({ t: 'move', ...cur });
   }
 
-  /** Esquece o último enviado (depois de uma correção, o próximo tick manda de novo). */
+  /** Clears last dispatched state (following correction, next tick dispatches again). */
   reset(): void {
     this.last = null;
     this.lastAt = -Infinity;

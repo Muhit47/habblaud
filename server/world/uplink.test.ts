@@ -1,6 +1,6 @@
-// O uplink do prédio (server/world/uplink.ts) contra o servidor do mundo de mentira (server/test/fake-world.ts, com o
-// WebSocket feito à mão): quando conecta, o `hello`, o pacote inteiro a cada `welcome`, a espera entre remessas, o
-// `ping`, a reconexão, cada `goodbye`, a pausa que fecha antes de responder e a última remessa em disco (600).
+// Building uplink (server/world/uplink.ts) against the fake world server (server/test/fake-world.ts, with handmade
+// WebSocket): when connecting, the `hello`, full packet on each `welcome`, debounce between shipments, `ping`,
+// reconnection, each `goodbye`, pause closing before replying, and the last shipment on disk (600).
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -64,13 +64,13 @@ async function waitFor(cond: () => boolean, what: string, ms = 3_000): Promise<v
   }
 }
 const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
-/** Uma volta do laço de eventos (o que o WebSocket de verdade já recebeu é processado). */
+/** One tick of the event loop (what the real WebSocket already received is processed). */
 const turn = () => new Promise((ok) => setImmediate(ok));
 
 /**
- * Relógio manual para o uplink (`now` e `timers`): o tempo só anda com `advance`, que dispara na ordem cada timer
- * vencido, no instante dele. A conexão continua de verdade (o WebSocket do mundo de mentira); só as esperas do uplink
- * (remessa, welcome, ping, reconexão, fechamento) ficam no tempo controlado, e o teste não depende da máquina estar lenta.
+ * Manual clock for uplink (`now` and `timers`): time only advances with `advance`, firing expired timers in order
+ * at their precise timestamp. The connection remains real (the fake-world WebSocket); only uplink delays
+ * (shipment, welcome, ping, reconnect, closing) use controlled time, making tests independent of machine speed.
  */
 class ManualClock {
   t = 1_000_000;
@@ -90,7 +90,7 @@ class ManualClock {
     return id;
   }
 
-  /** Avança `ms`: cada timer vencido dispara no seu instante (`now()` vale o instante dele), na ordem. */
+  /** Advances `ms`: each expired timer fires at its own timestamp (`now()` equals its instant), in order. */
   advance(ms: number): void {
     const end = this.t + ms;
     for (;;) {
@@ -118,7 +118,7 @@ interface Harness {
   change(): void;
   goodbyes: GoodbyeReason[];
   changes: { n: number };
-  /** meta() a cada aviso de mudança. */
+  /** meta() on each change notification. */
   metas: unknown[];
   canAct: { v: boolean };
   make(): BuildingUplink;
@@ -131,7 +131,7 @@ async function start(
     tokensVisible?: boolean;
     compactions?: boolean;
     booting?: { v: boolean };
-    /** O tempo do uplink num relógio manual (com `timing` por cima do FAST). */
+    /** Uplink time on a manual clock (with `timing` overriding FAST). */
     clock?: ManualClock;
     timing?: Partial<UplinkTiming>;
   } = {},
@@ -224,7 +224,7 @@ describe('BuildingUplink: conexão e remessas', () => {
     }
     const sub = agentsOf(uplink).find((a) => a.kind === 'sub')!;
     expect(agentsOf(uplink).map((a) => a.id)).toContain(sub.parentId);
-    // Status e última remessa: o mesmo objeto que foi para o fio.
+    // Status and last shipment: the exact object sent over the wire.
     await waitFor(() => !!h.uplink.status().lastAck, 'ack');
     expect(h.uplink.status()).toMatchObject({ connected: true, paused: false, floors: 2, agents: 3, lastAck: { ok: true } });
     const last = h.uplink.lastUplink()!;
@@ -239,17 +239,17 @@ describe('BuildingUplink: conexão e remessas', () => {
   it('última remessa em disco: modo 600, sem token, relida só na mesma sessão', async () => {
     const h = await start();
     await waitFor(() => !!h.uplink.lastUplink()?.ack, 'ack');
-    expect(statSync(h.lastFile).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(h.lastFile).mode & 0o777).toBe(0o600);
     const text = readFileSync(h.lastFile, 'utf8');
     expect(text).not.toContain(h.token);
     expect(JSON.parse(text).uplink).toEqual(h.uplink.lastUplink()!.uplink);
     h.uplink.stop();
-    // Outro processo, mesma sessão: mostra a última remessa antes de conectar.
+    // Another process, same session: shows last shipment before connecting.
     h.canAct.v = false;
     const again = h.make();
     again.start();
     expect(again.lastUplink()).toEqual(h.uplink.lastUplink());
-    // Saiu da conta: some da memória e do disco.
+    // Logged out: purged from memory and disk.
     h.store.clear();
     again.sync();
     expect(again.lastUplink()).toBeUndefined();
@@ -263,7 +263,7 @@ describe('BuildingUplink: conexão e remessas', () => {
     h.store.update({ access: 'approved', player: undefined });
     h.uplink.sync();
     await sleep(80);
-    expect(h.world.ws.connections).toHaveLength(0); // sem personagem
+    expect(h.world.ws.connections).toHaveLength(0); // without character
     h.store.update({ player: PLAYER });
     h.canAct.v = false;
     h.uplink.sync();
@@ -282,7 +282,7 @@ describe('BuildingUplink: conexão e remessas', () => {
   });
 
   it('manda ao mudar: espera desde a primeira mudança, uma remessa a cada minGap e nada se o pacote não mudou', async () => {
-    // Tempo do uplink controlado (sem o ping, que tem o caso dele): cada remessa é anotada no instante em que saiu.
+    // Controlled uplink time (without ping, which has its own test): each shipment is recorded at the moment it was sent.
     const clock = new ManualClock();
     const h = await start({ clock, timing: { pingMs: 3_600_000 } });
     const sent: number[] = [];
@@ -303,7 +303,7 @@ describe('BuildingUplink: conexão e remessas', () => {
     await waitFor(() => h.world.ws.uplinks.length === 1, 'primeira');
     expect(sent).toEqual([clock.t - 5]);
     sent.length = 0;
-    // Mudanças sem efeito no pacote (o escritório muda a toda hora: atividade, balões...).
+    // Changes without packet impact (office changes frequently: activity, bubbles...).
     for (let i = 0; i < 10; i++) {
       h.change();
       await run(15);
@@ -320,10 +320,10 @@ describe('BuildingUplink: conexão e remessas', () => {
     await run(300);
     expect(sent.length).toBeGreaterThanOrEqual(2);
     expect(sent.length).toBeLessThanOrEqual(Math.ceil((clock.t - t0) / FAST.minGapMs!) + 1);
-    // a primeira sai `debounceMs` depois da primeira mudança (sem reiniciar a espera a cada mudança)
+    // the first goes out `debounceMs` after the first change (without resetting the wait on each change)
     expect(sent[0] - t0).toBe(FAST.debounceMs);
     for (let i = 1; i < sent.length; i++) expect(sent[i] - sent[i - 1]).toBeGreaterThanOrEqual(FAST.minGapMs!);
-    // o que saiu chegou ao mundo, na ordem, e a última remessa tem todos os agentes
+    // what was sent reached the world, in order, and the last shipment contains all agents
     await waitFor(() => h.world.ws.uplinks.length === 1 + sent.length, 'todas as remessas no mundo');
     expect(agentsOf(h.world.ws.uplinks[sent.length].uplink)).toHaveLength(43);
   });
@@ -350,7 +350,7 @@ describe('BuildingUplink: conexão e remessas', () => {
     await waitFor(() => h.uplink.status().connected, 'welcome');
     clock.advance(0);
     await waitFor(() => h.world.ws.uplinks.length === 1 && !!h.uplink.status().lastAck, 'primeira e o ack');
-    // Silêncio: os pings de 1 e 2 × pingMs saem; o de 3 × pingMs (mais de 2,5 pings sem nada) fecha a conexão.
+    // Silence: pings at 1 and 2 × pingMs are sent; at 3 × pingMs (over 2.5 pings without activity) closes the connection.
     clock.advance(2 * FAST.pingMs!);
     await waitFor(() => h.world.ws.pings === 2, 'dois pings sem resposta');
     expect(h.world.ws.open).toHaveLength(1);
@@ -416,7 +416,7 @@ describe('BuildingUplink: conexão e remessas', () => {
     h.world.ws.options.building = { id: 'acc_1', floors: 7, agents: { total: 12, working: 5, waiting: 1, idle: 6 }, state: 'away' };
     h.uplink.start();
     await waitFor(() => h.world.ws.uplinks.length === 1, 'primeira');
-    // No aviso do welcome (antes da remessa sair), o resumo é o do mundo; depois, o daqui.
+    // On welcome notice (before shipment leaves), summary is from world; afterwards, from here.
     expect(h.metas).toContainEqual({ connected: true, paused: false, floors: 7, agents: 12 });
     await waitFor(() => h.uplink.meta().floors === 2, 'remessa');
     expect(h.uplink.meta()).toMatchObject({ floors: 2, agents: 3 });
@@ -442,7 +442,7 @@ describe('BuildingUplink: visitantes (Fase 4)', () => {
     await waitFor(() => h.uplink.meta().visitors === 0, 'zero');
     conn.send({ t: 'visitors', count: 1 });
     await waitFor(() => h.uplink.meta().visitors === 1, 'um');
-    // a conexão caiu: a contagem é de outra conexão, esquecida
+    // connection dropped: count belongs to another connection, forgotten
     conn.drop();
     await waitFor(() => !h.uplink.connected, 'queda');
     expect(h.uplink.meta()).not.toHaveProperty('visitors');
@@ -456,7 +456,7 @@ describe('BuildingUplink: visitantes (Fase 4)', () => {
     const s = h.store.get()!;
     h.store.save({ ...s, player: { ...s.player!, visibility: { ...s.player!.visibility, closed: true } } });
     expect(h.uplink.meta()).not.toHaveProperty('visitors');
-    // reaberto: a contagem velha não volta (quem estava foi posto para fora; o servidor só manda quando alguém entra)
+    // reopened: old count does not return (previous occupants were ejected; server only sends when someone enters)
     h.store.save({ ...s, player: { ...s.player!, visibility: { ...s.player!.visibility, closed: false } } });
     expect(h.uplink.meta()).not.toHaveProperty('visitors');
     expect(h.uplink.status()).not.toHaveProperty('visitors');
@@ -480,14 +480,14 @@ describe('BuildingUplink: tarefas e compactações sem conexão', () => {
     h.store.update({ paused: true });
     await h.uplink.pause();
     const main = h.agents[0];
-    // Duas concluídas; depois o TodoWrite troca a lista (o que já foi feito some dela).
+    // Two completed; then TodoWrite swaps the list (completed tasks are removed).
     main.tasks = tasks(2, 1);
     h.change();
     await sleep(60);
     main.tasks = tasks(0, 3);
     h.change();
     await sleep(60);
-    // Uma compactação que sai de `recent` antes da próxima remessa.
+    // A compaction that leaves `recent` before the next shipment.
     main.recent = [compaction];
     h.change();
     await sleep(60);
@@ -531,7 +531,7 @@ describe('BuildingUplink: goodbye, pausa e retomada', () => {
     await waitFor(() => h.world.ws.connections.length >= 5, 'cinco tentativas', 3_000);
     const at = h.world.ws.connections.map((c) => c.openedAt);
     const gaps = at.slice(1).map((t, i) => t - at[i]);
-    // Espera de 20, 40, 80, 80 ms (random 0,5: sem sorteio), mais o tempo da conexão.
+    // Backoff of 20, 40, 80, 80 ms (random 0.5: no jitter), plus connection time.
     expect(gaps[0]).toBeGreaterThanOrEqual(18);
     expect(gaps[1]).toBeGreaterThanOrEqual(38);
     expect(gaps[2]).toBeGreaterThanOrEqual(78);
@@ -540,7 +540,7 @@ describe('BuildingUplink: goodbye, pausa e retomada', () => {
     expect(h.uplink.status().stopped).toBeUndefined();
     h.world.ws.options.hello = 'auto';
     await waitFor(() => h.world.ws.uplinks.length === 1, 'de volta');
-    // Depois do welcome, a próxima queda começa de novo da espera mínima.
+    // After welcome, the next drop resets back to minimum backoff.
     const n = h.world.ws.connections.length;
     h.world.ws.open[0].drop();
     await waitFor(() => h.world.ws.connections.length === n + 1, 'reconectou');
@@ -558,7 +558,7 @@ describe('BuildingUplink: goodbye, pausa e retomada', () => {
       expect(h.world.ws.connections).toHaveLength(1);
       expect(h.goodbyes).toEqual([reason]);
       expect(h.uplink.status().connected).toBe(false);
-      // No snapshot (que também vai ao celular), só "parou", sem o motivo.
+      // In snapshot (which also goes to mobile), only "stopped", without the reason.
       expect(h.uplink.meta().stopped).toBe(true);
       expect(JSON.stringify(h.uplink.meta())).not.toContain(reason);
       h.uplink.sync();
@@ -580,7 +580,7 @@ describe('BuildingUplink: goodbye, pausa e retomada', () => {
       expect(h.goodbyes).toEqual([reason]);
       await sleep(200);
       expect(h.world.ws.connections).toHaveLength(1);
-      // A sessão mudou (personagem salvo de novo, por exemplo): tenta outra vez.
+      // Session changed (e.g. character saved again): retries.
       h.world.ws.options.hello = 'auto';
       h.store.update({ player: { ...PLAYER, updatedAt: '2026-10-16T00:00:00Z' } });
       h.uplink.sync();
@@ -606,7 +606,7 @@ describe('BuildingUplink: goodbye, pausa e retomada', () => {
     await waitFor(() => h.world.ws.uplinks.length === 1, 'primeira');
     h.store.update({ paused: true });
     await h.uplink.pause();
-    // Assim que a pausa responde, o servidor já viu a conexão fechar.
+    // As soon as pause returns, the server has already seen the connection close.
     expect(h.world.ws.open).toHaveLength(0);
     expect(h.world.ws.connections[0].closedCleanly).toBe(true);
     expect(h.uplink.status()).toMatchObject({ connected: false, paused: true });
@@ -635,7 +635,7 @@ describe('BuildingUplink: goodbye, pausa e retomada', () => {
     clock.advance(1);
     await paused;
     expect(h.uplink.status().connected).toBe(false);
-    // Nada mais sai pela conexão pendurada.
+    // Nothing more goes through the hanging connection.
     const before = h.world.ws.connections[0].messages.length;
     h.change();
     clock.advance(FAST.debounceMs! + FAST.minGapMs!);
@@ -653,7 +653,7 @@ describe('BuildingUplink: goodbye, pausa e retomada', () => {
     h.store.save({ deviceId: 'dev_1', token: h.token, email: EMAIL, access: 'approved', player: PLAYER });
     h.uplink.sync();
     await waitFor(() => h.world.ws.uplinks.length === 2, 'de volta');
-    // Outra sessão: ids novos.
+    // Another session: new ids.
     expect(h.world.ws.uplinks[1].uplink.floors.map((f) => f.id)).not.toEqual(first.floors.map((f) => f.id));
   });
 });

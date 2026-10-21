@@ -1,47 +1,47 @@
-// Mod do Habblaud (Claude Code 2.1.287+): liga cada sessão ao escritório sem ler a conversa.
+// Habblaud Mod (Claude Code 2.1.287+): connects each session to the office without inspecting conversations.
 //
-// Faz três coisas pequenas, e `claude plugin validate` lista exatamente o que o módulo chama (a saída
-// está no mod/README.md):
+// Performs three small tasks, and `claude plugin validate` lists exactly what the module calls (output
+// is in mod/README.md):
 //
-// 1. Uso do plano (substitui o tap de statusline): em `session.start` e a cada `session.measure`
-//    (depois de cada turno e quando um limite anda um ponto inteiro) grava
-//    <HABBLAUD_USAGE_DIR ou ~/.habblaud/usage>/<conta>.json no MESMO formato do scripts/statusline-tap.mjs
-//    ({accountId, configDir, fetchedAt, five_hour, seven_day}, `resets_at` em segundos) mais
-//    `source: "mod"`. O servidor lê esses arquivos em server/accounts/statusline.ts.
-// 2. Uma linha embaixo do prompt quando OUTRA sessão precisa de você: a cada 5 s pergunta ao Habblaud
-//    local (GET /api/mod/summary, que já tira da lista esta sessão e os subagentes dela). Fora do ar, a
-//    linha some e as perguntas passam a ser a cada 30 s até ele voltar. Só onde a sessão desenha
-//    (`$.session.surfaces()` vazia = `claude -p`/SDK: nada a mostrar, nada a perguntar).
-// 3. /habblaud: resumo do escritório, respondido pelo próprio mod (não chama o modelo, não gasta uso).
+// 1. Plan usage (replaces statusline tap): at `session.start` and upon each `session.measure`
+//    (after each turn and whenever a quota threshold shifts a whole percentage point) writes
+//    <HABBLAUD_USAGE_DIR or ~/.habblaud/usage>/<account>.json in the SAME format as scripts/statusline-tap.mjs
+//    ({accountId, configDir, fetchedAt, five_hour, seven_day}, `resets_at` in seconds) plus
+//    `source: "mod"`. The server reads these files in server/accounts/statusline.ts.
+// 2. A status line beneath the prompt when ANOTHER session needs you: polls local Habblaud every 5 s
+//    (GET /api/mod/summary, which omits this session and its subagents from the list). When offline, the
+//    line disappears and polling drops to every 30 s until service resumes. Only active where session renders
+//    (`$.session.surfaces()` empty = `claude -p`/SDK: nothing to display, nothing to poll).
+// 3. /habblaud: office summary command handled directly by the mod (no LLM calls, zero token usage).
 //
-// Regras: nenhum hook lança (um hook que lança é pulado, mas o que ele deixou pela metade fica): cada
-// passo tem seu try/catch e falha = silêncio. Nada de $.process, $.model, $.prompt, decisão de
-// ferramenta nem leitura da conversa; a rede é só 127.0.0.1. O estado fica em variáveis do módulo: um
-// hot reload recomeça do zero, o que aqui custa no máximo uma regravação a mais do arquivo de uso.
+// Rules: no hook throws (a throwing hook is skipped, but leaves partial state): every
+// step is wrapped in try/catch and failure = silence. No $.process, $.model, $.prompt, tool
+// decisions, or conversation reading; network traffic restricted to 127.0.0.1. State is kept in module
+// variables: hot reload starts fresh, costing at most an extra usage file rewrite.
 //
-// Análise estática do Claude Code: cada chamada é escrita por extenso ($.noun.método), o nome do evento é
-// sempre uma string literal e `$` só é passado para funções declaradas no topo deste arquivo.
+// Claude Code static analysis: all calls written explicitly ($.noun.method), event names are
+// always string literals, and `$` is only passed to functions declared at top level of this file.
 import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
-/** Porta padrão do Habblaud (a mesma do servidor, do hook de permissão e do docker-compose). */
+/** Default Habblaud port (matching server, permission hook, and docker-compose). */
 export const DEFAULT_PORT = 4747
-/** Intervalo das perguntas ao Habblaud; fora do ar, recua para o segundo até ele voltar. */
+/** Polling interval for Habblaud; drops back to offline interval when unreachable. */
 export const POLL_MS = 5_000
 export const OFFLINE_POLL_MS = 30_000
-/** Quanto esperar o Habblaud local responder (`$.http.fetch` não aceita AbortSignal: a corrida é com um timer). */
+/** Max wait time for local Habblaud response (`$.http.fetch` lacks AbortSignal: raced with timer). */
 export const FETCH_TIMEOUT_MS = 2_000
-/** Valores idênticos gravados há menos que isto não são regravados (a mesma regra do tap). */
+/** Identical values written within this window are not rewritten (matching tap rule). */
 export const MIN_REWRITE_MS = 10_000
-/** Nomes na linha embaixo do prompt antes do "e mais N". */
+/** Number of names listed beneath prompt before "and N more". */
 const MAX_NAMES = 3
 
-/** Uma janela no formato do tap: percentual 0–100 e reinício em SEGUNDOS desde a época. */
+/** A tap-formatted usage window: 0–100 percentage and reset time in SECONDS since epoch. */
 export interface UsageWindow {
   utilization: number
   resets_at?: number
 }
 
-/** O arquivo de uso: o formato do tap mais `source`, para saber quem gravou. */
+/** Usage record file: tap format plus `source` identifier. */
 export interface UsageRecord {
   accountId: string
   configDir: string
@@ -51,7 +51,7 @@ export interface UsageRecord {
   source: 'mod'
 }
 
-/** Quem precisa de você, como GET /api/mod/summary devolve (sem demo e sem esta sessão). */
+/** Pending agent needing user attention, as returned by GET /api/mod/summary (excluding demo and current session). */
 export interface WaitingAgent {
   id: string
   name: string
@@ -59,7 +59,7 @@ export interface WaitingAgent {
   account: string
   waitingFor: string
   since?: number
-  /** Há pedido de permissão para responder pelo escritório. */
+  /** Indicates pending permission request answerable via the office UI. */
   answerable: boolean
 }
 
@@ -70,32 +70,32 @@ export interface Summary {
   waiting: WaitingAgent[]
 }
 
-/** Resultado de uma pergunta ao Habblaud: resposta, fora do ar ou uma versão antiga, sem a rota do mod. */
+/** Outcome of polling Habblaud: successful summary, offline, or legacy server without mod route. */
 type Asked = { kind: 'ok'; summary: Summary } | { kind: 'offline' } | { kind: 'outdated' }
 
 interface ModEnv {
-  /** Config dir da conta e o id dela (basename), como o tap calcula; sem HOME (ou USERPROFILE) nem CLAUDE_CONFIG_DIR, ausentes. */
+  /** Account config directory and id (basename), calculated as tap does; undefined if HOME (or USERPROFILE) and CLAUDE_CONFIG_DIR missing. */
   configDir?: string
   accountId?: string
-  /** Pasta do uso; ausente sem HOME (ou USERPROFILE) nem HABBLAUD_USAGE_DIR. */
+  /** Usage directory; undefined if HOME (or USERPROFILE) and HABBLAUD_USAGE_DIR missing. */
   usageDir?: string
   port: number
 }
 
 // ---------------------------------------------------------------------------------------------
-// Funções puras (testadas em tests/habblaud.test.ts)
+// Pure functions (tested in tests/habblaud.test.ts)
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Normaliza um caminho (barras repetidas, `.`, `..` e a barra do fim): o ambiente do mod não tem node:path.
- * Caminhos do Windows (com drive ou UNC) saem com `/`, que o Windows também aceita, e a letra do drive (`C:`) conta
- * como raiz: assim o servidor no Docker, que é Linux, ainda acha o nome da pasta da conta no configDir gravado. Nos
- * outros, `\` é parte do nome (Linux e macOS) e fica como está.
+ * Normalizes path (duplicate slashes, `.`, `..`, and trailing slash): mod environment lacks node:path.
+ * Windows paths (drive or UNC) use `/`, accepted by Windows, and drive letter (`C:`) counts
+ * as root: Docker server (Linux) can still parse account folder name from stored configDir. On
+ * other platforms, `\` is part of name (Linux and macOS) and left as is.
  */
 export function normalizePath(p: string): string {
   const win = /^(?:[A-Za-z]:|\\\\)/.test(p)
   const slashed = win ? p.replace(/\\/g, '/') : p
-  // Raiz: o drive, ou uma das duas barras do UNC (`\\nas\share` vira `//nas/share`, que precisa das duas).
+  // Root: drive letter or leading UNC slashes (`\\nas\share` becomes `//nas/share`, needing both).
   const drive = /^[A-Za-z]:(?=\/|$)/.exec(slashed)?.[0] ?? (win && slashed.startsWith('//') ? '/' : '')
   const rest = slashed.slice(drive.length)
   const abs = rest.startsWith('/')
@@ -113,19 +113,19 @@ export function normalizePath(p: string): string {
   return drive + (abs ? `/${joined}` : joined || (drive ? '' : '.'))
 }
 
-/** `~` no começo vira o HOME (como o tap faz com CLAUDE_CONFIG_DIR e HABBLAUD_USAGE_DIR). */
+/** Leading `~` resolves to HOME (as tap does with CLAUDE_CONFIG_DIR and HABBLAUD_USAGE_DIR). */
 function expandHome(p: string, home: string | undefined): string {
   return home && /^~(?=[\\/]|$)/.test(p) ? home + p.slice(1) : p
 }
 
-/** Config dir da conta: o primeiro item de CLAUDE_CONFIG_DIR (com `~` expandido) ou ~/.claude. */
+/** Account config dir: first item in CLAUDE_CONFIG_DIR (`~` expanded) or ~/.claude. */
 export function configDirOf(claudeConfigDir: string | undefined, home: string | undefined): string | undefined {
   const first = (claudeConfigDir ?? '').split(',')[0]?.trim() ?? ''
   if (first) return normalizePath(expandHome(first, home))
   return home ? normalizePath(`${home}/.claude`) : undefined
 }
 
-/** Id da conta = nome da pasta (AccountInfo.id do servidor, ex.: ".claude-conta2"). */
+/** Account ID = folder name (server AccountInfo.id, e.g. ".claude-account2"). */
 export function accountIdOf(configDir: string): string | undefined {
   const name = configDir.split('/').filter(Boolean).pop()
   return name && name !== '.' && name !== '..' ? name : undefined
@@ -143,8 +143,8 @@ export function portOf(raw: string | undefined): number {
 }
 
 /**
- * Uma janela de `$.session.usage().rateLimits` no formato do tap. `percentUsed` vem de 0 a 100 (passa de
- * 100 só num spend limit estourado, que não gravamos); `resetsAt` vem em ISO 8601 e o tap grava SEGUNDOS.
+ * A rate limit window from `$.session.usage().rateLimits` in tap format. `percentUsed` is 0 to 100
+ * (exceeds 100 only on exceeded spend limits, which are ignored); `resetsAt` is ISO 8601, tap records SECONDS.
  */
 export function windowOf(rl: SessionRateLimit | undefined): UsageWindow | undefined {
   if (!rl || typeof rl.percentUsed !== 'number' || !Number.isFinite(rl.percentUsed)) return undefined
@@ -155,9 +155,9 @@ export function windowOf(rl: SessionRateLimit | undefined): UsageWindow | undefi
 }
 
 /**
- * O registro gravado, ou undefined sem janela utilizável (fora de uma assinatura, ou antes da primeira
- * resposta da API, `rateLimits` vem vazia). Só `five_hour` e `seven_day`: o `spend_limit` de um gateway
- * não é limite do plano.
+ * The written usage record, or undefined if no usable window (outside subscriptions or prior to first
+ * API response, `rateLimits` is empty). Only `five_hour` and `seven_day`: gateway `spend_limit`
+ * is not a plan quota limit.
  */
 export function usageRecord(rateLimits: readonly SessionRateLimit[], configDir: string, now: number): UsageRecord | undefined {
   const accountId = accountIdOf(configDir)
@@ -171,7 +171,7 @@ export function usageRecord(rateLimits: readonly SessionRateLimit[], configDir: 
   return rec
 }
 
-/** Texto numa linha só (nomes e salas vêm do servidor; uma quebra de linha estragaria a linha de status). */
+/** Single line text (names and rooms come from server; newlines would break status line). */
 function oneLine(s: string): string {
   return s.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim()
 }
@@ -184,7 +184,7 @@ function count(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0
 }
 
-/** Lê a resposta de GET /api/mod/summary; qualquer coisa fora do formato = undefined (vale "fora do ar"). */
+/** Parses GET /api/mod/summary response; malformed output returns undefined (treated as offline). */
 export function parseSummary(text: string): Summary | undefined {
   let j: unknown
   try {
@@ -215,7 +215,7 @@ export function parseSummary(text: string): Summary | undefined {
   return { version: str(r.version) ?? '?', agents: count(r.agents), working: count(r.working), waiting }
 }
 
-/** A linha embaixo do prompt: undefined quando ninguém (além desta sessão) precisa de você. */
+/** Text for prompt status line: undefined when nobody (aside from this session) needs attention. */
 export function statusText(waiting: readonly WaitingAgent[]): string | undefined {
   const first = waiting[0]
   if (!first) return undefined
@@ -225,7 +225,7 @@ export function statusText(waiting: readonly WaitingAgent[]): string | undefined
   return `🏢 ${waiting.length} precisam de você: ${shown.join(', ')}${rest > 0 ? ` e mais ${rest}` : ''}`
 }
 
-/** A resposta do /habblaud com o Habblaud no ar. */
+/** Output for /habblaud when Habblaud server is online. */
 export function summaryText(s: Summary, url: string): string {
   const agents = s.agents === 1 ? '1 agente' : `${s.agents} agentes`
   const waiting = s.waiting.length === 0 ? 'ninguém precisa de você' : s.waiting.length === 1 ? '1 precisa de você' : `${s.waiting.length} precisam de você`
@@ -243,23 +243,23 @@ export function outdatedText(url: string): string {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Estado do módulo (some num hot reload) e o que fala com o Claude Code
+// Module state (reset on hot reload) and Claude Code integration
 // ---------------------------------------------------------------------------------------------
 
 let env: ModEnv | undefined
-/** Última gravação do arquivo de uso (chave = arquivo + valores), para não regravar o mesmo em menos de 10 s. */
+/** Last written usage record (key = file + values), preventing rewrites within 10 s. */
 let lastWrite: { key: string; at: number } | undefined
-/** Texto da linha de status; null = ainda não mexemos nela nesta carga (a primeira chamada sempre passa). */
+/** Status line text; null = untouched during this load (first update always executes). */
 let lastStatus: string | undefined | null = null
 let timer: { cancel: () => void } | undefined
 let timerMs = 0
-/** Uma pergunta por vez: um Habblaud lento não acumula perguntas. */
+/** Single poll in flight: slow responses do not queue up. */
 let polling = false
 
-/** O ambiente da sessão, lido uma vez por carga (cada nome escrito por extenso, como a análise exige). */
+/** Session environment, loaded once per module load (explicit property access required by static analyzer). */
 async function readEnv($: EngineInterface): Promise<ModEnv> {
   if (env) return env
-  // No Windows, HOME só existe se alguém o definir: vale o USERPROFILE (a mesma ordem do servidor, HOME e depois homedir()).
+  // On Windows, HOME only exists if defined: falls back to USERPROFILE (same order as server: HOME then homedir()).
   const home = (await $.env.get('HOME'))?.trim() || (await $.env.get('USERPROFILE'))?.trim() || undefined
   const configDir = configDirOf(await $.env.get('CLAUDE_CONFIG_DIR'), home)
   const next: ModEnv = {
@@ -275,7 +275,7 @@ async function readEnv($: EngineInterface): Promise<ModEnv> {
   return next
 }
 
-/** Grava o uso desta conta (se houver janelas e algo mudou ou já passou o intervalo). Pode lançar: quem chama engole. */
+/** Writes account usage (if windows exist and changed or interval passed). May throw: caller suppresses. */
 async function writeUsage($: EngineInterface, rateLimits: readonly SessionRateLimit[]): Promise<void> {
   if (!rateLimits.length) return
   const e = await readEnv($)
@@ -286,13 +286,13 @@ async function writeUsage($: EngineInterface, rateLimits: readonly SessionRateLi
   const file = `${e.usageDir}/${rec.accountId}.json`
   const key = JSON.stringify([file, rec.configDir, rec.five_hour, rec.seven_day])
   if (lastWrite && lastWrite.key === key && now - lastWrite.at >= 0 && now - lastWrite.at < MIN_REWRITE_MS) return
-  // $.fs.write cria a pasta se faltar e NÃO é atômico: o leitor do servidor ignora uma leitura pela
-  // metade e fica com o último registro bom (server/accounts/statusline.ts).
+  // $.fs.write creates directory if missing and is NOT atomic: server reader ignores partial
+  // reads and retains the last valid record (server/accounts/statusline.ts).
   await $.fs.write(file, `${JSON.stringify(rec)}\n`)
   lastWrite = { key, at: now }
 }
 
-/** GET /api/mod/summary com prazo de 2 s; nunca lança. */
+/** GET /api/mod/summary with 2 s timeout; never throws. */
 async function askHabblaud($: EngineInterface, port: number, query: string): Promise<Asked> {
   let wait: { cancel: () => void } | undefined
   const timeout = new Promise<undefined>((resolve) => {
@@ -301,7 +301,7 @@ async function askHabblaud($: EngineInterface, port: number, query: string): Pro
   try {
     const res = await Promise.race([$.http.fetch(`http://127.0.0.1:${port}/api/mod/summary${query}`, { headers: { accept: 'application/json' } }), timeout])
     if (!res) return { kind: 'offline' }
-    // 404 JSON = um Habblaud de antes do mod (rota desconhecida); outro 404 qualquer = não é o Habblaud.
+    // 404 JSON = legacy Habblaud server prior to mod route; other 404 = not Habblaud.
     if (res.status === 404 && res.text.includes('rota desconhecida')) return { kind: 'outdated' }
     const summary = res.ok ? parseSummary(res.text) : undefined
     return summary ? { kind: 'ok', summary } : { kind: 'offline' }
@@ -312,14 +312,14 @@ async function askHabblaud($: EngineInterface, port: number, query: string): Pro
   }
 }
 
-/** Troca a linha de status só quando o texto muda. */
+/** Updates status line only when text changes. */
 function setStatus($: EngineInterface, text: string | undefined): void {
   if (text === lastStatus) return
   lastStatus = text
   $.ui.status(text)
 }
 
-/** (Re)agenda as perguntas: 5 s com o Habblaud no ar, 30 s fora do ar. */
+/** (Re)schedules polling: 5 s while online, 30 s while offline. */
 function schedule($: EngineInterface, ms: number): void {
   if (timer && timerMs === ms) return
   timer?.cancel()
@@ -329,7 +329,7 @@ function schedule($: EngineInterface, ms: number): void {
   })
 }
 
-/** Uma rodada do aviso embaixo do prompt. Nunca lança. */
+/** Single polling pass for prompt status line. Never throws. */
 async function poll($: EngineInterface): Promise<void> {
   if (polling) return
   polling = true
@@ -352,13 +352,13 @@ async function poll($: EngineInterface): Promise<void> {
     schedule($, POLL_MS)
     setStatus($, statusText(asked.summary.waiting))
   } catch {
-    // silêncio: a próxima rodada tenta de novo
+    // silence: next interval retries
   } finally {
     polling = false
   }
 }
 
-/** O texto do /habblaud: o escritório inteiro (sem filtrar esta sessão, para os números baterem com a tela). */
+/** Output for /habblaud: whole office summary (unfiltered by session, matching screen counts). */
 async function habblaudText($: EngineInterface): Promise<string> {
   const e = await readEnv($)
   const url = `http://localhost:${e.port}`
@@ -373,29 +373,29 @@ export const register: Register = (on) => {
     try {
       await $.command.register({ name: 'habblaud', description: 'Resumo do Habblaud: quantos agentes, quem trabalha e quem precisa de você' })
     } catch {
-      // sem o comando, o resto segue
+      // without command registration, remainder continues
     }
     try {
       const usage = await $.session.usage()
       await writeUsage($, usage.rateLimits)
     } catch {
-      // falha ao gravar = silêncio (o Habblaud continua com o último número que tinha)
+      // write failure = silence (Habblaud retains last recorded value)
     }
     try {
       schedule($, POLL_MS)
     } catch {
-      // sem o aviso embaixo do prompt, o resto segue
+      // without prompt notification, remainder continues
     }
     return next(e)
   })
 
-  // Depois de cada turno e quando um limite anda um ponto. `e` traz os mesmos números de
-  // `$.session.usage()` naquele instante, então não há por que perguntar de novo.
+  // After each turn and whenever quota shifts a point. `e` provides current `$.session.usage()`
+  // metrics, avoiding redundant queries.
   on('session.measure', async ($, e, next) => {
     try {
       await writeUsage($, e.rateLimits)
     } catch {
-      // falha ao gravar = silêncio
+      // write failure = silence
     }
     return next(e)
   })

@@ -1,11 +1,11 @@
-// Frases de apresentação do jogador do Habblaud World: o protocolo leva só o id (IntroId); o texto é traduzido no
-// navegador de quem vê. Puro: sem Node nem DOM.
+// Player intro taglines for Habblaud World: protocol transmits ID only (IntroId); text is translated
+// in viewer's browser. Pure: no Node or DOM.
 import { tr } from '../i18n';
 import { INTRO_IDS, type IntroId } from './protocol';
 
 export { INTRO_IDS, type IntroId };
 
-/** Uma função por id (o tr roda na hora, no idioma ativo). O Record obriga a ter todos os ids. */
+/** One function per ID (tr runs lazily in active language). Record enforces exhaustiveness. */
 const LABELS: Readonly<Record<IntroId, () => string>> = {
   night_owl: () => tr('Codo de madrugada'),
   early_bird: () => tr('Acordo cedo para codar'),
@@ -33,12 +33,12 @@ export function isIntroId(v: unknown): v is IntroId {
   return typeof v === 'string' && (INTRO_IDS as readonly string[]).includes(v);
 }
 
-/** Texto da frase no idioma ativo (um id que esta versão não conhece, vindo de um servidor mais novo: o próprio id). */
+/** Tagline text in active language (unknown ID from newer server falls back to ID itself). */
 export function introLabel(id: IntroId): string {
   return LABELS[id]?.() ?? String(id);
 }
 
-/** Todas as frases, na ordem de INTRO_IDS (para o seletor). */
+/** All intro taglines, in INTRO_IDS order (for dropdown/selector). */
 export function introOptions(): { id: IntroId; label: string }[] {
   return INTRO_IDS.map((id) => ({ id, label: introLabel(id) }));
 }

@@ -1,16 +1,16 @@
-// Personalidades dos personagens — funções PURAS e determinísticas (mesma semente = mesma pessoa em
-// qualquer navegador). Cada agente tem 2 ou 3 traços, que mudam o que prefere fazer quando está à toa,
-// com quem anda e o que fala; pares de agentes podem ter amizade ou rivalidade.
+// Character personalities — PURE deterministic functions (same seed = identical persona in
+// any browser). Each agent has 2 or 3 traits influencing idle preferences,
+// companions, and dialogue; agent pairs can have friendships or rivalries.
 import { mulberry32 } from '../../../../shared/hash';
 import { IDLE_WEIGHTS, type IdleActivity } from '../sim/behavior';
 import { tr } from '../../../../shared/i18n';
 import { TRAIT_IDS, traitsClash, type TraitId } from '../../../../shared/world/traits';
 
-// Os ids, os rótulos e os pares que não combinam ficam em shared/world/traits.ts (os mesmos do jogador do Habblaud
-// World); re-exportados aqui para quem já importava deste módulo.
+// IDs, labels, and incompatible pairs live in shared/world/traits.ts (matching Habblaud
+// World player); re-exported here for existing callers.
 export { TRAIT_IDS, TRAITS, type Trait, type TraitId } from '../../../../shared/world/traits';
 
-/** Bordões: cada um tem o seu (aparece de vez em quando nas falas). */
+/** Catchphrases: each character has one (intermittently included in dialogue). */
 export const CATCHPHRASES = [
   tr('Bora!'),
   tr('Partiu!'),
@@ -28,14 +28,14 @@ export const CATCHPHRASES = [
 
 export interface Persona {
   traits: TraitId[];
-  /** 0..1: vontade de entrar em rodas (timidez puxa para baixo; fofoca e piadas para cima). */
+  /** 0..1: inclination to join conversation circles (shyness pulls down; banter pulls up). */
   sociability: number;
-  /** 0..1: sorte/habilidade em jogos (games e esporte puxam para cima). */
+  /** 0..1: luck/skill in games (gaming and sports bias upward). */
   skill: number;
   catchphrase: string;
 }
 
-/** Mistura de 32 bits (sementes próximas viram sequências bem diferentes). */
+/** 32-bit hash mixer (neighboring seeds generate divergent sequences). */
 function mix(seed: number): number {
   let h = (seed ^ 0x5bd1e995) >>> 0;
   h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
@@ -45,7 +45,7 @@ function mix(seed: number): number {
 
 const cache = new Map<number, Persona>();
 
-/** Personalidade do agente com esta semente (2 ou 3 traços sem conflito). */
+/** Agent personality from seed (2 or 3 conflict-free traits). */
 export function personaFor(seed: number): Persona {
   const hit = cache.get(seed);
   if (hit) return hit;
@@ -83,8 +83,8 @@ export function hasTrait(p: Persona, t: TraitId): boolean {
 export type Bond = 'amizade' | 'rivalidade';
 
 /**
- * Vínculo entre dois agentes (simétrico): ~22% amizade, ~12% rivalidade, o resto só colegas.
- * Competição dos dois lados puxa para rivalidade; fofoca/piadas para amizade.
+ * Relationship between two agents (symmetric): ~22% friendship, ~12% rivalry, remainder casual colleagues.
+ * Mutual competitiveness tilts toward rivalry; humor/gossip tilts toward friendship.
  */
 export function bondBetween(seedA: number, seedB: number): Bond | null {
   if (seedA === seedB) return null;
@@ -100,7 +100,7 @@ export function bondBetween(seedA: number, seedB: number): Bond | null {
   return null;
 }
 
-/** Quanto cada traço multiplica a vontade de cada passeio sozinho. */
+/** Multiplier per trait for solo roaming activities. */
 const SOLO_K: Partial<Record<TraitId, Partial<Record<IdleActivity, number>>>> = {
   cafeina: { coffee: 3 },
   vaidade: { mirror: 5, bathroom: 1.3 },
@@ -115,7 +115,7 @@ const SOLO_K: Partial<Record<TraitId, Partial<Record<IdleActivity, number>>>> = 
   economia: { snack: 0.4, water: 1.6 },
 };
 
-/** Pesos dos passeios sozinho para esta personalidade. */
+/** Solo stroll weights for this personality type. */
 export function soloWeights(p: Persona): Record<IdleActivity, number> {
   const out = { ...IDLE_WEIGHTS };
   for (const t of p.traits) for (const [k, v] of Object.entries(SOLO_K[t] ?? {})) out[k as IdleActivity] *= v as number;

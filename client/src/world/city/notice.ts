@@ -1,16 +1,16 @@
-// O texto de cada aviso do servidor do mundo na cena (`notice {level, text}`): o `text` é um id de NOTICE_IDS do
-// protocolo, traduzido aqui (o servidor nunca manda frases). Alguns ids dizem coisas diferentes conforme onde estou:
-// na rua, esperando a resposta de um `enter` (na porta) ou dentro de um prédio (posto para fora).
+// Text for each world notice in scene (`notice {level, text}`): `text` is a protocol NOTICE_IDS
+// id, translated here (server never sends phrases). Certain ids vary based on context:
+// in street, waiting on `enter` response (at door), or inside building (evicted).
 import { tr } from '../../../../shared/i18n';
 import type { NoticeId } from '../../../../shared/world/protocol';
 
-/** Onde o aviso chegou: na rua, logo depois de um `enter` (a porta) ou dentro de um prédio. */
+/** Where notice was received: in street, right after `enter` (at door), or inside building. */
 export type NoticePlace = 'street' | 'door' | 'inside';
 
 /**
- * Texto de um `notice` (o `text` é um id de NOTICE_IDS do protocolo, traduzido aqui; um id desconhecido vira um aviso
- * genérico). null = nada para mostrar (ids que só interessam a quem depura). Um id novo no protocolo sem `case` aqui
- * não compila.
+ * Text for a `notice` (`text` is protocol NOTICE_IDS id, translated here; unknown id falls back to
+ * generic notice). null = nothing to display (debug-only ids). New protocol id without `case` here
+ * fails compilation.
  */
 export function noticeText(raw: NoticeId | (string & {}), place: NoticePlace = 'street'): string | null {
   const id = raw as NoticeId;
@@ -43,8 +43,8 @@ export function noticeText(raw: NoticeId | (string & {}), place: NoticePlace = '
       return place === 'inside' ? tr('Você não pode mais ficar neste prédio: voltou para a rua.') : tr('Você não pode entrar neste prédio.');
     case 'full':
       return tr('O prédio está lotado (20 visitantes). Tente daqui a pouco.');
-    // Fase 5 (social leve). As confirmações (reported, blocked_ok, stamped) quase sempre já foram ditas na hora pelo
-    // social (city/social.ts e visit-social.ts as tiram daqui); chegando tarde, viram este aviso.
+    // Phase 5 (light social). Confirmations (reported, blocked_ok, stamped) are almost always handled immediately
+    // by social (city/social.ts and visit-social.ts consume them); if arriving late, they become this notice.
     case 'daily_limit':
       return tr('Limite do dia atingido: amanhã tem mais.');
     case 'already_done':

@@ -1,6 +1,6 @@
-// Edita o .env do projeto sem perder o resto: troca (ou tira) só as chaves pedidas e mantém comentários e ordem.
+// Edits project .env without discarding remaining contents: updates or deletes requested keys while preserving comments and ordering.
 
-/** `set[k] = valor` grava/troca; `null` remove. Chaves repetidas viram uma (a primeira posição). */
+/** `set[k] = value` writes/updates; `null` removes. Repeated keys merge into first position. */
 export function updateEnv(content: string, set: Record<string, string | null>): string {
   const lines = content.split(/\r?\n/);
   if (lines.length && lines[lines.length - 1] === '') lines.pop();
@@ -24,7 +24,7 @@ export function updateEnv(content: string, set: Record<string, string | null>): 
   return out.length ? `${out.join('\n')}\n` : '';
 }
 
-/** Valor de uma chave do .env (a primeira ocorrência), sem aspas. */
+/** Value of a .env key (first occurrence), unquoted. */
 export function readEnvValue(content: string, key: string): string | undefined {
   for (const line of content.split(/\r?\n/)) {
     const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(line);
@@ -33,7 +33,7 @@ export function readEnvValue(content: string, key: string): string | undefined {
   return undefined;
 }
 
-/** Junta nomes a uma lista separada por vírgula (HABBLAUD_ALLOWED_HOSTS), sem repetir. */
+/** Appends names to comma-separated list (HABBLAUD_ALLOWED_HOSTS) without duplicates. */
 export function addToList(current: string | undefined, ...names: string[]): string {
   const list = (current ?? '')
     .split(',')

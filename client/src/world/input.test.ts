@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Camera } from './camera';
 import { attachInput, type InputHandlers } from './input';
 
-/** `window` mínimo: o listener de teclado da câmera registra em `keydown`. */
+/** Minimal `window`: camera keyboard listener registers on `keydown`. */
 function installWindow(): { dispatch(ev: { key: string; target: unknown }): void; restore(): void } {
   const prev = globalThis.window;
   const listeners = new Set<(ev: KeyboardEvent) => void>();
@@ -48,7 +48,7 @@ function handlers(): InputHandlers {
   return { pick: () => null, click() {}, doubleClick() {}, hover() {}, interact() {}, overview() {}, zoomStep() {} };
 }
 
-describe('teclado da câmera', () => {
+describe('camera keyboard', () => {
   let win: ReturnType<typeof installWindow>;
   let off: (() => void) | null = null;
 
@@ -58,7 +58,7 @@ describe('teclado da câmera', () => {
     win?.restore();
   });
 
-  it('ArrowRight com foco num rádio não move a câmera', () => {
+  it('ArrowRight with focus on radio does not move camera', () => {
     win = installWindow();
     const pans: [number, number][] = [];
     const camera = { zoom: 1, panBy: (dx: number, dy: number) => pans.push([dx, dy]), zoomAt() {}, settle() {} } as unknown as Camera;
@@ -71,21 +71,21 @@ describe('teclado da câmera', () => {
         getAttribute: (name: string) => (name === 'role' ? 'radio' : null),
       },
     });
-    // O bug: a seta do grupo de velocidade chegava aqui como panBy(-90, 0).
+    // Regression bug: speed control arrow dispatched as panBy(-90, 0).
     expect(pans).toEqual([]);
   });
 
-  it('ArrowRight com foco num botão comum continua movendo a câmera', () => {
+  it('ArrowRight with focus on normal button continues moving camera', () => {
     win = installWindow();
     const pans: [number, number][] = [];
     const camera = { zoom: 1, panBy: (dx: number, dy: number) => pans.push([dx, dy]), zoomAt() {}, settle() {} } as unknown as Camera;
     off = attachInput(canvas(), camera, handlers());
-    // Depois de clicar num botão da barra, o foco fica nele: as setas ainda são da câmera.
+    // After clicking a toolbar button, focus stays on it: arrow keys still control camera.
     win.dispatch({ key: 'ArrowRight', target: { tagName: 'BUTTON', isContentEditable: false, getAttribute: () => null } });
     expect(pans).toEqual([[-90, 0]]);
   });
 
-  it('ArrowRight com foco no mundo continua movendo a câmera', () => {
+  it('ArrowRight with focus on world continues moving camera', () => {
     win = installWindow();
     const pans: [number, number][] = [];
     const camera = { zoom: 1, panBy: (dx: number, dy: number) => pans.push([dx, dy]), zoomAt() {}, settle() {} } as unknown as Camera;
@@ -99,7 +99,7 @@ describe('teclado da câmera', () => {
 });
 
 describe('modalOpen', () => {
-  /** `document` mínimo: alguns elementos e o `querySelector` dos dois seletores que a função usa. */
+  /** Minimal `document`: mock elements and `querySelector` for selectors used by function. */
   function installDocument(els: { tag: string; open?: boolean; ariaModal?: boolean }[]): () => void {
     const prev = globalThis.document;
     const matches = (sel: string, e: (typeof els)[number]): boolean => {
@@ -117,7 +117,7 @@ describe('modalOpen', () => {
     };
   }
 
-  it('um <dialog> fechado (mesmo com aria-modal) não bloqueia o teclado da cidade', async () => {
+  it('closed <dialog> (even with aria-modal) does not block city keyboard', async () => {
     const { modalOpen } = await import('./input');
     const restore = installDocument([{ tag: 'dialog', open: false, ariaModal: true }]);
     try {

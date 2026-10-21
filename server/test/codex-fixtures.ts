@@ -1,11 +1,11 @@
-// Construtores de linhas SINTÉTICAS de rollout do Codex (formatos paginated e legacy) e de um CODEX_HOME temporário
-// (sessions/AAAA/MM/DD/rollout-*.jsonl, archived_sessions/ e thread-writer-locks/), para testes. Os formatos seguem o
-// código do Codex 0.162 (codex-rs/protocol); nada aqui vem de conversas reais.
+// Synthetic Codex rollout line builders (paginated and legacy formats) and temporary CODEX_HOME
+// (sessions/YYYY/MM/DD/rollout-*.jsonl, archived_sessions/ and thread-writer-locks/) for tests. Schemas match
+// Codex 0.162 (codex-rs/protocol); nothing here originates from real conversations.
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { appendLines, tempDir, writeLines } from './fixtures';
 
-/** Id de thread sintético (UUID v7 de mentira). */
+/** Synthetic thread ID (mock UUID v7). */
 export function threadId(n: number): string {
   return `0199b0c0-0000-7000-8000-${String(n).padStart(12, '0')}`;
 }
@@ -39,7 +39,7 @@ export interface RateLimitsOpts {
   reached?: string;
 }
 
-/** Linhas de rollout. `t` = id do thread; `turn` = id do turno. */
+/** Rollout lines. `t` = thread ID; `turn` = turn ID. */
 export const R = {
   meta(t: string, o: MetaOpts = {}): string {
     const payload: Record<string, unknown> = {
@@ -148,13 +148,13 @@ export const R = {
   functionOutput(callId: string, output: string, at = Date.now()): string {
     return line('response_item', { type: 'function_call_output', call_id: callId, output }, at);
   },
-  /** Mensagem de contexto (developer/user/assistant) mandada ao modelo: não é a conversa. */
+  /** Context message (developer/user/assistant) submitted to model: not user-visible conversation. */
   message(role: string, text: string, at = Date.now()): string {
     return line('response_item', { type: 'message', role, content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text }] }, at);
   },
   /**
-   * Resposta entregue no code mode do app: response_item message/assistant com o marcador em `metadata` (no
-   * "incomplete", o texto cortado vem no próprio marcador). `callId` = a chamada user_messaging.send_message.
+   * Response delivered in app code mode: response_item message/assistant with marker in `metadata` (for
+   * "incomplete", truncated text resides directly in marker). `callId` = user_messaging.send_message call.
    */
   delivered(callId: string, text: string, at = Date.now(), complete = true): string {
     return JSON.stringify({
@@ -181,7 +181,7 @@ export const R = {
   },
 };
 
-/** session_meta.source de um subagente (thread_spawn) e de threads internos, como o Codex grava. */
+/** Subagent session_meta.source (thread_spawn) and internal threads as recorded by Codex. */
 export const SOURCES = {
   sub: (parent: string, role = 'explorer') => ({ subagent: { thread_spawn: { parent_thread_id: parent, depth: 1, agent_nickname: 'Kepler', agent_role: role } } }),
   guardian: () => ({ subagent: { other: 'guardian' } }),
@@ -189,7 +189,7 @@ export const SOURCES = {
   review: () => ({ subagent: 'review' }),
 };
 
-/** Um CODEX_HOME temporário (apagado com `cleanup`). */
+/** Temporary CODEX_HOME directory (deleted on `cleanup`). */
 export function codexHome(name = '.codex') {
   const tmp = tempDir('habblaud-codex-');
   const dir = join(tmp.dir, name);
@@ -199,7 +199,7 @@ export function codexHome(name = '.codex') {
     home: tmp.dir,
     dir,
     cleanup: tmp.cleanup,
-    /** Grava o rollout de um thread (sessions/AAAA/MM/DD por padrão; `archived` em archived_sessions/). */
+    /** Writes rollout for thread (sessions/YYYY/MM/DD by default; `archived` in archived_sessions/). */
     rollout(t: string, lines: string[], o: { date?: string; archived?: boolean; mtime?: number } = {}): string {
       const date = o.date ?? '2026/10/09';
       const base = o.archived ? join(dir, 'archived_sessions') : join(dir, 'sessions', ...date.split('/'));
@@ -211,7 +211,7 @@ export function codexHome(name = '.codex') {
     append(path: string, lines: string[]): void {
       appendLines(path, lines);
     },
-    /** Cria o lock do thread; `createdAt` (epoch ms) recua o mtime (o Codex nunca escreve no lock). */
+    /** Creates thread lock; `createdAt` (epoch ms) sets back mtime (Codex never writes to lock). */
     lock(t: string, createdAt?: number): string {
       const path = join(dir, 'thread-writer-locks', `${t}.lock`);
       writeFileSync(path, '');

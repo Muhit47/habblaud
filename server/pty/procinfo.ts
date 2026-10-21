@@ -1,41 +1,41 @@
-// Conferir que um PID ainda é aquele Claude Code antes de encerrá-lo ou assumi-lo. O registro de sessões
-// (<conta>/sessions/<pid>.json) pode ficar para trás depois de um crash ou de reiniciar o computador, e o PID
-// pode ter sido reaproveitado por outro processo do usuário: aí "Encerrar" mandaria o sinal para ele.
-// Compara o início real do processo (sistema operacional) com o do registro e o nome do executável.
+// Verifies that a PID still belongs to that Claude Code process before killing or taking it over. Session registry
+// (<account>/sessions/<pid>.json) can linger after crashes or reboots, and PID may have been reused
+// by another user process: "Terminate" could inadvertently signal an unrelated process.
+// Compares real process start time (OS) with registry start time and executable name.
 import { execFile } from 'node:child_process';
 import { basename } from 'node:path';
 
 export interface ProcInfo {
-  /** Início do processo, em ms desde 1970. */
+  /** Process start timestamp in ms since Unix epoch. */
   startMs: number;
-  /** Nome do executável (sem pasta nem extensão). */
+  /** Executable name (without directory or file extension). */
   name: string;
-  /** Início exato como o Windows informa (FILETIME), o mesmo formato do `procStart` do registro no Windows. */
+  /** Exact start timestamp from Windows (FILETIME), matching `procStart` format in Windows registry. */
   fileTime?: string;
 }
 
-/** O que o registro de sessões do Claude Code guarda sobre o processo. */
+/** What Claude Code session registry records about process. */
 export interface RegisteredProc {
   startedAt?: number;
   procStart?: string;
 }
 
-/** Diferença entre 1601 (FILETIME) e 1970, em ms. */
+/** Difference between 1601 (FILETIME) and 1970 in ms. */
 const FILETIME_EPOCH_MS = 11_644_473_600_000;
-/** O registro é gravado logo depois que o processo sobe: início real até 2 min antes (ou 5 s depois, relógio). */
+/** Registry written right after spawn: actual start up to 2 min earlier (or 5 s later for clock skew). */
 const START_BEFORE_MS = 120_000;
 const START_AFTER_MS = 5_000;
 
-/** Executável do Claude Code: `claude`, o Node/Bun que roda o pacote npm ou o binário nativo com nome de versão. */
+/** Claude Code executable: `claude`, Node/Bun running npm package, or versioned native binary. */
 export function looksLikeClaude(name: string): boolean {
   const n = basename(name.trim()).replace(/\.exe$/i, '');
   return /^(claude|node|bun)$/i.test(n) || /^\d+\.\d+\.\d+/.test(n);
 }
 
-/** O processo vivo `info` é o mesmo que gravou `reg`? */
+/** Does alive process `info` match process that wrote `reg`? */
 export function sameProcess(reg: RegisteredProc, info: ProcInfo): boolean {
   if (!looksLikeClaude(info.name)) return false;
-  // Windows: o registro guarda o FILETIME exato do início; quando os dois existem, têm de ser iguais.
+  // Windows: registry stores exact FILETIME; when both exist, they must match.
   if (reg.procStart && info.fileTime && /^\d+$/.test(reg.procStart)) return reg.procStart === info.fileTime;
   if (typeof reg.startedAt !== 'number' || !Number.isFinite(reg.startedAt)) return false;
   return info.startMs >= reg.startedAt - START_BEFORE_MS && info.startMs <= reg.startedAt + START_AFTER_MS;
@@ -47,7 +47,7 @@ function run(file: string, args: string[], env?: NodeJS.ProcessEnv): Promise<str
   });
 }
 
-/** Início e nome de um processo vivo (undefined se ele não existe ou não deu para saber). */
+/** Start time and executable name of living process (undefined if non-existent or inaccessible). */
 export async function readProcInfo(pid: number, platform: NodeJS.Platform = process.platform): Promise<ProcInfo | undefined> {
   if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
   if (platform === 'win32') {
@@ -60,19 +60,19 @@ export async function readProcInfo(pid: number, platform: NodeJS.Platform = proc
     ]);
     return out === undefined ? undefined : parseWindows(out);
   }
-  // macOS e Linux: lstart em inglês (LC_ALL=C) e o nome do executável.
+  // macOS and Linux: lstart in English (LC_ALL=C) and executable name.
   const out = await run('ps', ['-o', 'lstart=', '-o', 'comm=', '-p', String(pid)], { ...process.env, LC_ALL: 'C', LANG: 'C' });
   return out === undefined ? undefined : parsePs(out);
 }
 
-/** Saída do PowerShell: FILETIME na primeira linha, nome na segunda. */
+/** PowerShell output: FILETIME on first line, executable name on second line. */
 export function parseWindows(out: string): ProcInfo | undefined {
   const [ft, name] = out.trim().split(/\r?\n/).map((s) => s.trim());
   if (!ft || !/^\d+$/.test(ft) || !name) return undefined;
   return { startMs: Number(BigInt(ft) / 10_000n) - FILETIME_EPOCH_MS, name, fileTime: ft };
 }
 
-/** Saída do ps: "Mon Oct 12 22:46:14 2026 /caminho/do/comando" (lstart tem sempre 5 campos). */
+/** ps output: "Mon Oct 12 22:46:14 2026 /path/to/command" (lstart always consists of 5 fields). */
 export function parsePs(out: string): ProcInfo | undefined {
   const m = /^\s*(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\s+\d{4})\s+(.+?)\s*$/.exec(out.split('\n')[0] ?? '');
   if (!m) return undefined;

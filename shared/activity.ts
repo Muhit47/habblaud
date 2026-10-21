@@ -1,5 +1,5 @@
-// Tradução de chamadas de ferramenta do Claude Code em atividades legíveis (PT-BR).
-// Código puro, usado pelo servidor (transcripts reais) e pelo simulador de demonstração.
+// Translation of Claude Code tool calls into human-readable activities.
+// Pure code, used by server (real transcripts) and demo simulator.
 import type { ActivityKind, AskQuestion } from './types';
 import { tr } from './i18n';
 
@@ -14,11 +14,11 @@ export interface ActivityDescription {
 const MAX_QUESTIONS = 4;
 const MAX_OPTIONS = 6;
 
-/** Perguntas de um AskUserQuestion para exibir no escritório (mascaradas e cortadas, como o resto). */
+/** Questions from an AskUserQuestion to display in office (masked and truncated, like the rest). */
 function askQuestions(raw: unknown): AskQuestion[] {
   const clean = (v: unknown, n: number) => (typeof v === 'string' && v.trim() ? truncate(maskSecrets(v.slice(0, n * 4)), n) : '');
   const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object';
-  // As posições contam no original (com as entradas inválidas): a resposta pelo escritório volta por elas.
+  // Positions count in original (including invalid entries): response from office returns by them.
   const qs = Array.isArray(raw) ? raw.slice(0, MAX_QUESTIONS) : [];
   return qs.flatMap((q, index) => {
     if (!obj(q)) return [];
@@ -40,7 +40,7 @@ function askQuestions(raw: unknown): AskQuestion[] {
 const MAX_TEXT = 46;
 const MAX_DETAIL = 300;
 
-/** Colapsa espaços/quebras de linha e corta com reticências. */
+/** Collapses spaces/newlines and truncates with ellipsis. */
 export function truncate(s: string, n: number): string {
   const one = s.replace(/\s+/g, ' ').trim();
   return one.length > n ? `${one.slice(0, Math.max(1, n - 1)).trimEnd()}…` : one;
@@ -65,8 +65,8 @@ function str(v: unknown): string {
 }
 
 function make(kind: ActivityKind, icon: string, text: string, detail?: string): ActivityDescription {
-  // Mascara antes de cortar (um segredo cortado ao meio vazaria o começo); o recorte prévio só
-  // evita rodar as expressões sobre heredocs enormes.
+  // Mask before truncating (a secret truncated mid-string would leak the prefix); pre-truncation only
+  // avoids running regexes over huge heredocs.
   return {
     kind,
     icon,
@@ -77,35 +77,35 @@ function make(kind: ActivityKind, icon: string, text: string, detail?: string): 
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic)$/i;
 
-// ------------------------------------------------------------------ segredos
+// ------------------------------------------------------------------ secrets
 
 /**
- * Padrões de segredos mascarados em textos e detalhes (comandos, prompts, respostas, erros).
- * Os detalhes vão para o navegador e para o feed: um token colado num `curl` não pode aparecer lá.
+ * Secret patterns masked in texts and details (commands, prompts, responses, errors).
+ * Details go to browser and feed: a token pasted into a `curl` must not appear there.
  */
 const SECRET_PATTERNS: Array<[RegExp, string]> = [
-  // Blocos de chave privada (PEM).
+  // Private key blocks (PEM).
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, tr('[chave privada]')],
-  // Cabeçalhos com credenciais: Authorization, Cookie, X-Api-Key...
+  // Headers with credentials: Authorization, Cookie, X-Api-Key...
   [/\b(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key|x-auth-token|private-token)(\s*:\s*)[^'"\n]+/gi, '$1$2***'],
-  // Bearer/Basic/Token <valor> soltos.
+  // Bare Bearer/Basic/Token <value>.
   [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{6,}/g, '$1 ***'],
-  // URL com usuário:senha.
+  // URL with user:password.
   [/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/'"]+:)[^\s@/'"]+@/gi, '$1***@'],
-  // Webhook: o host fica, o caminho com o segredo sai.
+  // Webhook: host stays, path with secret is stripped.
   [/(\bhttps?:\/\/hooks\.slack\.com\/services\/)T[A-Z0-9]+\/B[A-Z0-9]+\/[A-Za-z0-9]+/gi, '$1***'],
   [/(\bhttps?:\/\/(?:discordapp|discord)\.com\/api\/webhooks\/)\d+\/[A-Za-z0-9_-]+/gi, '$1***'],
   [/(\bhttps?:\/\/api\.telegram\.org\/bot)\d+:[A-Za-z0-9_-]+/gi, '$1***'],
-  // curl -u usuario:senha / --user usuario:senha.
+  // curl -u user:password / --user user:password.
   [/((?:^|\s)(?:-u|--user)\s+['"]?[^\s:'"]+:)[^\s'"]+/g, '$1***'],
   // --token X, --password=X, --api-key X...
   [/((?:^|\s)--?(?:token|password|passwd|pass|secret|api-key|apikey|access-token|auth-token)(?:\s+|=))(['"]?)[^\s'"]+\2/gi, '$1$2***$2'],
-  // NOME_SENSIVEL=valor / "password": "valor" (GITHUB_TOKEN, DB_PASSWORD, client_secret, api_key...).
+  // SENSITIVE_NAME=value / "password": "value" (GITHUB_TOKEN, DB_PASSWORD, client_secret, api_key...).
   [
     /\b([A-Za-z0-9_.-]*?(?:token|secret|passw(?:or)?d|pwd|api[_-]?key|access[_-]?key|private[_-]?key|_key|credentials?))(["']?\s*[=:]\s*)(["']?)([^\s"'&;|,}]+)\3/gi,
     '$1$2$3***$3',
   ],
-  // Chaves com prefixo conhecido.
+  // Keys with known prefix.
   [/\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{8,}/g, 'sk-***'],
   [/\bgh[pousr]_[A-Za-z0-9]{16,}/g, 'gh*_***'],
   [/\bgithub_pat_[A-Za-z0-9_]{16,}/g, 'github_pat_***'],
@@ -114,14 +114,14 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, 'AKIA***'],
   [/\bAIza[0-9A-Za-z_-]{30,}/g, 'AIza***'],
   [/\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{10,}/g, 'sk_***'],
-  // Token solto do npm e do Hugging Face (tamanho de token real; "npm test" e "hf" ficam).
+  // Bare npm and Hugging Face tokens (real token length; "npm test" and "hf" stay).
   [/\bnpm_[A-Za-z0-9]{30,}/g, 'npm_***'],
   [/\bhf_[A-Za-z0-9]{30,}/g, 'hf_***'],
   // JWT.
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, 'eyJ***'],
 ];
 
-/** Mascara segredos comuns (tokens, senhas, chaves) num texto livre. */
+/** Masks common secrets (tokens, passwords, keys) in free text. */
 export function maskSecrets(s: string): string {
   let out = s;
   for (const [re, rep] of SECRET_PATTERNS) out = out.replace(re, rep);
@@ -131,8 +131,8 @@ export function maskSecrets(s: string): string {
 // ------------------------------------------------------------------ shell
 
 /**
- * Divide em palavras como o shell (aspas e barras invertidas), sem expandir nada. Substituições
- * `$(...)` e `` `...` `` ficam inteiras dentro da palavra (ex.: `NOW=$(date +%s)` é uma palavra só).
+ * Splits into words like shell (quotes and backslashes), without expanding anything. Substitutions
+ * `$(...)` and `` `...` `` stay whole inside the word (e.g. `NOW=$(date +%s)` is a single word).
  */
 export function shellWords(s: string): string[] {
   const out: string[] = [];
@@ -188,7 +188,7 @@ export function shellWords(s: string): string[] {
   return out;
 }
 
-/** Divide uma linha nos operadores de nível superior (`|`, `||`, `&&`, `;`, `&`), fora de aspas e subshells. */
+/** Splits a line on top-level operators (`|`, `||`, `&&`, `;`, `&`), outside quotes and subshells. */
 export function splitShell(line: string): string[] {
   const segs: string[] = [];
   let start = 0;
@@ -227,8 +227,8 @@ export function splitShell(line: string): string[] {
 
 const ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/;
 /**
- * Prefixos que só modificam como o comando roda (o comando "de verdade" vem depois), com as flags
- * de cada um que levam um valor separado (ex.: `nice -n 10`, `npx -p pacote`, `sudo -u fulano`).
+ * Prefixes that only modify how the command runs (the "real" command follows), with the flags
+ * for each taking a separate value (e.g. `nice -n 10`, `npx -p pkg`, `sudo -u user`).
  */
 const WRAPPERS: Record<string, ReadonlySet<string>> = {
   sudo: new Set(['-u', '-g', '-p', '-C', '-h', '-U']),
@@ -246,7 +246,7 @@ const WRAPPERS: Record<string, ReadonlySet<string>> = {
   env: new Set(['-u', '-C', '-S', '--unset', '--chdir']),
 };
 
-/** Tira atribuições (`X=1`), prefixos (`nohup`, `npx -y`, `timeout 30`...) e devolve o comando real. */
+/** Strips assignments (`X=1`), prefixes (`nohup`, `npx -y`, `timeout 30`...) and returns real command. */
 function stripWrappers(words: string[]): string[] {
   let w = words.slice();
   for (let guard = 0; guard < 12 && w.length; guard++) {
@@ -275,7 +275,7 @@ function stripWrappers(words: string[]): string[] {
       continue;
     }
     const valued = Object.hasOwn(WRAPPERS, head) ? WRAPPERS[head] : undefined;
-    // Prefixo sozinho (`env`, `time`) é o próprio comando.
+    // Standalone prefix (`env`, `time`) is the command itself.
     if (!valued || w.length === 1) break;
     let i = 1;
     while (i < w.length && w[i].startsWith('-') && w[i] !== '--') i += valued.has(w[i]) ? 2 : 1;
@@ -286,7 +286,7 @@ function stripWrappers(words: string[]): string[] {
   return w;
 }
 
-/** Arquivo que recebe a saída padrão (`> arquivo`, `>>arquivo`, `1> arquivo`), se houver. */
+/** File receiving stdout (`> file`, `>>file`, `1> file`), if any. */
 function stdoutTarget(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i++) {
     const m = /^1?(>>?)(.*)$/.exec(args[i]);
@@ -295,7 +295,7 @@ function stdoutTarget(args: string[]): string | undefined {
   return undefined;
 }
 
-/** Segmento que não diz o que o agente está fazendo (preparação): `cd`, `X=1`, `set -e`, `sleep 2`, `echo`... */
+/** Segment that does not describe what agent is doing (setup): `cd`, `X=1`, `set -e`, `sleep 2`, `echo`... */
 function isNoise(words: string[]): boolean {
   if (!words.length) return true;
   const [head] = words;
@@ -305,7 +305,7 @@ function isNoise(words: string[]): boolean {
   return /^(cd|pushd|popd|set|shopt|source|\.|true|false|:|trap|ulimit|umask|clear|sleep|echo|printf|do|done|then|fi|else|esac)$/.test(head);
 }
 
-/** Palavras que são redirecionamentos (e o alvo, quando separado) saem da lista de argumentos. */
+/** Words that are redirections (and target, when separate) are excluded from argument list. */
 function withoutRedirects(args: string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -320,7 +320,7 @@ function withoutRedirects(args: string[]): string[] {
   return out;
 }
 
-/** Argumentos posicionais, pulando flags (e o valor das flags listadas em `valued`). */
+/** Positional arguments, skipping flags (and value of flags listed in `valued`). */
 function positionals(args: string[], valued: ReadonlySet<string> = new Set()): string[] {
   const out: string[] = [];
   const clean = withoutRedirects(args);
@@ -341,7 +341,7 @@ function positionals(args: string[], valued: ReadonlySet<string> = new Set()): s
 
 const looksLikeFile = (t: string) => !!t && !t.includes('$') && !/^\d+$/.test(t) && t !== '-';
 
-/** "a.ts", "a.ts e b.ts", "a.ts e mais 3" (ou undefined se não houver arquivo legível). */
+/** "a.ts", "a.ts and b.ts", "a.ts and 3 more" (or undefined if no readable file). */
 function filesLabel(files: string[]): string | undefined {
   const names = files.filter(looksLikeFile).map((f) => basename(f) || f);
   if (!names.length) return undefined;
@@ -360,7 +360,7 @@ const CURL_VALUED = new Set([
   '-O', '-P', '-t', '-T', '--output-document', '--directory-prefix', '--tries', '--timeout', '--password', '--http-user', '--http-password',
 ]);
 
-/** "Testando a API local (:4763/api/snapshot)" ou "Chamando api.github.com". */
+/** "Testing local API (:4763/api/snapshot)" or "Calling api.github.com". */
 function describeHttp(args: string[]): string {
   let target: string | undefined;
   const clean = withoutRedirects(args);
@@ -394,7 +394,7 @@ function describeHttp(args: string[]): string {
   return tr('Chamando {0}', [host.replace(/^www\./, '')]);
 }
 
-/** Descrições em português às vezes vêm prontas no `description` do Bash; em inglês, não servem como texto. */
+/** Portuguese descriptions sometimes come pre-made in Bash `description`; in English, they are not used as text. */
 export function looksPortuguese(s: string): boolean {
   const pt = (s.match(/\b(de|da|do|das|dos|para|pra|com|em|no|na|nos|nas|um|uma|os|as|que|por|sem|ao|aos|pelo|pela|e|o)\b/gi) ?? []).length;
   const accents = (s.match(/[ãõçáéíóúâêôà]/gi) ?? []).length;
@@ -445,7 +445,7 @@ const READER_VALUED: Record<string, ReadonlySet<string>> = {
   less: new Set(['-p', '-x', '-y', '-z']),
 };
 
-/** Descreve um comando já sem prefixos. undefined = não reconhecido. */
+/** Describes a command stripped of prefixes. undefined = unrecognized. */
 function describeWords(w: string[], depth: number): ActivityDescription | undefined {
   if (!w.length) return undefined;
   const prog = basename(w[0]);
@@ -493,7 +493,7 @@ function describeWords(w: string[], depth: number): ActivityDescription | undefi
   if (/^(ls|find|tree|fd|du|df|eza|exa)$/.test(prog)) return mk('read', '📂', tr('Explorando pastas'));
   if (prog === 'cd' || prog === 'pushd') return mk('read', '📂', tr('Mudando de pasta'));
   if (prog === 'cat' || prog === 'tee' || prog === 'echo' || prog === 'printf') {
-    // `cat > arquivo <<EOF`, `cat <<'EOF' >> arquivo`, `echo x > arquivo`, `tee [-a] arquivo`: escrevendo.
+    // `cat > file <<EOF`, `cat <<'EOF' >> file`, `echo x > file`, `tee [-a] file`: writing.
     const written = prog === 'tee' ? positionals(args)[0] : stdoutTarget(args);
     if (written && looksLikeFile(written) && written !== '/dev/null') return mk('write', '📝', tr('Escrevendo {0}', [basename(written)]));
     if (prog === 'tee') return mk('write', '📝', tr('Escrevendo um arquivo'));
@@ -504,10 +504,10 @@ function describeWords(w: string[], depth: number): ActivityDescription | undefi
     return mk('edit', '✏️', last && looksLikeFile(last) && /[./]/.test(last) ? tr('Editando {0}', [basename(last)]) : tr('Editando via terminal'));
   }
   if (/^(cat|head|tail|less|more|bat|nl|sed|gsed|awk|gawk|jq|wc|strings|xxd|od|hexdump|column|sort|uniq|cut)$/.test(prog)) {
-    // jq --arg nome valor: dois valores.
+    // jq --arg name value: two values.
     const jqArgs = prog === 'jq' ? args.filter((_, i) => !/^--(arg|argjson|slurpfile|rawfile)$/.test(args[i - 1] ?? '') && !/^--(arg|argjson|slurpfile|rawfile)$/.test(args[i - 2] ?? '')) : args;
     let files = positionals(jqArgs, READER_VALUED[prog]);
-    // sed/awk/jq: o primeiro posicional é o programa/filtro, não um arquivo.
+    // sed/awk/jq: first positional is program/filter, not a file.
     if (/^(sed|gsed|awk|gawk|jq)$/.test(prog) && !args.includes('-e') && !args.includes('-f')) files = files.slice(1);
     const label = filesLabel(files);
     if (prog === 'wc') {
@@ -543,7 +543,7 @@ function describeWords(w: string[], depth: number): ActivityDescription | undefi
     return mk('run', '▶️', script ? tr('Executando {0}', [basename(script)]) : tr('Executando um script de shell'));
   }
   if (/^(node|python3?|ruby|php|deno|bun|tsx|ts-node|perl|java)$/.test(prog) || (prog === 'go' && args[0] === 'run')) {
-    // Ignora flags, redirecionamentos/heredoc e código inline (-e/-c '...').
+    // Ignore flags, redirections/heredoc and inline code (-e/-c '...').
     const list = withoutRedirects(prog === 'go' ? args.slice(1) : args);
     const script = list.find((t, i) => !t.startsWith('-') && !/^-[ecpr]$|^--(eval|print|import|require|loader)$/.test(list[i - 1] ?? '') && /[./]/.test(t) && !/^\d+(\.\d+)*$/.test(t));
     if (script && !/^(-m|-c)$/.test(list[0] ?? '')) return mk('run', '▶️', tr('Executando {0}', [basename(script)]));
@@ -556,11 +556,11 @@ function describeWords(w: string[], depth: number): ActivityDescription | undefi
 
 interface LineDescription {
   desc?: ActivityDescription;
-  /** Programa principal encontrado (para o texto genérico, quando não há descrição). */
+  /** Main program found (for generic text, when there is no description). */
   prog?: string;
 }
 
-/** Descreve a primeira linha "de verdade" de um trecho de shell. */
+/** Describes the first "real" line of a shell snippet. */
 function describeLine(text: string, depth: number): LineDescription {
   const lines = text.replace(/\\\r?\n/g, ' ').split(/\r?\n/);
   for (let li = 0; li < lines.length; li++) {
@@ -571,7 +571,7 @@ function describeLine(text: string, depth: number): LineDescription {
     let mainIdx = -1;
     for (let i = 0; i < segs.length; i++) {
       let seg = segs[i];
-      // Subshell `( ... )` ou grupo `{ ...; }` inteiro: olha dentro.
+      // Subshell `( ... )` or whole block `{ ...; }`: inspect inside.
       if (/^\(.*\)$/.test(seg) && depth < 3) {
         const inner = describeLine(seg.slice(1, -1), depth + 1);
         if (inner.desc || inner.prog) return inner;
@@ -585,13 +585,13 @@ function describeLine(text: string, depth: number): LineDescription {
       break;
     }
     if (!main) {
-      // Só preparação nesta linha (ex.: `S=/tmp/x`, `cd pasta`): segue para a próxima — a não ser
-      // que seja a última; aí descreve o que houver (ex.: `sleep 5` sozinho).
+      // Setup only on this line (e.g. `S=/tmp/x`, `cd dir`): proceed to next — unless
+      // it is the last; then describe whatever is present (e.g. `sleep 5` alone).
       if (lines.slice(li + 1).some((l) => l.trim() && !l.trim().startsWith('#'))) continue;
       const words = stripWrappers(shellWords(segs[0] ?? ''));
       return { desc: describeWords(words, depth), prog: words[0] };
     }
-    // Laços e condicionais: o que importa é o corpo (`do ...` / `then ...`), na mesma linha ou na próxima.
+    // Loops and conditionals: what matters is the body (`do ...` / `then ...`), on the same line or next.
     if (/^(for|while|until|if|select)$/.test(main[0]) && depth < 3) {
       const rest = segs.slice(mainIdx + 1).join('; ');
       const body = /^(?:do|then)\b\s*(.*)$/s.exec(rest.replace(/^.*?;\s*(?=(do|then)\b)/s, ''))?.[1]?.trim();
@@ -605,10 +605,10 @@ function describeLine(text: string, depth: number): LineDescription {
 }
 
 /**
- * Descreve um comando de shell (ferramenta Bash) em português. A heurística olha a primeira linha
- * com um comando de verdade (pula `X=1`, `cd`, `set -e`, comentários), o primeiro segmento útil
- * (antes de `|`, `&&`, `;`) e os argumentos. O `description` do Bash só vira texto se estiver em
- * português (o modelo costuma escrevê-lo em inglês); senão vai para o detalhe.
+ * Describes a shell command (Bash tool). Heuristic examines the first line
+ * with a real command (skips `X=1`, `cd`, `set -e`, comments), the first useful segment
+ * (before `|`, `&&`, `;`) and arguments. Bash `description` only becomes text if it is in
+ * Portuguese (model usually writes it in English); otherwise it goes into detail.
  */
 export function describeCommand(command: string, description?: string): ActivityDescription {
   const detail = command.trim();
@@ -616,7 +616,7 @@ export function describeCommand(command: string, description?: string): Activity
   try {
     found = describeLine(detail.slice(0, 8_000), 0);
   } catch {
-    found = {}; // comando estranho demais para a heurística: cai no texto genérico
+    found = {}; // command is too unusual for heuristics: falls back to generic text
   }
   if (found.desc) return make(found.desc.kind, found.desc.icon, found.desc.text, detail);
   const desc = description?.trim();
@@ -654,7 +654,7 @@ function describeMcp(name: string, input: Record<string, unknown>): ActivityDesc
   return make('mcp', '🔌', `${srv}: ${humanize(tool)}`);
 }
 
-/** Descreve uma chamada de ferramenta do Claude Code. */
+/** Describes a Claude Code tool call. */
 export function describeTool(name: string, rawInput: unknown): ActivityDescription {
   const input = (rawInput && typeof rawInput === 'object' ? rawInput : {}) as Record<string, unknown>;
   const file = str(input.file_path) || str(input.notebook_path) || str(input.path);
@@ -769,7 +769,7 @@ export function describeTool(name: string, rawInput: unknown): ActivityDescripti
   }
 }
 
-/** Atividade para um prompt do usuário. */
+/** Activity for a user prompt. */
 export function describePrompt(text: string): ActivityDescription {
   return make('prompt', '📨', tr('Nova tarefa: “{0}”', [truncate(text, 30)]), text);
 }
@@ -782,22 +782,22 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}min` : ''}`;
 }
 
-// ------------------------------------------------------------------ shells (espera por comandos)
+// ------------------------------------------------------------------ shells (waiting for commands)
 
-/** Marcador (Activity.tool) do fim de um shell em segundo plano: o mundo comemora (ou lamenta, com `error`). */
+/** Marker (Activity.tool) for background shell completion: world celebrates (or laments, with `error`). */
 export const SHELL_DONE_TOOL = 'ShellDone';
-/** Marcador (Activity.tool) do balão "Esperando o shell", sintetizado enquanto o status é 'shell'. */
+/** Marker (Activity.tool) for "Waiting for shell" bubble, synthesized while status is 'shell'. */
 export const SHELL_WAIT_TOOL = 'ShellWait';
 
-/** Como um shell em segundo plano terminou. */
+/** How a background shell finished. */
 export type ShellOutcome = 'ok' | 'failed' | 'killed';
 
-/** Atividade com marcador de ferramenta (pode ir direto num `Activity` com `...desc`). */
+/** Activity with tool marker (can go directly into an `Activity` via `...desc`). */
 export type MarkedDescription = ActivityDescription & { tool: string; error?: boolean };
 
 /**
- * Rótulo (≤ 46 caracteres) e comando (≤ 300) de um Bash/Monitor que o agente vai esperar, já mascarados.
- * O rótulo é o `description` da ferramenta; sem ele, o resumo do comando ("Rodando testes").
+ * Label (≤ 46 chars) and command (≤ 300) of a Bash/Monitor the agent will wait for, already masked.
+ * Label is tool's `description`; without it, command summary ("Running tests").
  */
 export function describeShellJob(name: string, rawInput: unknown): { label: string; command?: string; kind: 'shell' | 'monitor' } {
   const input = (rawInput && typeof rawInput === 'object' ? rawInput : {}) as Record<string, unknown>;
@@ -814,7 +814,7 @@ export function describeShellJob(name: string, rawInput: unknown): { label: stri
   return out;
 }
 
-/** "<prefixo><rótulo><sufixo>" cabendo em MAX_TEXT: só o rótulo é cortado (a duração nunca some). */
+/** "<prefix><label><suffix>" fitting within MAX_TEXT: only label is truncated (duration never disappears). */
 function fitLabel(prefix: string, label: string | undefined, suffix = ''): string {
   if (!label) return `${prefix.replace(/:\s*$/, '')}${suffix}`;
   const room = Math.max(8, MAX_TEXT - prefix.length - suffix.length);
@@ -835,14 +835,14 @@ export const SPECIAL = {
   cleared: (): ActivityDescription => make('compact', '🧽', tr('Começou uma conversa nova (/clear)')),
   supervising: (): ActivityDescription => make('delegate', '👥', tr('Acompanhando os subagentes')),
   answered: (question?: string): ActivityDescription => make('ask', '💬', tr('Recebeu a sua resposta'), question),
-  /** Balão do status 'shell': "Esperando o shell: <rótulo>" (ou "Esperando 2 shells: ..."). */
+  /** Status 'shell' bubble: "Waiting for shell: <label>" (or "Waiting for 2 shells: ..."). */
   waitingShell: (label?: string, n = 1, detail?: string): MarkedDescription => ({
     ...make('wait', '⏳', fitLabel(n > 1 ? tr('Esperando {0} shells: ', [n]) : tr('Esperando o shell: '), label), detail),
     tool: SHELL_WAIT_TOOL,
   }),
   /**
-   * Fim de um shell em segundo plano (marcador 'ShellDone'): sucesso "Shell terminou: <rótulo> (<duração>)",
-   * falha "Shell falhou: <rótulo>" e morto "Shell interrompido: <rótulo>" (os dois com `error`).
+   * Background shell completion ('ShellDone' marker): success "Shell finished: <label> (<duration>)",
+   * failure "Shell failed: <label>" and killed "Shell killed: <label>" (both with `error`).
    */
   shellDone: (label: string | undefined, outcome: ShellOutcome, ms?: number, detail?: string): MarkedDescription => {
     if (outcome === 'failed') return { ...make('run', '❌', fitLabel(tr('Shell falhou: '), label), detail), tool: SHELL_DONE_TOOL, error: true };
@@ -852,7 +852,7 @@ export const SPECIAL = {
   },
 } as const;
 
-/** Traduz o `waitingFor` do registro de sessões do Claude Code. */
+/** Translates `waitingFor` from Claude Code session log. */
 export function describeWaitingFor(raw: string | undefined): string {
   if (!raw) return tr('responder no terminal');
   const r = raw.toLowerCase();

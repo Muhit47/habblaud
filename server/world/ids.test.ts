@@ -1,5 +1,5 @@
-// Ids do mundo (server/world/ids.ts) com relógio falso: aleatórios, estáveis por 24 h ± 6 h, trocados sozinhos, novos
-// para quem some e volta, e nunca derivados da chave do escritório.
+// World IDs (server/world/ids.ts) with fake clock: random, stable for 24 h ± 6 h, self-rotating, fresh
+// for disappearing entities upon return, and never derived from office key.
 import { describe, expect, it } from 'vitest';
 import { ID_JITTER_MS, ID_LIFETIME_MS, WorldIds } from './ids';
 
@@ -58,7 +58,7 @@ describe('WorldIds', () => {
     const a = ids.agentId('m1', T0);
     ids.agentId('m2', T0);
     ids.sweep();
-    // Na projeção seguinte só /p/a e m2 aparecem: m1 é esquecido.
+    // On next projection only /p/a and m2 appear: m1 is forgotten.
     expect(ids.floorId('/p/a', T0 + 1000)).toBe(f);
     ids.agentId('m2', T0 + 1000);
     ids.sweep();
@@ -72,7 +72,7 @@ describe('WorldIds', () => {
 
   it('sem repetir id entre chaves, nem ao trocar', () => {
     let n = 0;
-    // Fonte "ruim": repete o mesmo valor algumas vezes antes de mudar.
+    // Degraded source: repeats identical value a few times before changing.
     const ids = new WorldIds({ randomBytes: (len) => new Uint8Array(len).fill(Math.floor(n++ / 3)), jitter: () => 0 });
     const a = ids.agentId('m1', T0);
     const b = ids.agentId('m2', T0);

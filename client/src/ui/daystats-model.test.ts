@@ -39,7 +39,7 @@ describe('Meu dia com o Codex', () => {
       ['.claude', false, 'US$ 1,50', '10'],
       ['.codex', true, null, '2 M'],
     ]);
-    // Sem a função, ninguém é do Codex (como antes).
+    // Without function, none belong to Codex (as before).
     expect(accountCards([acc('.codex', { ms: ms({ working: H }) })])[0]).toMatchObject({ codex: false, cost: '—' });
   });
 
@@ -99,7 +99,7 @@ describe('barras empilhadas', () => {
     ];
     const rows = roomRows(rooms, ALL_VISIBLE);
     expect(rows.map((r) => r.name)).toEqual(['a', 'b']);
-    // A escala é o maior total (b: 4 h): a barra de a ocupa 25%.
+    // Scale is maximum total (b: 4 h): bar a takes 25%.
     expect(rows[0].segments.reduce((n, s) => n + s.pct, 0)).toBeCloseTo(25);
     expect(rows[1].segments.reduce((n, s) => n + s.pct, 0)).toBeCloseTo(100);
     expect(rows[0].waiting).toBe('30 min esperando você');

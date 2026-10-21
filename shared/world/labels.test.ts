@@ -9,7 +9,7 @@ import { isTraitId, parsePlayerTraits, TRAITS, traitsClash } from './traits';
 
 afterEach(() => setLocale('pt-BR'));
 
-/** Os textos em PT do contrato da Fase 1 (seção 3). */
+/** The PT texts from the Phase 1 contract (section 3). */
 const INTRO_PT: Record<string, string> = {
   night_owl: 'Codo de madrugada',
   early_bird: 'Acordo cedo para codar',

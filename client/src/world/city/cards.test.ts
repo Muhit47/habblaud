@@ -1,12 +1,12 @@
-// Cartões: bandeira só de código ISO-2, andares com teto de 24 ("24+"), mês sem fuso, modo discreto, perfil.
+// Cards: flag only for ISO-2 code, floors capped at 24 ("24+"), timezone-free month, stealth mode, profile.
 import { describe, expect, it } from 'vitest';
 import type { WorldBuildingPublic, WorldPlayerPublic } from '../../../../shared/world/protocol';
 import { CARD_MAX_FLOORS, buildingCardModel, flagEmoji, floorsLabel, likesLabel, monthLabel, playerCardModel } from './cards';
 
 const b: WorldBuildingPublic = { id: 'b1', lot: { district: 'centro', x: 3, y: 0 }, owner: { id: 'o1', name: 'Ana Pixel', country: 'br' }, state: 'online', theme: 'none', floors: 30, agents: { total: 5, working: 2, waiting: 1, idle: 2 }, rev: 1, likes: 12, sinceMonth: '2026-10' };
 
-describe('cartão do prédio', () => {
-  it('bandeira do país (emoji) só para dois letras', () => {
+describe('building card', () => {
+  it('country flag (emoji) only for two letters', () => {
     expect(flagEmoji('BR')).toBe('🇧🇷');
     expect(flagEmoji('fr')).toBe('🇫🇷');
     expect(flagEmoji('BRA')).toBe('');
@@ -14,7 +14,7 @@ describe('cartão do prédio', () => {
     expect(flagEmoji(undefined)).toBe('');
   });
 
-  it('andares: a fachada vai até 12 com "+N"; o cartão mostra até 24 e "24+" acima', () => {
+  it('floors: facade goes up to 12 with "+N"; card shows up to 24 and "24+" above', () => {
     expect(CARD_MAX_FLOORS).toBe(24);
     expect(floorsLabel(0)).toBe('só o térreo');
     expect(floorsLabel(1)).toBe('1 andar');
@@ -23,14 +23,14 @@ describe('cartão do prédio', () => {
     expect(floorsLabel(25)).toBe('24+ andares');
   });
 
-  it('o mês de entrada é o do dia 1 local (sem cair no mês anterior pelo fuso)', () => {
+  it('joined month is from local 1st day (without falling into previous month due to timezone)', () => {
     expect(monthLabel('2026-10')).toMatch(/outubro/);
     expect(monthLabel('2026-10')).toMatch(/2026/);
     expect(monthLabel('2026-13')).toBe('');
     expect(monthLabel('lixo')).toBe('');
   });
 
-  it('modelo: estado, agentes (ou modo discreto), likes e "no mundo desde"', () => {
+  it('model: state, agents (or stealth mode), likes and "in world since"', () => {
     const m = buildingCardModel(b, 'b1');
     expect(m).toMatchObject({ owner: 'Ana Pixel', flag: '🇧🇷', online: true, state: 'Luzes acesas', floors: '24+ andares', agents: { working: 2, waiting: 1, idle: 2 }, likes: '12 curtidas', closed: false, mine: true });
     expect(m.since).toMatch(/outubro/);
@@ -43,8 +43,8 @@ describe('cartão do prédio', () => {
   });
 });
 
-describe('cartão do jogador', () => {
-  it('traços com emoji, frase traduzida, likes recebidos e o prédio (se a cidade conhece)', () => {
+describe('player card', () => {
+  it('traits with emoji, translated phrase, received likes, and building (if known by city)', () => {
     const p: WorldPlayerPublic = { id: 'w1', name: 'Luna', country: 'JP', look: 'f', parts: {}, traits: ['games', 'cafeina', 'inexistente' as never], intro: 'coffee', buildingId: 'b1', likesReceived: 3, pos: { x: 0, y: 0, dir: 's', moving: false }, where: 'street' };
     const m = playerCardModel(p, b);
     expect(m.flag).toBe('🇯🇵');

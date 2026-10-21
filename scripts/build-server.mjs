@@ -1,5 +1,5 @@
-// Empacota o servidor (TypeScript) em um único arquivo ESM em dist/server e grava dist/build.json (commit e "cópia
-// modificada", ver scripts/build-info.mjs).
+// Bundles server (TypeScript) into single ESM file in dist/server and writes dist/build.json (commit and "dirty
+// copy", see scripts/build-info.mjs).
 import { build } from 'esbuild';
 import { writeBuildInfo } from './build-info.mjs';
 

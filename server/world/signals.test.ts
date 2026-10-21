@@ -24,7 +24,7 @@ describe('AgentSignals', () => {
     const s = new AgentSignals(dayKey);
     expect(s.observe([agent('m1', tasks(2))], T0).tasksToday.get('m1')).toBe(2);
     expect(s.observe([agent('m1', tasks(4))], T0 + 1000).tasksToday.get('m1')).toBe(4);
-    // TodoWrite novo: lista do zero, depois 1 concluída.
+    // Fresh TodoWrite: reset list, then 1 completed task.
     expect(s.observe([agent('m1', tasks(0, 3))], T0 + 2000).tasksToday.get('m1')).toBe(4);
     expect(s.observe([agent('m1', tasks(1, 2))], T0 + 3000).tasksToday.get('m1')).toBe(5);
     expect(s.observe([agent('m1', tasks(1, 2))], T0 + DAY).tasksToday.get('m1')).toBe(0);
@@ -40,7 +40,7 @@ describe('AgentSignals', () => {
     expect(s.observe([agent('m1', [], [old, clear])], T0 + 1).compacted.size).toBe(0);
     const fresh = act('c-nova', SPECIAL.compact());
     expect([...s.observe([agent('m1', [], [old, clear, fresh])], T0 + 2).compacted]).toEqual(['m1']);
-    // Sem remessa, continua pendente.
+    // Without shipment, remains pending.
     expect([...s.observe([agent('m1', [], [old, clear, fresh])], T0 + 3).compacted]).toEqual(['m1']);
     s.sent();
     expect(s.observe([agent('m1', [], [old, clear, fresh])], T0 + 4).compacted.size).toBe(0);

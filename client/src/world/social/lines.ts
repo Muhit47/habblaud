@@ -1,5 +1,5 @@
-// Falas curtas dos personagens (balõezinhos) — puro. `{nome}` = um colega, `{sala}` = um projeto,
-// `{v}` = valor da aposta, `{a}`/`{b}` = placar. Nada aqui depende do gênero de quem fala.
+// Short character dialogue (speech bubbles) — pure. `{nome}` = colleague, `{sala}` = project,
+// `{v}` = bet amount, `{a}`/`{b}` = score. Dialogue is gender-neutral.
 import type { TraitId } from './persona';
 import { tr } from '../../../../shared/i18n';
 
@@ -94,11 +94,11 @@ export const CHAT = {
   laugh: ['KKKKK', tr('Hahaha!'), '😂😂😂'],
 };
 
-/** Saindo de uma roda porque o trabalho chamou. */
+/** Departing a circle because work called. */
 export const CALLED: Pool = [tr('Opa, me chamaram! 🏃'), tr('Fui! Trabalho chegou'), tr('Volto já!'), tr('Ih, tenho que ir!')];
 export const SHELL_DONE: Pool = [tr('Meu comando terminou! 🏃'), tr('Terminou o build, fui!')];
 
-/** Temas de papo que cada traço puxa. */
+/** Conversation topics associated with each trait. */
 export const TRAIT_TOPICS: Partial<Record<TraitId, keyof typeof CHAT>> = {
   fofoca: 'fofoca',
   cafeina: 'cafeina',
@@ -112,7 +112,7 @@ export const TRAIT_TOPICS: Partial<Record<TraitId, keyof typeof CHAT>> = {
   economia: 'economia',
 };
 
-/** Fala ligada ao dia/hora local, quando houver (sexta, segunda, manhã, almoço, noite). */
+/** Time-specific dialogue based on local day/time (Friday, Monday, morning, lunch, evening). */
 export function timeLine(d: Date): string | null {
   const day = d.getDay();
   const h = d.getHours();
@@ -132,7 +132,7 @@ export interface LineVars {
   b?: number | string;
 }
 
-/** Preenche os campos da fala. Sem valor para um campo, a fala é descartada (retorna null). */
+/** Formats dialogue placeholders. If any placeholder lacks value, dialogue is dropped (returns null). */
 export function fill(line: string, vars: LineVars): string | null {
   let ok = true;
   const out = line.replace(/\{(nome|sala|v|a|b)\}/g, (_, k: keyof LineVars) => {
@@ -146,7 +146,7 @@ export function fill(line: string, vars: LineVars): string | null {
   return ok ? out : null;
 }
 
-/** Sorteia uma fala do conjunto (evitando `avoid` e as que não dá para preencher). */
+/** Selects dialogue from pool (avoiding `avoid` and unfillable lines). */
 export function pick(pool: Pool, rng: () => number, vars: LineVars = {}, avoid?: string | null): string {
   const n = pool.length;
   const start = Math.floor(rng() * n);

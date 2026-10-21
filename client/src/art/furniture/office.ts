@@ -1,5 +1,5 @@
-// Móveis das salas de projeto: mesas (frente e traseira), cadeiras, estantes, arquivo, impressora,
-// lixeira, plantas, divisórias de vidro, mesa de reunião, banqueta, luminária e bebedouro.
+// Project room furniture: desks (front and back), chairs, bookshelves, filing cabinet, printer,
+// wastebasket, plants, glass partitions, conference table, stool, floor lamp, and water cooler.
 // Coordenadas de desenho = footprint (0,0 no canto superior esquerdo; base em y = h*TILE).
 import { mix, ramp, shade, type Ramp } from '../core/color';
 import { floorSheet, rectAt, type BufFurniture, type BufSprite } from '../core/sprite';
@@ -34,7 +34,7 @@ function deskMats(variant: string | undefined): DeskMats {
 
 const MUG_COLORS = ['#e2604f', '#3f7fd8', '#f2c14e', '#4cae6a', '#f4f2ee', '#8d66cf'] as const;
 
-/** Sombra de contato da mesa e sombra do vão sob o tampo (compostas por baixo, após o contorno). */
+/** Desk contact shadow and kneehole shadow (composited underneath after outlining). */
 function deskShadow(b: PixelBuf): void {
   underRect(b, 3, 8, 26, 7, 'rgba(30,34,52,0.2)');
   contact(b, -1, 13, 34, 4, 0.2);
@@ -44,12 +44,12 @@ function deskShadow(b: PixelBuf): void {
 function deskBody(s: BufSprite, m: DeskMats, seed: number, back: boolean): void {
   const b = s.buf;
   if (back) {
-    // Painel frontal (lado de quem olha) cobrindo o vão.
+    // Front modesty panel covering kneehole.
     frontFace(b, 1, 8, 30, 6, m.ped);
     b.hline(1, 30, 8, m.ped.dk);
     b.hline(2, 29, 11, m.ped.lt);
   }
-  // Pernas (laterais) com brilho.
+// Office furniture: desks, partitions, workstations, and electronics (pure).
   for (const x of [0, 29]) {
     b.rect(x, 8, 3, 8, m.legs.base);
     b.vline(x, 8, 15, m.legs.lt);
@@ -64,7 +64,7 @@ function deskBody(s: BufSprite, m: DeskMats, seed: number, back: boolean): void 
     b.hline(22, 25, 9, m.ped.dd);
     b.hline(22, 25, 13, m.ped.dd);
   }
-  // Tampo (12 linhas) + espessura da borda (2 linhas).
+  // Desktop (12 lines) + edge thickness (2 lines).
   topFace(b, 0, -6, 32, 12, m.top);
   woodGrain(b, 1, -5, 30, 10, m.top, seed);
   b.hline(0, 31, 6, m.edge.base);
@@ -72,7 +72,7 @@ function deskBody(s: BufSprite, m: DeskMats, seed: number, back: boolean): void 
   b.set(0, 6, m.edge.lt);
 }
 
-/** Objetos sobre a mesa (variações por semente). Retorna o retângulo da tela principal e o da secundária. */
+/** Desktop props (seed variations). Returns rectangles for primary and secondary screens. */
 function deskTop(s: BufSprite, seed: number, tone: DeskItemTone): { screen: Box; screen2?: Box } {
   const b = s.buf;
   const r = rngOf(seed, 11);
@@ -92,7 +92,7 @@ function deskTop(s: BufSprite, seed: number, tone: DeskItemTone): { screen: Box;
     }
     case 2: {
       screen = monitorFront(b, 5, -17, 16, 11);
-      // Notebook aberto à direita (tela ligada com conteúdo fixo).
+      // Open laptop on right (active display with static content).
       b.rect(22, -9, 9, 6, '#3a404d');
       b.hline(22, 30, -9, '#4d5464');
       screen2 = { x: 23, y: -8, w: 7, h: 4 };
@@ -151,7 +151,7 @@ function deskTop(s: BufSprite, seed: number, tone: DeskItemTone): { screen: Box;
   return { screen, screen2 };
 }
 
-/** Tom dos objetos conforme o tampo: no branco, um degrau mais escuros e com sombra firme. */
+/** Workstation desk (south-facing, user facing away from camera). */
 function itemTone(variant: string | undefined): DeskItemTone {
   return variant === 'white' ? 'onLight' : 'light';
 }
@@ -177,7 +177,7 @@ export function deskBack(variant: string | undefined, seed: number): BufFurnitur
   const v = seed % 4;
   const mugC = pick(r, MUG_COLORS);
   const tone = itemTone(variant);
-  // Verso em plástico claro; na mesa escura (nogueira), cinza médio para não brilhar demais.
+  // Light plastic back; on dark desk (walnut), medium gray to avoid excessive glare.
   const plastic = variant === 'dark' ? 'mid' : 'light';
   if (v === 1) {
     monitorBack(b, 2, -7, 15, 10, plastic);
@@ -208,7 +208,7 @@ function chairRamp(variant: string | undefined): Ramp {
   return ramp(CHAIR_COLORS[variant ?? 'black'] ?? CHAIR_COLORS.black, 0.07);
 }
 
-/** Base estrela com rodízios + pistão. */
+/** 5-star caster base + gas cylinder. */
 function starBase(b: BufSprite['buf']): void {
   const metal = '#565d6b';
   const caster = '#23262e';
@@ -225,7 +225,7 @@ function starBase(b: BufSprite['buf']): void {
 
 export function officeChair(variant: string | undefined): BufFurniture {
   const c = chairRamp(variant);
-  // Base: assento visto por trás + base estrela (o encosto fica no `front`).
+  // Base: seat viewed from rear + star base (backrest belongs to `front`).
   const base = floorSheet(1, 1, 6);
   const b = base.buf;
   starBase(b);
@@ -237,7 +237,7 @@ export function officeChair(variant: string | undefined): BufFurniture {
   b.set(13, 4, c.base);
   b.outline();
   contact(b, 1, 13, 14, 3, 0.22);
-  // Frente: encosto baixo e estreito — cobre a lombar de quem senta e deixa ombros e braços à mostra.
+  // Front: low narrow backrest — covers lower back while leaving shoulders and arms exposed.
   const front = floorSheet(1, 1, 6);
   const f = front.buf;
   f.rect(4, 7, 8, 6, c.base);
@@ -260,7 +260,7 @@ export function officeChairFront(variant: string | undefined): BufFurniture {
   const s = floorSheet(1, 1, 10);
   const b = s.buf;
   starBase(b);
-  // Encosto ao norte (de frente para a câmera).
+  // Backrest facing north (towards camera).
   b.rect(3, -6, 10, 10, c.base);
   b.hline(4, 11, -7, c.lt);
   b.rect(4, -5, 8, 7, c.lt);
@@ -282,7 +282,7 @@ export function officeChairFront(variant: string | undefined): BufFurniture {
   return { base: s };
 }
 
-// ------------------------------------------------------------------ estantes e arquivos
+// ------------------------------------------------------------------ shelves and filing cabinets
 
 export function bookshelf(seed: number): BufFurniture {
   const s = floorSheet(2, 1, 22);
@@ -304,26 +304,26 @@ export function bookshelf(seed: number): BufFurniture {
     b.hline(1, 30, y + 1, w.dk);
   }
   b.hline(0, 31, 15, w.dd);
-  // Conteúdo de cada prateleira (apoiado na prateleira de baixo).
+  // Contents of each shelf (supported by lower shelf).
   shelves.forEach((shelf, i) => {
     const bottom = shelf - 1;
     let x = 3;
     while (x < 29) {
       const kind = r();
       if (kind < 0.12 && x < 25) {
-        // Vaso pequeno com planta.
+/** Workstation desk back (north-facing, user facing camera with monitor back). */
         pot(b, x, bottom - 3, 4, 4, M.ceramic);
         foliage(b, x + 2, bottom - 5, 2.5, 2, M.leaf, seed + x + i * 7);
         x += 5;
       } else if (kind < 0.2 && x < 24) {
-        // Caixa de arquivo.
+/** Dual-monitor desktop mount with cables. */
         const bc = pick(r, ['#e9e4d6', '#c9a46e', '#9fb6cf']);
         b.rect(x, bottom - 4, 5, 5, bc);
         b.hline(x, x + 4, bottom - 4, shade(bc, 0.1));
         b.rect(x + 1, bottom - 2, 3, 1, shade(bc, -0.2));
         x += 6;
       } else if (kind < 0.26 && x < 26) {
-        // Troféu.
+        // Trophy.
         b.rect(x + 1, bottom - 4, 3, 2, '#f2c14e');
         b.set(x, bottom - 4, '#d9a42e');
         b.set(x + 4, bottom - 4, '#d9a42e');
@@ -331,7 +331,7 @@ export function bookshelf(seed: number): BufFurniture {
         b.rect(x + 1, bottom - 1, 3, 2, '#6b4a32');
         x += 6;
       } else {
-        // Grupo de livros com alturas variadas (um às vezes inclinado).
+        // Group of books with varied heights (occasional leaning book).
         const n = 2 + Math.floor(r() * 4);
         for (let k = 0; k < n && x < 29; k++) {
           const bw = 1 + Math.floor(r() * 2);
@@ -373,7 +373,7 @@ export function binderShelf(seed: number): BufFurniture {
     const bottom = shelves[i] - 1;
     const h = bottom - top + 1;
     if (i === 2 && r() < 0.6) {
-      // Caixas de papelão na prateleira de baixo.
+      // Cardboard boxes on bottom shelf.
       b.rect(2, bottom - 6, 6, 7, M.cardboard.base);
       b.hline(2, 7, bottom - 6, M.cardboard.lt);
       b.rect(3, bottom - 4, 4, 2, '#f4efe2');
@@ -428,7 +428,7 @@ export function printer(): BufFurniture {
   const b = s.buf;
   const body = ramp('#dfe2e7', 0.05);
   const dark = ramp('#7b8391', 0.06);
-  // Gabinete com bandejas de papel.
+/** Standing desk in raised position with height controls. */
   frontFace(b, 0, 2, 16, 14, body);
   for (const y of [6, 10]) {
     b.hline(1, 14, y, body.dd);
@@ -439,11 +439,11 @@ export function printer(): BufFurniture {
   b.rect(1, -10, 14, 3, '#f4f5f7');
   b.hline(1, 14, -8, '#c9ced6');
   frontFace(b, 0, -5, 16, 7, body);
-  // Painel de controle com tela e LED.
+/** Acoustic desk divider partition panel. */
   b.rect(10, -10, 5, 3, dark.base);
   b.rect(11, -9, 3, 1, '#7fd0ff');
   b.set(14, -8, '#5fd07a');
-  // Saída de papel.
+  // Paper output tray.
   b.rect(2, -4, 9, 2, '#3d4350');
   b.rect(3, -5, 7, 2, '#fbfbf8');
   b.hline(3, 9, -3, '#e3e1da');
@@ -465,7 +465,7 @@ export function trashBin(): BufFurniture {
     b.set(11 - inset, y, m.dk);
   }
   b.hline(5, 10, 15, m.dk);
-  // Boca (elipse) com papel amassado.
+/** Magnetic whiteboard / Kanban board with post-it notes and markers. */
   b.ellipse(8, 6.5, 4.5, 2, m.lt);
   b.ellipse(8, 6.6, 3.5, 1.3, '#3b4150');
   b.rect(6, 5, 3, 2, '#f4f2ee');
@@ -485,7 +485,7 @@ export function plantSmall(variant: string | undefined, seed: number): BufFurnit
   if (v === 'succulent') {
     pot(b, 4, 9, 8, 7, M.ceramic);
     b.rect(5, 9, 6, 1, '#5b4636');
-    // Roseta azulada: pétalas grossas em camadas.
+    // Bluish rosette: layered thick succulent petals.
     const g = ramp('#7fbf9f', 0.08);
     const petals: [number, number, number, number][] = [[3, 8, 6, 5], [13, 8, 10, 5], [5, 5, 7, 3], [11, 5, 9, 3], [8, 3, 8, 6], [4, 7, 8, 6], [12, 7, 8, 6]];
     petals.forEach(([x1, y1, x0, y0], i) => leafBlade(b, x0, y0 + 2, x1, y1, 3, i < 2 ? ramp(g.dk, 0.08) : g, true));
@@ -506,7 +506,7 @@ export function plantSmall(variant: string | undefined, seed: number): BufFurnit
   } else {
     pot(b, 4, 9, 8, 7, M.terracotta);
     b.rect(5, 9, 6, 1, '#5b4636');
-    // Samambaia: frondes arqueadas em lâminas finas.
+    // Fern: arching fronds with slender blades.
     const g = M.leaf;
     const fr: [number, number, number][] = [[0, 7, 0], [16, 7, 0], [2, 1, 1], [14, 1, 0], [5, -3, 1], [11, -3, 1], [8, -5, 1], [-1, 11, 0], [17, 11, 0]];
     fr.forEach(([x1, y1, light]) => leafBlade(b, 8, 9, x1, y1, 2.6, light ? g : ramp(g.dk, 0.07), x1 < 8));
@@ -522,7 +522,7 @@ export function plantTall(variant: string | undefined, seed: number): BufFurnitu
   const b = s.buf;
   const v = variant ?? 'ficus';
   if (v === 'bonsai') {
-    // Bonsai: suporte baixo de madeira, vaso-bandeja cerâmico e copa em "nuvens".
+    // Bonsai: low wooden stand, shallow ceramic pot, and cloud-pruned canopy.
     const st = M.walnut;
     topFace(b, 1, 7, 14, 3, st);
     frontFace(b, 1, 10, 14, 3, st);
@@ -533,7 +533,7 @@ export function plantTall(variant: string | undefined, seed: number): BufFurnitu
     b.hline(4, 11, 4, '#5b4636');
     b.vline(12, 5, 6, tray.dk);
     b.hline(4, 11, 6, tray.dk);
-    // Tronco retorcido com raízes aparentes.
+    // Gnarled trunk with exposed root flare.
     const tr = ramp('#7a5a40', 0.08);
     b.line(7, 4, 6, 0, tr.base, 2);
     b.line(6, 0, 9, -4, tr.base, 2);
@@ -552,7 +552,7 @@ export function plantTall(variant: string | undefined, seed: number): BufFurnitu
     const g = M.leaf;
     const dark = ramp(M.leaf.dk, 0.07);
     for (const sx of [6, 8, 10]) b.line(8, 6, sx, -4, '#86a04f', 1);
-    // Frondes pinadas (de trás, escuras; da frente, claras) abrindo em leque.
+    // Pinnate fronds (dark behind, light in front) fanning outward.
     const fronds: [number, number, number, number, Ramp][] = [
       [7, -3, -2, -20, dark], [9, -3, 17, -19, dark], [7, -2, -5, -8, g], [9, -2, 21, -8, g], [8, -3, 8, -23, g],
     ];
@@ -562,7 +562,7 @@ export function plantTall(variant: string | undefined, seed: number): BufFurnitu
     b.rect(4, 6, 8, 1, '#5b4636');
     const g = ramp('#43995a', 0.08);
     const dark = ramp('#2f7a45', 0.08);
-    // Folhas grandes recortadas, das de trás para as da frente, com hastes.
+    // Large fenestrated leaves with petioles, arranged back to front.
     const leaves: [number, number, number, number, number, Ramp][] = [
       [7, -7, 1, -17, 9, dark], [9, -7, 16, -16, 9, dark], [8, -6, 9, -21, 9, g],
       [6, 1, -3, -6, 9, g], [10, 1, 19, -5, 9, g], [8, 3, 6, -5, 7, dark],
@@ -588,7 +588,7 @@ export function plantTall(variant: string | undefined, seed: number): BufFurnitu
   return { base: s };
 }
 
-// ------------------------------------------------------------------ divisórias de vidro
+// ------------------------------------------------------------------ glass partitions
 
 export function glassPartition(variant: string | undefined): BufFurniture {
   const v = variant ?? 'h';
@@ -597,8 +597,7 @@ export function glassPartition(variant: string | undefined): BufFurniture {
   const wall = ramp('#f1f1ee', 0.045);
   const metal = ramp('#c3cad4', 0.06);
   if (v === 'v') {
-    // Corre norte-sul: de cima vemos uma faixa uniforme (topo branco da meia-parede com o vidro e o
-    // trilho no meio). Sem contorno automático para os segmentos emendarem sem costura.
+/** Meeting room table (rectangular conference table with cable grommet). */
     const cols = ['#aab2be', '#fbfbf9', '#f0f0ec', '#dce9f3', 'rgba(130,190,230,0.75)', '#e1e1dc', '#d0d0cb', '#9aa2ae'];
     cols.forEach((c, i) => b.vline(4 + i, -16, 15, c));
     for (let y = -16; y < 16; y += 7) b.set(8, y, 'rgba(255,255,255,0.8)');
@@ -606,7 +605,7 @@ export function glassPartition(variant: string | undefined): BufFurniture {
     return { base: s };
   }
   if (v === 'end') {
-    // Ponta: coluna de alumínio sobre a base branca da meia-parede.
+    // End post: aluminum column over white pony wall base.
     topFace(b, 4, 3, 8, 4, wall);
     frontFace(b, 4, 7, 8, 9, wall);
     b.hline(4, 11, 13, mix(wall.dk, '#9aa2ae', 0.5));
@@ -618,8 +617,7 @@ export function glassPartition(variant: string | undefined): BufFurniture {
     contact(b, 3, 13, 10, 4, 0.2);
     return { base: s };
   }
-  // 'h': corre leste-oeste (meia-parede branca + vidro azulado com reflexo).
-  // A área do vidro fica opaca durante o contorno (máscara) para não ganhar borda por dentro.
+/** Round discussion table for collaboration nooks. */
   b.rect(0, -14, 16, 20, '#000000');
   b.rect(0, -17, 16, 3, metal.lt);
   b.hline(0, 15, -17, metal.hi);
@@ -629,7 +627,7 @@ export function glassPartition(variant: string | undefined): BufFurniture {
   b.hline(0, 15, 14, mix(wall.dk, '#9aa2ae', 0.5));
   b.outline();
   b.clearRect(0, -14, 16, 20);
-  // Vidro com um reflexo diagonal suave por módulo, brilho no topo e montante.
+  // Glass panel with subtle diagonal sheen per module, top highlight, and mullion.
   b.rect(0, -14, 16, 20, 'rgba(172,214,238,0.34)');
   b.rect(0, -14, 16, 3, 'rgba(255,255,255,0.22)');
   for (let i = 0; i < 20; i++) {
@@ -639,7 +637,7 @@ export function glassPartition(variant: string | undefined): BufFurniture {
   }
   b.vline(0, -14, 5, 'rgba(195,202,212,0.85)');
   b.hline(0, 15, 5, 'rgba(120,150,175,0.35)');
-  // Remove o contorno lateral para segmentos contínuos.
+  // Removes lateral outline for continuous runs.
   for (let y = 0; y < b.h; y++) {
     b.clear(-1, y - b.oy);
     b.clear(16, y - b.oy);
@@ -648,7 +646,7 @@ export function glassPartition(variant: string | undefined): BufFurniture {
   return { base: s };
 }
 
-// ------------------------------------------------------------------ reunião e apoio
+// ------------------------------------------------------------------ meeting and support
 
 export function meetingTable(seed: number): BufFurniture {
   const s = floorSheet(3, 2, 10);
@@ -693,7 +691,7 @@ export function meetingTable(seed: number): BufFurniture {
   if (seed % 2 === 0) laptop(34, -3, 'down');
   else papers(b, 34, -1, 7, 5);
   papers(b, 8, 14, 6, 4);
-  // Copos de água / canecas.
+  // Water glasses / mugs.
   mug(b, 18, 14, pick(r, MUG_COLORS));
   b.rect(29, -1, 2, 3, 'rgba(190,225,245,0.9)');
   b.set(29, -1, '#ffffff');
@@ -731,7 +729,7 @@ export function floorLamp(): BufFurniture {
   b.hline(6, 9, 13, '#5a6070');
   b.vline(8, -17, 13, '#4a505c');
   b.vline(7, -17, 13, '#6b7282');
-  // Cúpula de tecido creme (luz acesa).
+  // Cream fabric lampshade (illuminated).
   const sh = ramp('#f3e6c8', 0.05);
   for (let i = 0; i < 7; i++) {
     const half = 3 + Math.floor(i / 2);
@@ -762,11 +760,11 @@ export function waterCooler(): BufFurniture {
   b.set(9, 1, '#f08a8a');
   b.rect(4, 5, 8, 2, '#c3c9d2');
   b.hline(5, 10, 5, '#9aa2ae');
-  // Porta inferior.
+/** Wall-mounted large screen TV / video conference display. */
   b.rect(4, 8, 8, 7, body.base);
   b.hline(4, 11, 8, body.dk);
   b.rect(10, 11, 1, 2, '#9aa2ae');
-  // Galão azul translúcido.
+  // Translucent blue water bottle.
   const g = 'rgba(92,170,240,0.78)';
   b.rect(5, -6, 6, 1, '#5b8fd0');
   for (let y = -17; y <= -7; y++) {
@@ -778,7 +776,7 @@ export function waterCooler(): BufFurniture {
   b.vline(6, -14, -9, 'rgba(255,255,255,0.3)');
   b.hline(5, 10, -12, 'rgba(60,120,200,0.6)');
   b.vline(10, -15, -8, 'rgba(40,90,170,0.55)');
-  // Porta-copos lateral.
+/** Office print station / photocopier unit with output tray. */
   b.rect(13, -1, 2, 6, '#f4f6f8');
   b.set(14, -1, '#c9ced6');
   b.outline();

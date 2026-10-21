@@ -1,4 +1,4 @@
-// Interpretação dos rollouts do Codex (linhas sintéticas nos formatos paginated e legacy).
+// Parser for Codex rollouts (synthetic entries in paginated and legacy formats).
 import { describe, expect, it } from 'vitest';
 import { R, SOURCES, threadId } from '../../test/codex-fixtures';
 import {
@@ -86,7 +86,7 @@ describe('rollout do Codex: paginated', () => {
     const done = parseRolloutLine(state, R.command(T, 't', 'call_9', 'npm run build'), ctx);
     expect(done.activities[0].activity.id).toBe('acc:t#call_9');
     expect(state.pending.has('call_9')).toBe(false);
-    // No paginated, só o item concluído conta como ferramenta.
+    // In paginated mode, only completed item counts as tool.
     expect(state.stats.toolCalls).toBe(1);
   });
 
@@ -134,7 +134,7 @@ describe('rollout do Codex: paginated', () => {
     expect(acts.map((a) => [a.id, a.text, a.detail])).toEqual([
       ['acc:t#call_js', 'Executando código', undefined],
       ['acc:t#call_msg', 'Escrevendo a resposta', 'Achei o bug no checkout'],
-      // O item concluído tem o mesmo id: o escritório não duplica.
+      // Completed item shares same id: office avoids duplication.
       ['acc:t#call_msg', 'Escrevendo a resposta', 'Achei o bug no checkout'],
       ['acc:t#call_cut', 'Escrevendo a resposta', 'Texto cortado'],
     ]);
@@ -162,7 +162,7 @@ describe('rollout do Codex: paginated', () => {
 
   it('uso do plano: janela pela duração, idade da linha e sem cota', () => {
     const at = Date.parse('2026-10-09T12:00:00Z');
-    // Posições trocadas: vale a duração (10080 = semana).
+    // Inverted positions: duration takes precedence (10080 = week).
     const swapped = usageFromRateLimits(R.rateLimits({ primary: { used: 70, minutes: 10080, resetsAt: 1_900_000_000 }, secondary: { used: 5.5, minutes: 300 } }), at);
     expect(swapped).toEqual({ source: 'codex', fetchedAt: at, sevenDay: { utilization: 70, resetsAt: 1_900_000_000_000 }, fiveHour: { utilization: 5.5, resetsAt: 2_000_000_000_000 } });
     const none = usageFromRateLimits(R.rateLimits({ primary: null, secondary: null, reached: 'workspace_owner_credits_depleted' }), at);
@@ -174,7 +174,7 @@ describe('rollout do Codex: paginated', () => {
   });
 
   it('turno interrompido e ids estáveis numa releitura (inclusive sem id próprio)', () => {
-    // Sem session_meta na janela, o formato ainda não é conhecido: a resposta legacy vale.
+    // Without session_meta in window, format unknown: legacy response applies.
     const lines = [R.taskStarted('t9'), R.turnAborted('t9'), R.legacyAgent('x')];
     const a = feed(lines);
     const b = feed(lines);
@@ -193,7 +193,7 @@ describe('rollout do Codex: legacy', () => {
       R.functionCall('c1', 'shell', { command: ['bash', '-lc', 'ls -la'] }),
       R.functionOutput('c1', JSON.stringify({ output: 'erro', metadata: { exit_code: 2 } })),
       R.legacyAgent('Pronto, listei.'),
-      // Num legacy, item_completed de UserMessage não existe; se aparecer, não duplica a conversa por isso.
+      // In legacy, item_completed for UserMessage does not exist; if encountered, prevents duplicates.
     ]);
     expect(state.mode).toBe('legacy');
     expect(texts(results)).toEqual(['Recebeu “Liste os arquivos”', 'Pensando…', 'Explorando pastas', 'Erro em Bash', 'Escrevendo a resposta']);
@@ -214,7 +214,7 @@ describe('session_meta', () => {
   it('subagente (thread_spawn), internos e fontes comuns', () => {
     const parent = threadId(2);
     expect(meta(SOURCES.sub(parent))).toMatchObject({ parentThreadId: parent, agentRole: 'explorer', agentNickname: 'Kepler', internal: false });
-    // A chave já apareceu como subAgent (camelCase) na documentação: as duas valem.
+    // Key has appeared as subAgent (camelCase) in docs: both supported.
     expect(meta({ subAgent: { threadSpawn: { parent_thread_id: parent } } }).parentThreadId).toBe(parent);
     expect(meta(SOURCES.guardian()).internal).toBe(true);
     expect(meta(SOURCES.internal()).internal).toBe(true);
@@ -222,7 +222,7 @@ describe('session_meta', () => {
     expect(meta('cli', { thread_source: 'guardian_review' }).internal).toBe(true);
     expect(meta('vscode')).toMatchObject({ internal: false, cwd: '/p', historyMode: 'paginated' });
     expect(meta('vscode').parentThreadId).toBeUndefined();
-    // Sem thread_spawn, mas com a raiz diferente do próprio id: o pai é a raiz.
+    // Without thread_spawn, but root differs from id: parent is root.
     expect(meta('exec', { session_id: parent }).parentThreadId).toBe(parent);
     expect(parseSessionMeta({ id: T }).historyMode).toBe('legacy');
   });
@@ -252,7 +252,7 @@ describe('pathFromUri', () => {
     expect(pathFromUri(undefined)).toBeUndefined();
     expect(pathFromUri('')).toBeUndefined();
     expect(pathFromUri('   ')).toBeUndefined();
-    // % inválido: o decode falha e sobra o resto depois de "file://". %2F o decode aceita e vira barra.
+    // Invalid %: decoding fails and remainder after "file://" is kept. %2F is decoded to slash.
     expect(pathFromUri('file:///tmp/%ZZ')).toBe('/tmp/%ZZ');
     expect(pathFromUri('file://%')).toBe('%');
     expect(pathFromUri('file:///home/user/a%2Fb.png')).toBe('/home/user/a/b.png');

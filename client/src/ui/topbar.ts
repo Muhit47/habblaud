@@ -1,4 +1,4 @@
-// Barra superior: marca, conexão, contadores, uso por conta e botões de controle.
+// Top bar: brand mark, connection state, counters, per-account usage, and control buttons.
 import { access } from '../net/access';
 import { SpawnPanel } from './spawn';
 import type { UiComponent, UiContext } from './context';
@@ -19,7 +19,7 @@ interface CounterRefs {
   label: HTMLElement;
 }
 
-/** Contadores fixos (o de shells é à parte: só aparece quando há shells rodando). */
+/** Static counters (shells counter is dynamic: only appears when background shells are active). */
 const COUNTERS: { key: Exclude<keyof Counters, 'shells'>; singular: string; plural: string; hint: string }[] = [
   { key: 'rooms', singular: tr('sala'), plural: tr('salas'), hint: tr('Salas abertas (uma por projeto)') },
   { key: 'agents', singular: tr('agente'), plural: tr('agentes'), hint: tr('Agentes no escritório (principais e subagentes)') },
@@ -34,11 +34,11 @@ export class TopBar implements UiComponent {
   private pill: HTMLElement;
   private pillText: HTMLElement;
   private demoBadge: HTMLElement;
-  /** Linha de baixo da marca (conexão, versão, selos): o chip do Habblaud World entra aqui (ui/index.ts). */
+  /** Subtitle line under brand (connection, version, badges): Habblaud World chip mounts here (ui/index.ts). */
   private status: HTMLElement;
   private counters = new Map<keyof Counters, CounterRefs>();
   private shellsBtn: HTMLButtonElement;
-  /** Próximo agente do botão de shells (cliques seguidos passam por todos, do que espera há mais tempo). */
+  /** Shell button target cursor (consecutive clicks cycle through agents, oldest wait first). */
   private shellCursor = 0;
   private usage: UsageCards;
   private version: VersionChip;
@@ -47,15 +47,15 @@ export class TopBar implements UiComponent {
   private feedBtn: HTMLButtonElement;
   private timelapseBtn: HTMLButtonElement;
   readonly settingsBtn: HTMLButtonElement;
-  /** Abre a janela do Habblaud World (ao lado de Configurações); a janela decide quando ele aparece. */
+  /** Opens Habblaud World modal (beside Settings); the dialog determines visibility. */
   readonly worldBtn: HTMLButtonElement;
   private readonly spawnBtn: HTMLButtonElement;
   private readonly spawnPanel: SpawnPanel;
-  /** Grupo dos botões de painéis (feed, Habblaud World, configurações, ajuda); o histórico entra aqui (ui/index.ts). */
+  /** Panel button group (feed, Habblaud World, settings, help); history mounts here (ui/index.ts). */
   readonly panelGroup: HTMLElement;
 
   constructor(private ctx: UiContext) {
-    // Marca: usa o logo do projeto se existir; senão, o prédio em pixels.
+    // Brand: uses project logo if present; otherwise fallback pixel building.
     const mark = h('span', { class: 'ui-brand__mark' });
     const logo = h('img', { attrs: { src: '/assets/brand/logo-mark.png', srcset: '/assets/brand/logo-mark@4x.png 4x', alt: '', width: 32, height: 32, draggable: 'false' } });
     logo.addEventListener('error', () => {
@@ -73,7 +73,7 @@ export class TopBar implements UiComponent {
       const label = h('span', { class: 'ui-counter__label', text: c.plural });
       let el: HTMLElement;
       if (c.key === 'waiting') {
-        // Em telas pequenas o rótulo some e fica a mão levantada.
+        // On narrow viewports text label hides leaving raised hand icon.
         const icon = h('span', { class: 'ui-counter__icon', attrs: { 'aria-hidden': 'true' } });
         icon.innerHTML = ICONS.hand;
         el = h('button', { class: 'ui-counter ui-counter--waiting', type: 'button', title: tr('{0}. Clique para ir até o primeiro.', [c.hint]), on: { click: () => this.focusFirstWaiting() } }, icon, value, label);
@@ -84,7 +84,7 @@ export class TopBar implements UiComponent {
       counterWrap.append(el);
     }
 
-    // "⏳ N shells": entre os subagentes e o "precisa de você"; some quando não há shells rodando.
+    // "⏳ N shells": placed between subagents and "needs you"; hides when no shells are active.
     {
       const icon = h('span', { class: 'ui-counter__icon ui-hourglass', attrs: { 'aria-hidden': 'true' } });
       icon.innerHTML = ICONS.hourglass;
@@ -105,7 +105,7 @@ export class TopBar implements UiComponent {
     this.sidebarBtn = iconButton(ICONS.sidebar, tr('Painel lateral ( [ )'), () => ctx.togglePanel('sidebar'), 'ui-btn-sidebar');
     this.feedBtn = iconButton(ICONS.feed, tr('Feed de atividade ( ] )'), () => ctx.togglePanel('feed'), 'ui-btn-feed');
     this.timelapseBtn = iconButton(TIMELAPSE_ICONS.timelapse, tr('Timelapse: reproduzir o dia (L)'), () => ctx.toggleTimelapse(), 'ui-btn-timelapse');
-    // Habblaud World: escondido até a janela dele (ui/world/world-dialog.ts) dizer que há servidor do mundo configurado.
+    // Habblaud World: hidden until dialog (ui/world/world-dialog.ts) confirms configured world server.
     this.worldBtn = iconButton(ICONS.city, tr('Habblaud World'), () => ctx.toggleWorld(), 'ui-btn-world');
     this.worldBtn.setAttribute('aria-haspopup', 'dialog');
     this.worldBtn.hidden = true;
@@ -157,17 +157,17 @@ export class TopBar implements UiComponent {
     );
   }
 
-  /** Acrescenta um selo à linha de status da marca, depois da versão (ex.: o chip do Habblaud World). */
+  /** Appends a badge to brand status line after version chip (e.g. Habblaud World chip). */
   addStatus(el: HTMLElement): void {
     this.status.append(el);
   }
 
-  /** Botão Mundo (troca de cena), ao lado do Timelapse. */
+  /** World button (scene switcher), beside Timelapse. */
   addSceneButton(btn: HTMLElement): void {
     this.panelGroup.insertBefore(btn, this.timelapseBtn);
   }
 
-  /** Acrescenta um botão de janela própria (ex.: Meu dia) ao começo do grupo de painéis. */
+  /** Prepends custom modal button (e.g. Day stats) to panel action group. */
   addPanelButton(btn: HTMLElement): void {
     this.panelGroup.prepend(btn);
   }
@@ -176,7 +176,7 @@ export class TopBar implements UiComponent {
     const { store } = this.ctx;
     const snap = store.snapshot;
 
-    // Conexão.
+    // Connection.
     const conn = store.connection;
     if (conn === 'open') this.hadOpen = true;
     const label =
@@ -193,7 +193,7 @@ export class TopBar implements UiComponent {
     );
     setHidden(this.demoBadge, !(conn === 'open' && snap?.meta.demo));
 
-    // Contadores.
+    // Counters.
     const now = this.ctx.now();
     const c = computeCounters(snap, now);
     for (const def of COUNTERS) {
@@ -206,7 +206,7 @@ export class TopBar implements UiComponent {
     const waiting = this.counters.get('waiting')!.el as HTMLButtonElement;
     waiting.classList.toggle('is-active', c.waiting > 0);
     waiting.disabled = c.waiting === 0;
-    // Pedidos que dá para responder por aqui (hook de permissão: permissões e perguntas): a dica diz quantos.
+    // Inline-actionable requests (permission hook: permissions and prompts): tooltip indicates count.
     const answerable = permissionAgents(snap?.agents ?? []).length;
     waiting.classList.toggle('has-answer', answerable > 0);
     setTitle(
@@ -240,7 +240,7 @@ export class TopBar implements UiComponent {
     setText(refs.label, n === 1 ? 'shell' : 'shells');
     const who = agents.length === 1 ? agents[0].name : tr('{0} agentes', [formatInt(agents.length)]);
     setAttr(refs.el, 'aria-label', tr('{0} {1}; {2} esperando. Ir até o próximo.', [formatInt(n), n === 1 ? tr('shell rodando') : tr('shells rodando'), who]));
-    // Dica: quem espera o quê, do que espera há mais tempo.
+    // Tooltip: who is waiting on what, ordered oldest wait first.
     const lines = agents.slice(0, 6).map((a) => {
       const w = shellWaitIn(a, all, now)!;
       return `${a.name}: ${shellLine(w, now).label} (${formatDuration(now - w.since)})`;
@@ -252,7 +252,7 @@ export class TopBar implements UiComponent {
   private focusNextShell(): void {
     const agents = shellWaitingAgents(this.ctx.store.snapshot?.agents ?? [], this.ctx.now());
     if (!agents.length) return;
-    // Se o atual já está selecionado, passa para o próximo da fila.
+    // If active agent is already selected, advance to next in queue.
     const sel = this.ctx.selection();
     let i = this.shellCursor % agents.length;
     if (sel?.type === 'agent' && agents[i].id === sel.id) i = (i + 1) % agents.length;
@@ -261,7 +261,7 @@ export class TopBar implements UiComponent {
   }
 
   private focusFirstWaiting(): void {
-    // Quem tem pedido para responder pelo escritório vem antes (cliques seguidos passam por todos).
+    // Agents with pending office permission requests prioritize first (consecutive clicks cycle).
     const agents = this.ctx.store.snapshot?.agents ?? [];
     const sel = this.ctx.selection();
     const next = nextPermissionAgent(agents, sel?.type === 'agent' ? sel.id : undefined);

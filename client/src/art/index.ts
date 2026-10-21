@@ -1,8 +1,8 @@
-// Módulo de arte (pixel art procedural) do Habblaud — implementação do contrato ArtModule (./api.ts).
+// Habblaud art module (procedural pixel art) — implementation of ArtModule contract (./api.ts).
 //
-// Tudo é desenhado em código: a geração acontece em PixelBuf (puro, testável em Node) e só no fim
-// vira canvas, uma única vez por combinação de parâmetros (cache). As funções draw* chamadas a cada
-// quadro (telas, quadro, janela, relógio, pisos, paredes) só fazem fillRect/drawImage de tiles prontos.
+// Fully drawn in code: generation runs in PixelBuf (pure, testable in Node) and converts to canvas
+// only at the end, exactly once per parameter combination (cached). Per-frame draw* functions
+// (screens, whiteboard, window, clock, floors, walls) only execute fillRect/drawImage on prepared tiles.
 import { partsKey, type AppearanceParts } from '../../../shared/appearance';
 import { hash32 } from '../../../shared/hash';
 import {
@@ -53,7 +53,7 @@ function toSprite(s: BufSprite): Sprite {
   return { canvas: toCanvas(s.buf), ax: s.ax, ay: s.ay, rects: s.rects };
 }
 
-/** Cache com limite simples (descarta tudo ao estourar — evita crescer sem fim em sessões longas). */
+/** Simple bounded cache (clears all on capacity limit — prevents unbounded growth during long sessions). */
 class Cache<T> {
   private map = new Map<string, T>();
   constructor(private readonly limit: number) {}
@@ -86,7 +86,7 @@ function keyOf(a: Appearance): string {
   return k;
 }
 
-// ------------------------------------------------------------------ personagens
+// ------------------------------------------------------------------ characters
 
 export function appearanceFromSeed(seed: number, opts: { look?: 'f' | 'm'; sub?: boolean; parts?: AppearanceParts } = {}): Appearance {
   return appearanceFromSeedPure(seed, opts);
@@ -113,7 +113,7 @@ export function avatarCanvas(seed: number, opts: { look?: 'f' | 'm'; sub?: boole
   const key = `${seed}|${opts.look ?? '-'}|${opts.sub ? 1 : 0}|${scale}|${partsKey(opts.parts)}`;
   return avatarCache.get(key, () => {
     const s = renderCharacter({ appearance: appearanceFromSeedPure(seed, opts), dir: 'down', pose: 'stand', frame: 0 });
-    // Busto: cabeça + ombros (20x20 a partir do topo do cabelo).
+    // Bust: head + shoulders (20x20 from top of hair).
     const crop = s.buf.crop(2, 2, CHAR_W - 4, 20);
     const out = new PixelBuf(crop.w * scale, crop.h * scale);
     for (let y = 0; y < out.h; y++) {
@@ -131,10 +131,10 @@ export function avatarCanvas(seed: number, opts: { look?: 'f' | 'm'; sub?: boole
 }
 
 
-// ------------------------------------------------------------------ móveis e ícones
+// ------------------------------------------------------------------ furniture and icons
 
 export function furnitureSprites(kind: FurnitureKind, variant?: string, state?: number, opts: { seed?: number } = {}): FurnitureSprites {
-  // Chave normalizada: sementes/variantes equivalentes compartilham o mesmo canvas.
+  // Normalized key: equivalent seeds/variants share the same canvas.
   const n = normalizeFurniture(kind, variant, state, opts.seed);
   const key = `${kind}|${n.variant ?? '-'}|${n.state}|${n.vseed}`;
   return furnCache.get(key, () => {
@@ -170,7 +170,7 @@ export function drawFloor(
   h: number,
   opts: { seed: number; tint?: string; tint2?: string },
 ): void {
-  // Blocos de 8x8 tiles alinhados à grade do mundo, recortados à área pedida.
+  // 8x8 tile blocks aligned to world grid, cropped to requested bounds.
   const cx0 = Math.floor(x / CHUNK_PX);
   const cy0 = Math.floor(y / CHUNK_PX);
   const cx1 = Math.ceil((x + w) / CHUNK_PX);
@@ -203,7 +203,7 @@ function styleKey(s: WallStyle): string {
   return `${s.base}|${s.trim ?? ''}|${s.pattern ?? 'plain'}|${s.exterior ? 1 : 0}`;
 }
 
-/** Trechos [x0, x1) da parede que não estão em passagens. */
+/** Wall spans [x0, x1) excluding doorway openings. */
 function solidSegments(x: number, w: number, doorways: readonly Doorway[] | undefined): [number, number][] {
   let segs: [number, number][] = [[x, x + w]];
   for (const d of doorways ?? []) {
@@ -253,7 +253,7 @@ export function drawWallFace(ctx: CanvasRenderingContext2D, x: number, y: number
   const cap = capColor(style);
   for (const [a, b] of segs) {
     drawTiled(ctx, a, b, y, WALL_FACE_H, tileFor);
-    // Batentes sombreados nas bordas que encostam numa passagem.
+    // Shaded door jambs on edges touching a passageway.
     if (b < x + w) {
       ctx.fillStyle = jamb;
       ctx.fillRect(b - 2, y + WALL_CAP_H, 2, WALL_FACE_H - WALL_CAP_H);
@@ -304,12 +304,12 @@ export function drawSouthWall(ctx: CanvasRenderingContext2D, x: number, y: numbe
 }
 
 // ------------------------------------------------------------------ telas e afins (por quadro)
-// drawScreen, drawBoard, drawWindowView e drawClock vêm de ./dynamic (reexportados acima).
+// drawScreen, drawBoard, drawWindowView and drawClock come from ./dynamic (re-exported above).
 
-/** Para depuração/prévia: tamanho e âncora padrão dos personagens. */
+/** For debugging/preview: default size and anchor for characters. */
 export const CHARACTER_SHEET = { w: CHAR_W, h: CHAR_H } as const;
 
-// Garantia em tempo de compilação de que este módulo cumpre o contrato ArtModule.
+// Compile-time guarantee that this module satisfies ArtModule contract.
 const _contract: ArtModule = {
   appearanceFromSeed,
   characterSprite,

@@ -21,7 +21,7 @@ describe('notificationOutcome', () => {
     expect(notificationOutcome('shell', 'killed', undefined)).toBe('killed');
     expect(notificationOutcome('shell', undefined, 'Background command "x" failed with exit code 1')).toBe('failed');
     expect(notificationOutcome('shell', undefined, undefined)).toBe('ok');
-    // Monitor: cada evento é uma notificação; só um status terminal encerra.
+    // Monitor: each event is a notification; only a terminal status terminates.
     expect(notificationOutcome('monitor', undefined, 'linha de log')).toBeUndefined();
     expect(notificationOutcome('monitor', 'running', undefined)).toBeUndefined();
     expect(notificationOutcome('monitor', 'completed', undefined)).toBe('ok');
@@ -35,17 +35,17 @@ describe('ShellTracker', () => {
     expect(s.list().map(toShellJob)).toEqual([
       { id: 'toolu_1', label: 'Rodar a suíte completa', command: 'vendor/bin/phpunit', startedAt: T0, background: true, kind: 'shell' },
     ]);
-    // O comando começa de fato no lançamento (depois de uma eventual aprovação).
+    // Command actually starts at launch (after eventual approval).
     s.result('toolu_1', { taskId: 'bo0ov3q3l', error: false, at: T0 + 4_000 });
     expect(s.list().map(toShellJob)[0]).toMatchObject({ id: 'bo0ov3q3l', startedAt: T0 + 4_000 });
     expect(s.hasBackgroundShell(T0 + 60_000)).toBe(true);
     const fin = s.notify({ taskId: 'bo0ov3q3l', status: 'completed', summary: 'ok (exit code 0)', at: T0 + 480_000 });
     expect(fin).toMatchObject({ outcome: 'ok', at: T0 + 480_000, job: { owner: 'main', label: 'Rodar a suíte completa' } });
     expect(s.list()).toEqual([]);
-    // A mesma notificação entregue de novo (fila -> mensagem) não encerra outra vez.
+    // Same notification re-delivered (queue -> message) does not terminate again.
     expect(s.notify({ taskId: 'bo0ov3q3l', toolUseId: 'toolu_1', status: 'completed', at: T0 + 481_000 })).toBeUndefined();
     expect(s.reportedRecently({ toolUseId: 'toolu_1' }, T0 + 481_000)).toBe(true);
-    // Releitura do transcript não ressuscita o job.
+    // Re-reading transcript does not revive job.
     s.start('main', bash('toolu_1', T0));
     expect(s.size).toBe(0);
   });
@@ -80,7 +80,7 @@ describe('ShellTracker', () => {
     s.result('b1', { taskId: 'bkill', error: false, at: T0 });
     expect(s.stop('bkill', T0 + 9_000)).toMatchObject({ outcome: 'killed', job: { toolUseId: 'b1' } });
     expect(s.size).toBe(0);
-    // A notificação "killed" que vem depois é ignorada.
+    // Subsequent "killed" notification is ignored.
     expect(s.notify({ taskId: 'bkill', status: 'killed', at: T0 + 9_500 })).toBeUndefined();
   });
 
@@ -108,7 +108,7 @@ describe('ShellTracker', () => {
 
   it('mescla o começo do arquivo sem ressuscitar o que a janela já viu terminar', () => {
     const s = new ShellTracker();
-    // Janela do fim: término de um shell cujo início ficou no começo do arquivo, e o lançamento de outro.
+    // Tail window: termination of a shell started at head of file, and launch of another.
     s.notify({ toolUseId: 'antigo', taskId: 'bant', status: 'completed', at: T0 + 10 });
     s.result('rodando', { taskId: 'brod', error: false, at: T0 + 5 });
     const older = new ShellTracker();

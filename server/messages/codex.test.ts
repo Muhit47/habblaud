@@ -1,7 +1,7 @@
-// Mensagens ao Codex: o `codex queue` (binário falso que imita as saídas reais; nunca o Codex de verdade), o binário
-// pelo HABBLAUD_CODEX_BIN ou PATH, e o registro com o entregador do Codex — modo Node (o servidor roda o comando, uma
-// mensagem por vez por agente) e o auxiliar do host (rodada/confirmação), canMessage, prazos e a separação da caixa de
-// entrada do plugin do Claude Code. Relógio injetado; dados sintéticos.
+// Messages to Codex: `codex queue` (mock binary mimicking real outputs; never real Codex), binary lookup
+// via HABBLAUD_CODEX_BIN or PATH, and registry with Codex runner — Node mode (server runs command, one
+// message at a time per agent) and host helper (polling/ack), canMessage, timeouts, and isolation from
+// Claude Code plugin inbox. Injected clock; synthetic data.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -92,7 +92,7 @@ describe('codex queue (binário falso)', () => {
   });
 });
 
-/** Runner controlado pelo teste: cada chamada fica pendente até `finish`. */
+/** Test-controlled runner: each invocation remains pending until `finish`. */
 function manualRunner(): { run: CodexQueueRunner; jobs: CodexQueueJob[]; finish: (i: number, r: CodexQueueResult) => Promise<void> } {
   const jobs: CodexQueueJob[] = [];
   const done: Array<(r: CodexQueueResult) => void> = [];
@@ -151,7 +151,7 @@ describe('MessageRegistry: Codex no modo Node (o servidor roda o codex queue)', 
   it.runIf(FAKE_CODEX_RUNS)('canMessage nos principais do Codex; entrega pelo codex queue com o thread e a pasta da conta; atividade no feed', async () => {
     const { office, registry } = setup({ run: runner() });
     expect(snapAgent(office, MAIN)!.canMessage).toBe(true);
-    // O do Claude Code (mesmo id de sessão, por acaso) segue dependendo do plugin.
+    // Claude Code agent (coincidentally same session ID) still relies on plugin.
     expect(snapAgent(office, CLAUDE)!.canMessage).toBeUndefined();
     const r = registry.send({ agentId: MAIN, text: 'roda os testes' });
     expect(r).toMatchObject({ message: { status: 'queued' } });
@@ -160,7 +160,7 @@ describe('MessageRegistry: Codex no modo Node (o servidor roda o codex queue)', 
     expect(await settle(registry, id)).toMatchObject({ status: 'delivered' });
     expect(fakeCodexCalls(log)).toEqual([{ args: ['queue', `--thread=${THREAD}`, '--message=roda os testes'], codexHome }]);
     expect(snapAgent(office, MAIN)!.recent.some((a) => a.text === 'Mensagem pelo Habblaud' && a.detail === 'roda os testes')).toBe(true);
-    // A caixa de entrada do plugin nunca entrega mensagens do Codex (nem conhece o agente do Codex).
+    // Plugin inbox never delivers Codex messages (nor does it recognize Codex agents).
     expect(registry.inbox({ session: THREAD, account: '.codex' })).toEqual([]);
   });
 
@@ -185,13 +185,13 @@ describe('MessageRegistry: Codex no modo Node (o servidor roda o codex queue)', 
     expect(m.jobs.map((j) => j.text)).toEqual(['um', 'outro', 'dois']);
     await m.finish(2, { ok: false, error: 'Error: recusado' });
     expect(registry.get(a2)).toMatchObject({ status: 'failed', error: 'Error: recusado' });
-    // Fila parada atrás de uma entrega lenta: falha no prazo com o motivo do Codex.
+    // Queue blocked behind slow delivery: fails on timeout with Codex reason.
     const b2 = sent(registry.send({ agentId: OTHER, text: 'atrás' }));
     clock.advance(QUEUED_TIMEOUT_MS);
     registry.tick();
     expect(registry.get(b2)).toMatchObject({ status: 'failed', error: ERR_CODEX_SLOW });
     expect(registry.get(b1)!.status).toBe('failed');
-    // A resposta atrasada ainda corrige a situação (o Codex é quem sabe se entrou).
+    // Late reply still reconciles state (Codex authoritatively confirms enqueuing).
     await m.finish(1, { ok: true });
     expect(registry.get(b1)!.status).toBe('delivered');
   });
@@ -258,7 +258,7 @@ describe('MessageRegistry: Codex pelo auxiliar do host (Docker)', () => {
     ]);
     expect(registry.get(a)!.status).toBe('sent');
     expect(registry.get(b)!.status).toBe('queued');
-    // A caixa de entrada do plugin e a confirmação dele não mexem nas mensagens do Codex.
+    // Plugin inbox and confirmation do not affect Codex messages.
     expect(registry.inbox({ session: THREAD })).toEqual([]);
     registry.ack({ session: THREAD, results: [{ id: a, ok: true }] });
     expect(registry.get(a)!.status).toBe('sent');
@@ -267,7 +267,7 @@ describe('MessageRegistry: Codex pelo auxiliar do host (Docker)', () => {
     expect(registry.codexPoll({})).toEqual([{ id: b, account: '.codex', codexHome, thread: THREAD, text: 'dois' }]);
     registry.codexAck({ results: [{ id: b, ok: false, error: 'Error: no rollout found' }] });
     expect(registry.get(b)).toMatchObject({ status: 'failed', error: 'Error: no rollout found' });
-    // Sem confirmação no prazo: falha; a confirmação atrasada corrige.
+    // No acknowledgement within deadline: fails; late ack recovers.
     clock.advance(SENT_TIMEOUT_MS);
     registry.tick();
     expect(registry.get(c)!.status).toBe('failed');

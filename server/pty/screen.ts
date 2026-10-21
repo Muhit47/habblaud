@@ -1,12 +1,12 @@
-// Tela de cada terminal interativo no servidor (@xterm/headless + @xterm/addon-serialize, dependências opcionais
-// como o node-pty). Quem conecta depois, reconecta ou troca de aba recebe a tela atual já montada, com os modos
-// que o Claude Code ligou no começo (colagem entre colchetes, teclas de aplicação, mouse, tela alternativa). Sem
-// eles, a reprodução da saída bruta perderia esses modos: colar várias linhas viraria vários prompts.
+// Screen buffer for interactive terminal (@xterm/headless + @xterm/addon-serialize, optional dependencies
+// like node-pty). Late connects, reconnects, or tab changes receive rendered screen with active modes
+// initialized by Claude Code (bracketed paste, application keypad, mouse tracking, alternate buffer). Without
+// these, raw stream playback drops modes: pasting multiple lines would dispatch separate prompts.
 import { errMsg } from '../log';
 import type { PtyScreen, ScreenFactory } from './manager';
 import { tr } from '../../shared/i18n';
 
-/** Linhas de rolagem guardadas por terminal. */
+/** Scrollback lines retained per terminal. */
 const SCROLLBACK = 5_000;
 
 interface HeadlessTerminal {
@@ -20,7 +20,7 @@ interface SerializeAddon {
   serialize(opts?: { scrollback?: number }): string;
 }
 
-/** Carrega o @xterm/headless e o addon de serialização. Devolve null + motivo se não der. */
+/** Loads @xterm/headless and serialize addon. Returns null + reason on failure. */
 export async function loadHeadlessScreen(): Promise<{ create: ScreenFactory | null; reason?: string }> {
   try {
     const headless = (await import('@xterm/headless')) as unknown as { Terminal?: unknown; default?: { Terminal?: unknown } };

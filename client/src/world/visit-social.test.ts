@@ -1,9 +1,9 @@
-// O social dentro do prédio (Fase 5), a parte pura: o carimbo de hoje (dia UTC) e o quadro de carimbos da recepção.
+// In-building social features (Phase 5), pure part: today's stamp (UTC day) and reception stamp board.
 import { describe, expect, it } from 'vitest';
 import { stampBoard, stampedToday, stampKey, stampPinTitle, stampReply, utcDay } from './visit-social';
 
 describe('carimbo de hoje', () => {
-  it('um por prédio por dia UTC; o de ontem, um id fora da lista ou lixo não valem', () => {
+  it('one per building per UTC day; yesterday, foreign id, or malformed values are rejected', () => {
     const day = utcDay(Date.UTC(2026, 9, 15, 23, 59));
     expect(day).toBe('2026-10-15');
     expect(stampedToday(JSON.stringify({ day, stampId: 'rocket' }), day)).toBe('rocket');
@@ -15,8 +15,8 @@ describe('carimbo de hoje', () => {
   });
 });
 
-describe('quadro de carimbos da recepção', () => {
-  it('o meu primeiro, depois os mais recebidos; posições dentro do quadro e iguais a cada chamada', () => {
+describe('reception stamp board', () => {
+  it('user stamp first, then most received; positions stay within board and remain deterministic across calls', () => {
     const entries = [{ stampId: 'star' as const, count: 3 }, { stampId: 'coffee' as const, count: 1 }, { stampId: 'rocket' as const, mine: true }];
     const a = stampBoard(entries, 7);
     expect(a.map((p) => p.stampId)).toEqual(['rocket', 'star', 'coffee']);
@@ -32,7 +32,7 @@ describe('quadro de carimbos da recepção', () => {
     expect(stampPinTitle(a[1]!)).toBe('Nota 10 ×3');
   });
 
-  it('no máximo `max` carimbos; ids fora da lista ficam de fora', () => {
+  it('at most `max` stamps; unrecognized IDs are excluded', () => {
     const many = Array.from({ length: 12 }, () => ({ stampId: 'heart' as const }));
     expect(stampBoard(many, 1, 8)).toHaveLength(8);
     expect(stampBoard([{ stampId: 'xx' as never }], 1)).toEqual([]);
@@ -40,7 +40,7 @@ describe('quadro de carimbos da recepção', () => {
 });
 
 describe('a resposta a um carimbo', () => {
-  it('stamped confirma (o carimbo fica), already_done diz que já havia um, o resto desfaz', () => {
+  it('stamped confirms (stamp saved), already_done reports existing stamp, others revert', () => {
     expect(stampReply('stamped')).toBe('ok');
     expect(stampReply('already_done')).toBe('already');
     for (const t of ['too_far', 'not_found', 'blocked', 'rate_limited', 'id_novo']) expect(stampReply(t), t).toBe('failed');

@@ -1,9 +1,9 @@
-// Partículas: pool fixo (sem crescer), vida útil e física básica.
+// Particles: fixed pool (no growth), lifespan, and basic kinematics.
 import { describe, expect, it } from 'vitest';
 import { Particles } from './particles';
 
-describe('partículas', () => {
-  it('confete some depois da vida útil; pipoca volta a cair', () => {
+describe('particles', () => {
+  it('confetti expires after lifespan; popcorn falls back down', () => {
     const p = new Particles(100);
     p.confetti(10, 10, 30);
     p.popcorn(0, 0);
@@ -22,7 +22,7 @@ describe('partículas', () => {
     expect(p.count).toBe(0);
   });
 
-  it('chuva cai a distância pedida e acaba', () => {
+  it('rain falls requested distance and terminates', () => {
     const p = new Particles(10);
     p.rain(0, 0, 6);
     p.update(0.05);

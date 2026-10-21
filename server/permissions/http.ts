@@ -1,11 +1,11 @@
-// Rotas de /api/permissions (responder pelo escritório). A trava (bind local + Host local) já foi
-// conferida em http/app.ts; o guard (http/guard.ts) já exigiu JSON e Origin local nos POST (contra CSRF).
+// /api/permissions routes (answering via office UI). Security lock (local bind + local Host) already
+// verified in http/app.ts; edge guard (http/guard.ts) already required JSON and local Origin on POST (CSRF protection).
 //
-//   POST /api/permissions                 (hook)    registra o pedido: 201 {id, expiresAt} ou 200 {skip}
-//                                                   (o hook do Codex manda também provider: "codex", account e codexHome)
+//   POST /api/permissions                 (hook)    registers request: 201 {id, expiresAt} or 200 {skip}
+//                                                   (Codex hook also supplies provider: "codex", account, and codexHome)
 //   GET  /api/permissions/:id/wait        (hook)    long-poll: {status: pending | decided | released}
-//   GET  /api/permissions/:id             (página)  detalhe com os argumentos (comando, diff...)
-//   POST /api/permissions/:id/decision    (página)  {behavior: allow | deny | terminal | answer, message?, answers?, ...}
+//   GET  /api/permissions/:id             (web app) detail with arguments (command, diff...)
+//   POST /api/permissions/:id/decision    (web app) {behavior: allow | deny | terminal | answer, message?, answers?, ...}
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError, readJson, sendJson } from '../http/app';
 import { InvalidRequest, parseDecision, WAIT_MAX_MS, type PermissionRegistry } from './registry';
@@ -25,7 +25,7 @@ function fail(res: ServerResponse, err: unknown): void {
   else sendJson(res, 500, { error: tr('erro interno') });
 }
 
-/** Tempo de espera pedido em `?timeout=` (segundos), limitado a WAIT_MAX_MS. */
+/** Wait timeout requested in `?timeout=` (seconds), bounded by WAIT_MAX_MS. */
 export function waitMs(url: URL): number {
   const raw = Number(url.searchParams.get('timeout'));
   if (!Number.isFinite(raw) || raw <= 0) return WAIT_MAX_MS;
@@ -44,7 +44,7 @@ export function createPermissionRoutes(registry: PermissionRegistry): (req: Inco
     const w = registry.wait(id, waitMs(new URL(req.url ?? '/', 'http://localhost')));
     if (!w) return sendJson(res, 404, { error: tr('pedido desconhecido') });
     req.socket.setTimeout(0);
-    // Conexão fechada antes da resposta (o hook morreu ou desistiu): larga a espera.
+    // Connection closed before answer (hook terminated or aborted): drop waiter.
     res.on('close', () => {
       if (!res.writableEnded) w.cancel();
     });

@@ -1,29 +1,29 @@
-// Caixa de mensagem (ui/composer.ts), parte pura e testada em ui/composer-model.test.ts: quando a caixa aparece (e
-// por que não), o que a tecla Enter faz, a linha de situação de cada envio e o ritmo da consulta da entrega.
-// No Codex a mensagem entra na fila da sessão (`codex queue`) e vira prompt quando ela fica ociosa: "Entregue" diz
-// isso; sem quem entregue (no Docker, o auxiliar do host), a dica é a do `npm run codex:bridge`.
+// Message box (ui/composer.ts), pure and tested in ui/composer-model.test.ts: when box appears (and
+// why not), what Enter key does, status line of each submission, and delivery poll intervals.
+// In Codex message enters session queue (`codex queue`) and becomes prompt when idle: "Delivered" reflects
+// this; without delivery helper (in Docker, host bridge), the hint refers to `npm run codex:bridge`.
 import { MESSAGE_MAX } from '../../../shared/messages';
 import type { AgentInfo, OutboxStatus, Provider } from '../../../shared/types';
 import { tr } from '../../../shared/i18n';
 
-/** Dica para quem tem o recurso ligado, mas a sessão do agente não está com o plugin conectado. */
+/** Hint for users who have feature enabled, but agent session lacks connected plugin. */
 export const PLUGIN_HINT = tr('Para mandar mensagens daqui: npm run mod:install (plugin habblaud-mensagens)');
-/** A mesma dica para um agente do Codex sem entregador (no modo Node o próprio servidor entrega). */
+/** Same hint for Codex agent without deliverer (in Node mode server itself delivers). */
 export const CODEX_BRIDGE_HINT = tr('Para mandar mensagens ao Codex: com o Habblaud no Docker, deixe npm run codex:bridge rodando; no modo Node funciona sozinho');
 
 /**
- * - ready: dá para mandar (principal com o plugin conectado, recurso ligado, página local);
- * - hint: recurso ligado e principal presente, mas a sessão não está com o plugin (`text` diz como instalar);
- * - off: não dá (`text` diz por quê). A gaveta esconde a caixa; o terminal mostra o motivo no lugar dela.
+ * - ready: ready to send (main agent with plugin connected, feature enabled, local page);
+ * - hint: feature enabled and main agent present, but session lacks plugin (`text` explains how to install);
+ * - off: cannot send (`text` explains why). Drawer hides box; terminal shows reason in its place.
  */
 export type ComposerMode = { kind: 'ready' } | { kind: 'hint'; text: string } | { kind: 'off'; text: string };
 
 export interface ComposerEnv {
-  /** Recurso ligado no servidor (OfficeSnapshot.meta.messages; no ?mock=1, sempre). */
+  /** Feature enabled on server (OfficeSnapshot.meta.messages; always in ?mock=1). */
   enabled: boolean;
-  /** Página aberta pelo próprio computador (o servidor só aceita mensagens assim). */
+  /** Page opened from this computer (server only accepts messages this way). */
   local: boolean;
-  /** Timelapse: o escritório mostrado é o do momento reproduzido. */
+  /** Timelapse: office displayed is from the replayed moment. */
   replaying: boolean;
 }
 
@@ -38,14 +38,14 @@ export function composerMode(agent: AgentInfo | undefined, env: ComposerEnv): Co
   return { kind: 'ready' };
 }
 
-/** Dica embaixo da caixa (gaveta): como a mensagem entra na sessão. */
+/** Hint below box (drawer): how message enters session. */
 export function composerTip(provider: Provider = 'claude'): string {
   return provider === 'codex'
     ? tr('Entra na fila da sessão e vira o próximo prompt quando o Codex terminar o que está fazendo. Enter manda; Shift+Enter quebra a linha.')
     : tr('Entra na sessão como se você tivesse digitado. Enter manda; Shift+Enter quebra a linha.');
 }
 
-/** O que sai da caixa: o texto como foi digitado, sem os espaços e linhas em branco do fim. */
+/** Sanitized text from box: text as typed, without trailing spaces and blank lines. */
 export function messageText(raw: string): string {
   return raw.replace(/\s+$/, '');
 }
@@ -55,23 +55,23 @@ export function canSend(raw: string): boolean {
   return text.trim().length > 0 && text.length <= MESSAGE_MAX;
 }
 
-/** Enter manda; Shift+Enter (e Alt+Enter) quebram a linha; Enter compondo um acento (IME) não conta. */
+/** Enter sends; Shift+Enter (and Alt+Enter) line-breaks; IME composing Enter doesn't count. */
 export function enterSends(e: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'isComposing'>): boolean {
   return e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing;
 }
 
 /**
- * Situação do último envio de um agente: `sending` (o POST ainda não voltou), `rejected` (o servidor recusou: o texto
- * fica na caixa) ou a situação da mensagem no servidor (OutboxStatus).
+ * Situation of an agent's last submission: `sending` (POST hasn't returned yet), `rejected` (server rejected:
+ * text remains in box) or message status on server (OutboxStatus).
  */
 export type SendPhase = 'sending' | 'rejected' | OutboxStatus;
 
 export interface SendState {
   phase: SendPhase;
-  /** Id da mensagem no servidor (depois do 201). */
+  /** Message id on server (after 201). */
   id?: string;
   error?: string;
-  /** Última mudança (epoch ms, relógio da página). */
+  /** Last state change (epoch ms, page clock). */
   at: number;
 }
 
@@ -79,10 +79,10 @@ export function isSettled(phase: SendPhase): boolean {
   return phase === 'delivered' || phase === 'failed' || phase === 'rejected';
 }
 
-/** "Entregue" some sozinho depois deste tempo; erros ficam até o próximo envio. */
+/** "Delivered" disappears automatically after this duration; errors remain until next submission. */
 export const DELIVERED_SHOW_MS = 12_000;
 
-/** Texto da linha de situação ('' = nada a mostrar). */
+/** Status line text ('' = nothing to show). */
 export function sendStatusText(s: SendState | undefined, now: number, provider: Provider = 'claude'): string {
   if (!s) return '';
   const codex = provider === 'codex';
@@ -94,8 +94,8 @@ export function sendStatusText(s: SendState | undefined, now: number, provider: 
     case 'sent':
       return tr('Entregando à sessão…');
     case 'delivered':
-      // Entregue = entrou na sessão ou na fila dela (com o agente ocupado, só entra quando ele terminar o turno). No
-      // Codex é sempre a fila: o dono da sessão a consulta a cada ~10 s e só a usa com a sessão ociosa.
+      // Delivered = entered session or its queue (if agent busy, enters after turn ends). In
+      // Codex it's always the queue: session owner polls every ~10s and only consumes when idle.
       if (now - s.at >= DELIVERED_SHOW_MS) return '';
       return codex
         ? tr('Entregue ✓ na fila da sessão: entra quando o Codex terminar o que está fazendo (até ~10 s)')
@@ -107,10 +107,10 @@ export function sendStatusText(s: SendState | undefined, now: number, provider: 
   }
 }
 
-/** Consulta da entrega: o servidor leva até ~90 s para desistir (60 s na fila + 30 s sem confirmação). */
+/** Delivery polling: server takes up to ~90s to give up (60s in queue + 30s unconfirmed). */
 export const POLL_LIMIT_MS = 120_000;
 
-/** Espera até a próxima consulta: rápida no começo (a sessão busca a cada 2 s), mais espaçada depois. */
+/** Wait time until next poll: faster initially (session checks every 2s), spaced out later. */
 export function pollDelay(elapsed: number): number {
   if (elapsed < 10_000) return 700;
   if (elapsed < 40_000) return 1_500;
@@ -122,7 +122,7 @@ export const TIMEOUT_ERROR = tr('sem notícia da entrega: confira no terminal do
 export const CODEX_TIMEOUT_ERROR = tr('sem notícia da entrega: confira no Codex');
 export const OFFLINE_ERROR = tr('não foi possível falar com o Habblaud');
 
-/** Prazo da consulta acabou sem notícia: onde conferir. */
+/** Poll deadline expired with no news: where to verify. */
 export function timeoutError(provider: Provider = 'claude'): string {
   return provider === 'codex' ? CODEX_TIMEOUT_ERROR : TIMEOUT_ERROR;
 }

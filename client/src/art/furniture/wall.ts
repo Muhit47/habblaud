@@ -1,5 +1,5 @@
-// Itens montados na parede norte. Coordenadas de desenho: x = 0 na borda esquerda do trecho,
-// y = 0 na linha do rodapé; a face da parede vai de y = -32 (topo, com a tampa até -28) a 0.
+// Items mounted on north wall. Drawing coordinates: x = 0 at left edge of section,
+// y = 0 at baseboard line; wall face extends from y = -32 (top, with coping to -28) to 0.
 import { ramp, shade } from '../core/color';
 import { rectAt, wallSheet, type BufFurniture } from '../core/sprite';
 import { ACCENTS, M, book, foliage, glass, mug, pick, pot, rngOf, smallSucculent } from './kit';
@@ -27,7 +27,7 @@ export function whiteboard(): BufFurniture {
   // Reflexo sutil.
   b.line(x + 30, y + 1, x + 24, y + h - 2, 'rgba(210,225,240,0.5)');
   b.line(x + 33, y + 1, x + 27, y + h - 2, 'rgba(210,225,240,0.35)');
-  // Bandeja com pincéis e apagador.
+  // Tray with markers and eraser.
   b.rect(x + 3, y + h, w - 6, 2, frame.base);
   b.hline(x + 3, x + w - 4, y + h, frame.lt);
   for (const [i, c] of [[0, '#e05a5a'], [3, '#3f7fd8'], [6, '#2b2f3b'], [9, '#4cae6a']] as const) {
@@ -49,7 +49,7 @@ export function windowItem(): BufFurniture {
   const y = -27;
   const w = 28;
   const h = 19;
-  // Moldura (o vidro fica transparente: o mundo desenha o céu antes).
+  // Frame (glass remains transparent: sky is rendered underneath by world).
   b.rect(x, y, w, 2, fr.lt);
   b.rect(x, y + h - 2, w, 2, fr.base);
   b.rect(x, y, 2, h, fr.lt);
@@ -60,7 +60,7 @@ export function windowItem(): BufFurniture {
   b.rect(x + 13, y + 2, 2, h - 4, fr.base);
   b.vline(x + 14, y + 2, y + h - 3, fr.dk);
   b.hline(x + 2, x + w - 3, y + 2, 'rgba(40,50,70,0.25)');
-  // Vidro: só reflexos semitransparentes.
+  // Glass: semi-transparent specular highlights only.
   const gx = x + 2;
   const gy = y + 2;
   const gw = w - 4;
@@ -87,7 +87,7 @@ export function clock(): BufFurniture {
   b.ellipse(cx, cy, 6.5, 6.5, '#3a3f4b');
   b.ellipse(cx, cy, 5.5, 5.5, '#fbfbf8');
   b.ellipse(cx - 1, cy - 1, 3, 3, '#ffffff');
-  // Marcações das horas.
+  // Hour markings.
   for (const [dx, dy] of [[0, -5], [5, 0], [0, 4], [-5, 0]] as const) b.set(Math.floor(cx + dx), Math.floor(cy + dy), '#5a6070');
   b.outline();
   wallShadow(b, 1, -29, 14, 14);
@@ -170,7 +170,7 @@ export function poster(variant: string | undefined): BufFurniture {
       break;
     }
     default: {
-      // code: editor escuro com linhas coloridas e "</>".
+      // code: dark editor with colored syntax lines and "</>".
       b.rect(ix, iy, iw, ih, '#1f2433');
       const cols = ['#ff79c6', '#8be9fd', '#f1fa8c', '#50fa7b', '#bd93f9'];
       for (let i = 0; i < 6; i++) b.hline(ix + 1 + (i % 3), ix + 2 + ((i * 3) % 5) + 2, iy + 1 + i * 2, cols[i % cols.length]);
@@ -199,7 +199,7 @@ export function painting(seed: number): BufFurniture {
   const ay = y + 2;
   const aw = w - 4;
   const ah = h - 4;
-  // Paisagem padrão: céu, sol, montanhas e lago.
+  // Default landscape: sky, sun, mountains, and lake.
   const r = rngOf(seed, 41);
   const warm = r() < 0.5;
   for (let i = 0; i < ah; i++) b.hline(ax, ax + aw - 1, ay + i, shade(warm ? '#f6c48a' : '#9fd3f0', -i * 0.012));
@@ -260,7 +260,7 @@ export function elevator(state: number): BufFurniture {
   const st = Math.max(0, Math.min(4, Math.round(state)));
   const frame = ramp('#aeb6c2', 0.06);
   const door = ramp('#c9d0d9', 0.05);
-  // Moldura de aço escovado.
+  // Brushed steel frame.
   b.rect(0, -28, 32, 28, frame.base);
   b.hline(0, 31, -28, frame.hi);
   b.vline(0, -28, -1, frame.lt);
@@ -272,7 +272,7 @@ export function elevator(state: number): BufFurniture {
   b.set(12, -25, lit ? '#5fd07a' : '#3b4a3f');
   b.set(14, -25, lit ? '#5fd07a' : '#3b4a3f');
   b.rect(16, -26, 4, 1, lit ? '#f2c14e' : '#4a4535');
-  // Vão interno (cabine): luz quente, parede de fundo e corrimão.
+  // Elevator interior (cab): warm light, rear wall, and handrail.
   const ix = 3;
   const iy = -23;
   const iw = 26;
@@ -283,7 +283,7 @@ export function elevator(state: number): BufFurniture {
   b.hline(ix + 2, ix + iw - 3, iy + 12, '#b9c0ca');
   b.rect(ix, iy + ih - 4, iw, 4, '#b89a72');
   b.hline(ix, ix + iw - 1, iy + ih - 4, '#a5865f');
-  // Portas deslizantes: cada folha recua 3px por estado.
+  // Sliding doors: each leaf retracts 3px per state.
   const leaf = 13;
   const open = st * 3;
   const drawLeaf = (x0: number, w: number) => {
@@ -364,7 +364,7 @@ export function mirror(): BufFurniture {
   b.line(x + 8, y + 1, x + 3, y + h - 2, 'rgba(255,255,255,0.75)');
   b.outline();
   wallShadow(b, x - 1, y - 1, w + 2, h + 2);
-  // Vidro (sem a moldura): o mundo pode desenhar ali o reflexo de quem está diante da pia.
+  // Mirror glass (frameless): world can composite reflections of characters at sink.
   s.rects = { glass: rectAt(s, x + 1, y + 1, w - 2, h - 2) };
   return { base: s };
 }
@@ -380,7 +380,7 @@ export function shelfWall(seed: number): BufFurniture {
     b.hline(1, 30, y + 1, w.dk);
     for (const x of [4, 26]) b.rect(x, y + 2, 2, 2, '#5a6070');
   };
-  // Prateleira de cima: livros + planta; de baixo: caixas, troféu, caneca.
+  // Top shelf: books + plant; bottom shelf: storage boxes, trophy, mug.
   plank(-19);
   plank(-9);
   let x = 3;

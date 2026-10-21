@@ -1,4 +1,4 @@
-// Integração: registro + transcript + subagentes em um config dir temporário.
+// Integration: registry + transcript + subagents in temporary config dir.
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -330,7 +330,7 @@ describe('ClaudeWatcher', () => {
       ['Workflow', 'ui', 'working'],
     ]);
     expect(c.agent('.claude:100')!.stats.subagents).toBe(2);
-    // O journal do workflow registra o resultado de cada agente.
+    // Workflow journal records each agent's outcome.
     writeLines(join(c.dir, 'projects', encodeCwd(CWD), 'sess-a', 'subagents', 'workflows', 'wf_1', 'journal.jsonl'), [
       JSON.stringify({ type: 'started', agentId: 'w1', label: 'backend' }),
       JSON.stringify({ type: 'result', agentId: 'w1', result: {} }),
@@ -353,7 +353,7 @@ describe('ClaudeWatcher', () => {
     c.watcher.boot();
     const subs = c.agents().filter((a) => a.kind === 'sub');
     expect(subs.map((s) => s.id)).toEqual(['sess-b:new']);
-    // O antigo só volta se for escrito de novo.
+    // Old path only reloads if written to again.
     appendLines(old, [L.assistant([L.tool('z', 'Read', { file_path: '/a/b.ts' })], { agentId: 'old' })]);
     c.poll();
     expect(c.agent('sess-b:old')?.status).toBe('working');
@@ -365,23 +365,23 @@ describe('ClaudeWatcher', () => {
       const t = (c.now() - ms) / 1000;
       utimesSync(path, t, t);
     };
-    // Bash aberto há 3 min (sem resultado ainda): continua trabalhando.
+    // Bash open for 3 min (no result yet): remains working.
     const busy = c.subFile('sess-r', 'busy', { agentType: 'Explore', toolUseId: 't-busy' }, [
       L.prompt('roda a bateria', { agentId: 'busy', at: c.now() - 200_000 }),
       L.assistant([L.tool('b1', 'Bash', { command: 'npm test' })], { agentId: 'busy', at: c.now() - 180_000, stop: 'tool_use' }),
     ]);
     quiet(busy, 180_000);
-    // Terminou há 3 min: fica de fora.
+    // Ended 3 min ago: excluded.
     const ended = c.subFile('sess-r', 'ended', { agentType: 'Explore', toolUseId: 't-ended' }, [
       L.assistant([L.text('pronto')], { agentId: 'ended', at: c.now() - 180_000, stop: 'end_turn' }),
     ]);
     quiet(ended, 180_000);
-    // Ferramenta pendente há 12 min: passou do limite, fica de fora.
+    // Pending tool call 12 min old: exceeds limit, excluded.
     const stuck = c.subFile('sess-r', 'stuck', { agentType: 'Explore', toolUseId: 't-stuck' }, [
       L.assistant([L.tool('s1', 'Bash', { command: 'sleep 999' })], { agentId: 'stuck', at: c.now() - 720_000, stop: 'tool_use' }),
     ]);
     quiet(stuck, 720_000);
-    // Workflow: journal diz que começou e não terminou (sem ferramenta pendente, quieto há 100 s).
+    // Workflow: journal states started and uncompleted (no pending tool, silent for 100 s).
     const wf = c.subFile('sess-r', 'wf1', { agentType: 'workflow-subagent' }, [L.prompt('tarefa', { agentId: 'wf1', at: c.now() - 100_000 })], 'run-1');
     writeFileSync(join(wf, '..', 'journal.jsonl'), `${JSON.stringify({ type: 'started', agentId: 'wf1', label: 'Revisor' })}\n`);
     quiet(wf, 100_000);
@@ -412,11 +412,11 @@ describe('ClaudeWatcher', () => {
     c.poll();
     c.closeSession(100);
     c.poll();
-    // Um sumiço instantâneo do registro não fecha a sessão...
+    // Transient absence from registry does not close session...
     expect(c.agent(id)!.status).toBe('working');
     c.advance(2_000);
     c.poll();
-    // ...mas um sumiço que persiste, sim.
+    // ...but persistent disappearance, yes.
     expect(c.agent(id)!.status).toBe('offline');
     expect(c.agent('sess-a:s1')!.status).toBe('done');
     expect(c.notices.at(-1)?.text).toMatch(/^🚪 .+ encerrou a sessão$/);
@@ -500,7 +500,7 @@ describe('ClaudeWatcher — esperando o shell', () => {
 
   const SUITE = { command: 'vendor/bin/phpunit --group cms', description: 'Rodar a suíte completa', run_in_background: true };
 
-  /** Turno que deixa um Bash em segundo plano rodando e termina. */
+  /** Turn that leaves background Bash running and completes. */
   function backgroundTurn(at: number, id = 'toolu_bg', taskId = 'bo0ov3q3l', input: Record<string, unknown> = SUITE): string[] {
     return [
       L.prompt('Roda a suíte inteira', { at: at - 2_000 }),
@@ -529,12 +529,12 @@ describe('ClaudeWatcher — esperando o shell', () => {
     expect(c.notices.map((n) => n.text)).toEqual([`⏳ ${a.name} está esperando o shell em loja: Rodar a suíte completa`]);
     expect(c.office.recentFeed(1)[0].activity.tool).toBe('ShellWait');
 
-    // Passa o tempo; nada muda (sem novos avisos, sem novo balão).
+    // Time advances; nothing changes (no new notifications, no new bubble).
     c.advance(60_000);
     c.poll();
     expect(c.notices).toHaveLength(1);
 
-    // O shell termina: a fila grava a notificação; o agente acorda e recebe a mensagem.
+    // Shell terminates: queue records notification; agent wakes and receives message.
     appendLines(c.transcript('sess-s'), [
       L.shellNotification('queue', { taskId: 'bo0ov3q3l', toolUseId: 'toolu_bg', status: 'completed', summary: 'Background command "Rodar a suíte completa" completed (exit code 0)' }, { at: c.now() }),
       L.shellNotification('message', { taskId: 'bo0ov3q3l', toolUseId: 'toolu_bg', status: 'completed' }, { at: c.now() + 10 }),
@@ -548,7 +548,7 @@ describe('ClaudeWatcher — esperando o shell', () => {
     expect(a.activity!.error).toBeUndefined();
     expect(c.notices.at(-1)).toMatchObject({ level: 'success', text: `✅ ${a.name}: shell terminou em loja — Rodar a suíte completa` });
     expect(c.office.recentFeed(2).map((f) => f.activity.text)).toEqual(['Shell terminou: Rodar a suíte comp… (1min 10s)', 'Recebeu resultado em segundo plano']);
-    // Nenhum "concluiu" no caminho: o fim do turno virou espera pelo shell.
+    // No conclusion on path: turn end became shell wait.
     expect(c.notices.some((n) => n.text.includes('concluiu'))).toBe(false);
   });
 
@@ -614,14 +614,14 @@ describe('ClaudeWatcher — esperando o shell', () => {
     c.openSession(727, 'sess-w2', { status: 'idle', version: '2.1.260' });
     c.watcher.boot();
     expect(c.agent('.claude:726')!.status).toBe('shell');
-    // 2.1.260 >= 2.1.250 (que grava "shell"): "idle" sem fallback.
+    // 2.1.260 >= 2.1.250 (which logs "shell"): "idle" without fallback.
     expect(c.agent('.claude:727')!.status).toBe('idle');
   });
 
   it('o fallback ignora shell antigo (> 12 h) e shell de antes do processo atual (sessão retomada)', () => {
     const t0 = c.now();
     writeLines(c.transcript('sess-r'), [...backgroundTurn(t0 - 13 * 3_600_000, 'velho', 'bvelho'), ...backgroundTurn(t0 - 120_000, 'anterior', 'bant')]);
-    // O processo começou há 60 s (fixture): o shell de 2 min atrás morreu com o processo anterior.
+    // Process started 60s ago (fixture): shell from 2m ago died with previous process.
     c.openSession(730, 'sess-r', { status: 'idle', startedAt: t0 - 60_000 });
     c.watcher.boot();
     expect(c.agent('.claude:730')).toMatchObject({ status: 'idle' });
@@ -641,16 +641,16 @@ describe('ClaudeWatcher — esperando o shell', () => {
     c.advance(5_000);
     c.openSession(740, 'sess-p', { status: 'busy' });
     c.poll();
-    // O relógio do comando começa quando a aprovação termina.
+    // Command clock begins when approval concludes.
     expect(c.agent(id)!.shells).toEqual([{ id: 'fg1', label: 'Instalar as dependências', command: 'npm ci', startedAt: t0, background: false, kind: 'shell' }]);
     c.advance(30_000);
     c.poll();
-    // 30 s sem nada novo no transcript: continua mostrando o comando (não "Pensando…").
+    // 30 s without new transcript data: keeps displaying command (not "Thinking...").
     expect(c.agent(id)).toMatchObject({ status: 'working', activity: { kind: 'run', text: 'Instalando dependências' } });
     appendLines(c.transcript('sess-p'), [L.result('fg1', 'added 812 packages', { at: c.now() })]);
     c.poll();
     expect(c.agent(id)!.shells).toBeUndefined();
-    // Comando em primeiro plano não gera ShellDone.
+    // Foreground command does not generate ShellDone.
     expect(c.agent(id)!.recent.some((x) => x.tool === 'ShellDone')).toBe(false);
   });
 

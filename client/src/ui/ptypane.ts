@@ -1,6 +1,6 @@
-// Tela do terminal interativo (xterm.js) ligada a um pty do servidor (server/pty/manager.ts): saída pelo SSE
-// GET /api/pty/:id/stream (reset | data | exit) e teclas/tamanho por POST. Carregado sob demanda (import
-// dinâmico em ui/pty.ts): o xterm só entra quando alguém abre um terminal interativo.
+// Interactive terminal display (xterm.js) connected to a server pty instance (server/pty/manager.ts):
+// output via SSE GET /api/pty/:id/stream (reset | data | exit) and keystrokes/resize via POST. Lazily loaded
+// (dynamic import in ui/pty.ts): xterm bundle is fetched only when an interactive terminal opens.
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
@@ -16,7 +16,7 @@ export class PtyPane {
   private es: EventSource | null = null;
   private id: string | null = null;
   private exited = false;
-  /** Entrada ainda não enviada e a fila de envio (mantém a ordem das teclas). */
+  /** Unsent input buffer and delivery queue (maintains strict keystroke sequence). */
   private pending = '';
   private sending: Promise<void> = Promise.resolve();
   private resizeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -45,7 +45,7 @@ export class PtyPane {
     return this.id;
   }
 
-  /** Liga a tela a um pty do servidor (outro pty = tela nova). */
+  /** Connects terminal canvas to a server pty instance (new pty = fresh terminal screen). */
   attach(id: string): void {
     if (this.id === id && this.es) return;
     this.detach();
@@ -66,7 +66,7 @@ export class PtyPane {
       try {
         code = (JSON.parse((e as MessageEvent<string>).data) as { code?: number }).code ?? 0;
       } catch {
-        // sem código
+        // missing exit code
       }
       this.term.write(`\r\n\x1b[2m[${code ? tr('Claude Code encerrado (código {0})', [code]) : tr('Claude Code encerrado')}]\x1b[0m\r\n`);
       es.close();
@@ -84,7 +84,7 @@ export class PtyPane {
     this.term.focus();
   }
 
-  /** Reajusta colunas/linhas ao tamanho do elemento (`force` reenvia ao servidor mesmo sem mudança). */
+  /** Refits terminal columns and rows to element bounding box (`force` notifies server even if unchanged). */
   refit(force = false): void {
     if (!this.el.isConnected || this.el.clientWidth < 40 || this.el.clientHeight < 40) return;
     const before = `${this.term.cols}x${this.term.rows}`;

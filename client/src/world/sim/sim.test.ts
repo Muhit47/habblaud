@@ -1,4 +1,4 @@
-// Integração da simulação sem DOM: snapshots -> personagens andando, sentando, apagando a luz e indo embora.
+// Simulation integration DOM-free: snapshots -> characters walking, sitting, turning off lights, and departing.
 import { describe, expect, it } from 'vitest';
 import type { AppearanceParts } from '../../../../shared/appearance';
 import type { AgentInfo, OfficeSnapshot, RoomInfo, ShellJob } from '../../../../shared/types';
@@ -76,7 +76,7 @@ function snap(rooms: RoomInfo[], agents: AgentInfo[], rev = 1): OfficeSnapshot {
   };
 }
 
-/** Avança a simulação em passos de 1/30 s. */
+/** Advances simulation in 1/30 s steps. */
 function run(sim: Sim, clock: { now: number }, seconds: number, until?: () => boolean): void {
   const steps = Math.round(seconds * 30);
   for (let i = 0; i < steps; i++) {
@@ -90,8 +90,8 @@ function newSim(): Sim {
   return new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS, liveliness: 'calm' }));
 }
 
-describe('simulação do escritório', () => {
-  it('carga inicial: quem trabalha já está sentado digitando, sala acesa', () => {
+describe('office simulation', () => {
+  it('initial load: working agents are seated typing, room lights on', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'working'), agent('bia', '/a', 'waiting', { waitingFor: 'aprovar' })]), clock.now);
@@ -107,7 +107,7 @@ describe('simulação do escritório', () => {
     expect(r.lightOn).toBe(true);
   });
 
-  it('chegada: sala nova é construída apagada, o primeiro acende a luz e senta', () => {
+  it('arrival: new room is built dark, first arrival turns on light and sits', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'working')]), clock.now);
@@ -126,7 +126,7 @@ describe('simulação do escritório', () => {
     expect(caio.pose).toBe('type');
   });
 
-  it('chegada: mudar de status a caminho do interruptor não deixa a sala no escuro', () => {
+  it('arrival: changing status en route to light switch does not leave room in the dark', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'working')]), clock.now);
@@ -138,7 +138,7 @@ describe('simulação do escritório', () => {
     run(sim, clock, 3);
     expect(b.lightOn).toBe(false);
     expect(b.switchClaim).toBe('caio');
-    // ainda andando até o interruptor: o status muda duas vezes (o plano é refeito)
+    // still walking to switch: status changes twice (plan is remade)
     sim.applySnapshot(snap(rooms, [agent('ana', '/a', 'working'), agent('caio', '/b', 'waiting', { waitingFor: 'aprovar' })], 3), clock.now);
     run(sim, clock, 0.5);
     sim.applySnapshot(snap(rooms, [agent('ana', '/a', 'working'), agent('caio', '/b', 'working')], 4), clock.now);
@@ -147,7 +147,7 @@ describe('simulação do escritório', () => {
     expect(caio.atSpot).toBe(caio.homeSpot);
   });
 
-  it('saída: quem acabou de acender a luz e já precisa ir embora apaga de novo ao sair', () => {
+  it('departure: agent who just turned on light and must leave turns it off on exit', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'working')]), clock.now);
@@ -158,33 +158,33 @@ describe('simulação do escritório', () => {
     const caio = sim.chars.get('caio')!;
     run(sim, clock, 60, () => caio.step?.t === 'switch');
     expect(caio.step?.t).toBe('switch');
-    // a sessão termina bem no meio do clique do interruptor
+    // session ends right in middle of switch interaction
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'working'), agent('caio', '/b', 'offline')], 3), clock.now);
     run(sim, clock, 20, () => caio.leaving && !b.lightOn);
     expect(b.lightOn).toBe(false);
-    // ainda a caminho do elevador quando a luz apaga
+    // still en route to elevator when lights go out
     expect(sim.chars.has('caio')).toBe(true);
     run(sim, clock, 90, () => !sim.rooms.has('/b'));
     expect(sim.rooms.has('/b')).toBe(false);
   });
 
-  it('saída: o último apaga a luz, vai ao elevador, some e a sala é desmontada', () => {
+  it('departure: last agent turns off light, walks to elevator, departs, and room dismantles', () => {
     const sim = newSim();
     const clock = { now: T0 };
     const rooms = [room('/a', 0), room('/b', 1)];
     sim.applySnapshot(snap(rooms, [agent('ana', '/a', 'working'), agent('caio', '/b', 'working'), agent('davi', '/b', 'idle')]), clock.now);
     run(sim, clock, 0.5);
-    // sessões da sala /b encerram: caio fica offline, davi some do snapshot
+    // sessions in room /b close: caio goes offline, davi leaves snapshot
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'working'), agent('caio', '/b', 'offline')], 2), clock.now);
     const b = sim.rooms.get('/b')!;
     expect(b.listed).toBe(false);
     expect(sim.chars.get('caio')!.mode).toBe('leave');
-    // davi só sai depois do debounce de 3 s
+    // davi leaves only after 3 s debounce
     run(sim, clock, 1);
     expect(sim.chars.get('davi')!.leaving).toBe(false);
     run(sim, clock, 3);
     expect(sim.chars.get('davi')!.leaving).toBe(true);
-    // exatamente um deles se encarrega do interruptor
+    // exactly one avatar handles light switch
     expect(b.switchClaim).not.toBeNull();
     run(sim, clock, 90, () => !b.lightOn);
     expect(b.lightOn).toBe(false);
@@ -193,7 +193,7 @@ describe('simulação do escritório', () => {
     expect(sim.chars.has('davi')).toBe(false);
     run(sim, clock, 10, () => !sim.rooms.has('/b'));
     expect(sim.rooms.has('/b')).toBe(false);
-    // a outra sala continua acesa
+    // other room remains lit
     expect(sim.rooms.get('/a')!.lightOn).toBe(true);
   });
 
@@ -235,14 +235,14 @@ describe('simulação do escritório', () => {
       return left && ana.atSpot === ana.homeSpot;
     });
     expect(left).toBe(true);
-    // volta ao trabalho imediatamente quando o status muda
+    // resumes work immediately when status changes
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'working')], 2), clock.now);
     run(sim, clock, 60, () => !!ana.homeSpot && ana.atSpot === ana.homeSpot && !ana.step && !ana.queue.length);
     run(sim, clock, 0.1);
     expect(ana.pose).toBe('type');
   });
 
-  it('quem descansa no dormitório (ocioso há muito tempo) acorda ao levantar: o "zzz" não vai junto', () => {
+  it('agent resting in dorm (long idle) wakes upon standing: "zzz" does not follow', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'idle', { statusSince: T0 - 3_600_000 })]), clock.now);
@@ -259,7 +259,7 @@ describe('simulação do escritório', () => {
     expect(ana.icon).toBeNull();
   });
 
-  it('avanço rápido (aba oculta) teletransporta para os destinos', () => {
+  it('fast-forward (hidden tab) teleports agents to destinations', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'working')]), clock.now);
@@ -273,13 +273,13 @@ describe('simulação do escritório', () => {
     expect(sim.rooms.get('/b')!.lightOn).toBe(true);
   });
 
-  it('snapshots com falhas não quebram o mundo', () => {
+  it('flawed snapshots do not crash the world', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/inexistente', 'working'), agent('bia', '/a', 'working', { parentId: 'ninguem', kind: 'sub' })]), clock.now);
     run(sim, clock, 5);
     expect(sim.chars.size).toBe(2);
-    // sala some e volta durante a desmontagem: reconstrói
+    // room disappears and returns during dismantling: rebuilds
     sim.applySnapshot(snap([], [], 2), clock.now);
     run(sim, clock, 20);
     sim.applySnapshot(snap([room('/a', 0)], [agent('caio', '/a', 'working')], 3), clock.now);
@@ -289,7 +289,7 @@ describe('simulação do escritório', () => {
     expect(['building', 'ready']).toContain(a!.phase);
   });
 
-  it('carga inicial: ninguém começa parado em banco de corredor/banheiro e nenhuma sala fica vazia', () => {
+  it('initial load: no one starts idle on hallway/bathroom benches and no room is empty', () => {
     for (const since of [T0, T0 - 5 * 60_000]) {
       const sim = newSim();
       const clock = { now: T0 };
@@ -300,17 +300,17 @@ describe('simulação do escritório', () => {
         const at = ch.atSpot ? sim.spots.get(ch.atSpot) : undefined;
         expect(at, `${ch.id} sem lugar`).toBeDefined();
         expect(at!.kind).not.toBe('bench');
-        // quem acabou de ficar ocioso começa na própria mesa
+        // newly idle agents start at own desk
         if (since === T0) expect(ch.atSpot).toBe(ch.homeSpot);
       }
       for (const id of ['/a', '/b']) expect([...sim.chars.values()].some((c) => c.roomId === id && c.atSpot === c.homeSpot)).toBe(true);
-      // e ninguém sai passear nos primeiros segundos
+      // and no one roams during initial seconds
       run(sim, clock, 3);
       if (since === T0) for (const ch of sim.chars.values()) expect(ch.atSpot, ch.id).toBe(ch.homeSpot);
     }
   });
 
-  it('sala lotada: quem sobra trabalha em pé DENTRO da sala (não fica rodando na recepção)', () => {
+  it('crowded room: overflow agents work standing INSIDE room (not roaming reception)', () => {
     const sim = newSim();
     const clock = { now: T0 };
     const agents: AgentInfo[] = [];
@@ -330,19 +330,19 @@ describe('simulação do escritório', () => {
       expect(tiles.has(key), `dois no mesmo tile ${key}`).toBe(false);
       tiles.add(key);
     }
-    // parados (não andando em círculos) e trabalhando com o notebook
+    // stationary (not pacing in circles) and working with laptop
     const before = homeless.map((c) => `${c.tx},${c.ty}`);
     run(sim, clock, 15);
     expect(homeless.map((c) => `${c.tx},${c.ty}`)).toEqual(before);
     expect(homeless.every((c) => c.pose === 'read' && c.held === 'laptop')).toBe(true);
-    // vagou um lugar: alguém de pé senta
+    // seat freed up: standing agent takes seat
     const seated = [...sim.chars.values()].find((c) => c.homeSpot && c.atSpot === c.homeSpot)!;
     sim.applySnapshot(snap([room('/a', 0)], agents.filter((a) => a.id !== seated.id), 2), clock.now);
     run(sim, clock, 40, () => homeless.some((c) => !!c.homeSpot && c.atSpot === c.homeSpot));
     expect(homeless.some((c) => !!c.homeSpot && c.atSpot === c.homeSpot)).toBe(true);
   });
 
-  it('delegar: conversa virado para a porta com 💬 (a mão levantada é só para "precisa de você")', () => {
+  it('delegation: chats facing door with 💬 (raised hand reserved for "needs attention")', () => {
     const sim = newSim();
     const clock = { now: T0 };
     const main = agent('ana', '/a', 'working', { activity: { id: 'a1', kind: 'edit', icon: '✏️', text: 'Editando', at: T0 } });
@@ -360,7 +360,7 @@ describe('simulação do escritório', () => {
     expect(poses.has('raise_hand')).toBe(false);
   });
 
-  it('cada personagem tem ritmo e faixa próprios (quem sai junto não anda sobreposto)', () => {
+  it('each character has unique cadence and lane offset (departing together avoids overlap)', () => {
     const sim = newSim();
     const clock = { now: T0 };
     const agents = ['a', 'bb', 'ccc', 'dddd', 'eeeee', 'ffffff'].map((id) => agent(id, '/a', 'working', { seed: id.charCodeAt(0) * 7919 + id.length }));
@@ -375,7 +375,7 @@ describe('simulação do escritório', () => {
     expect(new Set(chars.map((c) => c.lane)).size).toBeGreaterThan(1);
   });
 
-  it('personagem editado: seed ou peças novas no snapshot trocam a aparência de quem já está no escritório', () => {
+  it('edited character: new seed or parts in snapshot update appearance of existing office agents', () => {
     let calls = 0;
     const spyArt = {
       appearanceFromSeed: (seed: number, opts: { parts?: AppearanceParts } = {}) => {
@@ -400,7 +400,7 @@ describe('simulação do escritório', () => {
     expect(calls).toBe(before);
   });
 
-  it('personagem editado: só as peças ou só o look mudando (mesma seed) também trocam a aparência', () => {
+  it('edited character: changing only parts or look (same seed) updates appearance', () => {
     let calls = 0;
     const spyArt = {
       appearanceFromSeed: (seed: number, opts: { look?: 'm' | 'f'; parts?: AppearanceParts } = {}) => {
@@ -419,16 +419,16 @@ describe('simulação do escritório', () => {
 
     expect(apply({}).appearance.hairStyle).toBe('short');
 
-    // mesma seed, peças novas
+    // same seed, new parts
     expect(apply({ parts: { hairStyle: 'buzz' } }).appearance.hairStyle).toBe('buzz');
 
-    // mesma seed, peças diferentes
+    // same seed, different parts
     expect(apply({ parts: { hairStyle: 'bob' } }).appearance.hairStyle).toBe('bob');
 
-    // mesma seed, peças removidas: volta ao da fixture
+    // same seed, removed parts: reverts to fixture
     expect(apply({ parts: undefined }).appearance.hairStyle).toBe('short');
 
-    // mesma seed e mesmas peças, só o look diferente: gera de novo
+    // same seed and parts, different look: regenerates
     apply({ parts: { hairStyle: 'bob' } });
     const before = calls;
     expect(apply({ look: 'm', parts: { hairStyle: 'bob' } }).appearance.look).toBe('m');
@@ -448,7 +448,7 @@ describe('salas sem buracos', () => {
     expect(sim.building.cols).toBe(5);
   });
 
-  it('terminal fechou: a sala mais distante se muda para a vaga, o pessoal vai andando e o prédio encolhe', () => {
+  it('terminal closed: farthest room relocates to vacant slot, occupants walk, and building shrinks', () => {
     const sim = newSim();
     const clock = { now: T0 };
     const rooms = [room('/a', 0), room('/b', 1), room('/c', 2)];
@@ -461,20 +461,20 @@ describe('salas sem buracos', () => {
     expect(c.slot).toBe(2);
     expect(sim.building.cols).toBe(5);
 
-    // a sessão da sala /b fecha: bia vai embora e a sala é desmontada
+    // session in room /b closes: bia departs and room dismantles
     sim.applySnapshot(snap([room('/a', 0), room('/c', 2)], [agents[0], agent('bia', '/b', 'offline'), agents[2], agents[3]], 2), clock.now);
     run(sim, clock, 200, () => !sim.rooms.has('/b'));
     expect(sim.rooms.has('/b')).toBe(false);
     expect(c.slot).toBe(2);
 
-    // a vaga espera um pouco e então a sala /c se muda para ela (reconstruída, apagada)
+    // vacant slot waits briefly, then room /c relocates to it (rebuilt, unlit)
     run(sim, clock, 3, () => c.slot === 1);
     expect(c.slot).toBe(1);
     expect(c.phase).toBe('building');
     const ghost = [...sim.rooms.values()].find((r) => r.ghost);
     expect(ghost?.slot).toBe(2);
     expect(ghost?.listed).toBe(false);
-    // cada um continua com a sua mesa (agora na sala nova) e vai andando até ela, sem teletransporte
+    // each retains their desk (now in new room) and walks to it without teleporting
     expect(caio.homeSpot).toBe(homeBefore);
     let maxStep = 0;
     let px = caio.x;
@@ -490,15 +490,15 @@ describe('salas sem buracos', () => {
     expect(inside(c, caio)).toBe(true);
     expect(c.phase).toBe('ready');
     expect(c.lightOn).toBe(true);
-    // o endereço antigo esvaziou, apagou e foi desmontado; o prédio voltou a ter uma coluna de salas
+    // former location emptied, unlit, and dismantled; building returns to single column of rooms
     expect(sim.rooms.has(ghost!.id)).toBe(false);
     run(sim, clock, 10, () => sim.building.cols === 4);
     expect(sim.building.cols).toBe(4);
-    // davi (ocioso, talvez passeando) também tem o lugar dele na sala nova
+    // davi (idle, possibly roaming) also gets his spot in new room
     expect(c.layout.spots.some((p) => p.id === sim.chars.get('davi')!.homeSpot)).toBe(true);
   });
 
-  it('quem está indo embora não se muda: a vaga fica até a sala dela sumir', () => {
+  it('departing agents do not relocate: vacant slot remains until their room is gone', () => {
     const sim = newSim();
     const clock = { now: T0 };
     const rooms = [room('/a', 0), room('/b', 1), room('/c', 2)];
@@ -517,7 +517,7 @@ describe('salas sem buracos', () => {
     expect(sim.building.cols).toBe(4);
   });
 
-  it('abre e fecha ao acaso (inclusive no meio de uma mudança): ninguém se teletransporta e no fim não sobra buraco', () => {
+  it('random open/close cycles (including mid-move): no teleporting and no gaps remain', () => {
     let seed = 12345;
     const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
     const sim = newSim();
@@ -536,7 +536,7 @@ describe('salas sem buracos', () => {
     };
     push();
     let maxStep = 0;
-    // por personagem (quem volta com o mesmo id é outro personagem, que sai do elevador)
+    // per character (agent returning with same ID is new character arriving from elevator)
     const last = new WeakMap<object, { x: number; y: number }>();
     const track = () => {
       for (const ch of sim.chars.values()) {
@@ -583,7 +583,7 @@ describe('salas sem buracos', () => {
     sim.applySnapshot(snap([room('/a', 0), room('/c', 2)], [agent('ana', '/a', 'working'), agent('caio', '/c', 'working')]), clock.now);
     expect(sim.rooms.get('/c')!.slot).toBe(1);
     run(sim, clock, 0.5);
-    // o servidor manda a sala nova num slot alto; no prédio ela vai para a vaga 2
+    // server assigns new room high slot; in building it occupies vacant slot 2
     sim.applySnapshot(snap([room('/a', 0), room('/c', 2), room('/d', 7)], [agent('ana', '/a', 'working'), agent('caio', '/c', 'working'), agent('duda', '/d', 'working')], 2), clock.now);
     expect(sim.rooms.get('/d')!.slot).toBe(2);
     expect(sim.rooms.get('/d')!.phase).toBe('building');
@@ -602,7 +602,7 @@ describe('espera de shell', () => {
   });
   const done = (id: string, error = false): AgentInfo['activity'] => ({ id, kind: 'run', icon: error ? '❌' : '✅', text: 'Shell concluído', tool: SHELL_DONE_TOOL, error, at: T0 });
 
-  it('status shell: fica na mesa com o balde de pipoca e não sai para passear', () => {
+  it('shell status: stays at desk with popcorn bucket and does not roam', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'shell', { shells: [shell(20_000)] })]), clock.now);
@@ -634,7 +634,7 @@ describe('espera de shell', () => {
       dirs.add(ana.dir);
       return false;
     });
-    // pelo menos um giro completo na cadeira
+    // at least one full chair spin
     expect(dirs.size).toBe(4);
     expect(ana.dir).toBe(home.dir);
     sim.applySnapshot(snap(rooms, [agent('ana', '/a', 'shell', { shells: [shell(12 * MIN + (clock.now - T0))] })], 2), clock.now);
@@ -652,7 +652,7 @@ describe('espera de shell', () => {
     expect(ana.pose).toBe('sleep');
   });
 
-  it('passeando quando o shell começa: volta para a mesa (sai da cabine normalmente)', () => {
+  it('roaming when shell begins: returns to desk (exits phone booth normally)', () => {
     const sim = newSim();
     const clock = { now: T0 };
     const rooms = [room('/a', 0)];
@@ -695,7 +695,7 @@ describe('espera de shell', () => {
     expect(ana.pose).toBe('type');
   });
 
-  it('shell concluído: levanta, comemora com ⭐ e confete e volta a trabalhar', () => {
+  it('shell completed: stands, celebrates with ⭐ and confetti, then returns to work', () => {
     const sim = newSim();
     const clock = { now: T0 };
     const rooms = [room('/a', 0)];
@@ -703,7 +703,7 @@ describe('espera de shell', () => {
     sim.applySnapshot(snap(rooms, [base]), clock.now);
     run(sim, clock, 0.5);
     const ana = sim.chars.get('ana')!;
-    // a notificação chega e o agente já volta a trabalhar no mesmo snapshot
+    // notification arrives and agent resumes work within same snapshot
     sim.applySnapshot(snap(rooms, [{ ...base, status: 'working', shells: [], activity: done('a1') }], 2), clock.now);
     expect(ana.icon).toBe('star');
     expect(sim.effects.some((e) => e.kind === 'confetti' && e.charId === 'ana')).toBe(true);
@@ -719,7 +719,7 @@ describe('espera de shell', () => {
     expect(ana.pose).toBe('type');
   });
 
-  it('fim de shell antigo não comemora na carga; um novo atrás de outra atividade comemora', () => {
+  it('stale shell completion does not celebrate on load; new one behind another activity celebrates', () => {
     const sim = newSim();
     const clock = { now: T0 };
     const rooms = [room('/a', 0)];
@@ -735,12 +735,12 @@ describe('espera de shell', () => {
     sim.applySnapshot(snap(rooms, [{ ...base, recent: [old, fresh, later], activity: later }], 2), clock.now);
     expect(ana.icon).toBe('star');
     expect(sim.effects.length).toBe(1);
-    // o mesmo snapshot de novo não comemora outra vez
+    // identical snapshot re-evaluated does not celebrate again
     sim.applySnapshot(snap(rooms, [{ ...base, recent: [old, fresh, later], activity: later }], 3), clock.now);
     expect(sim.effects.length).toBe(1);
   });
 
-  it('shell falhou: nuvenzinha de chuva, cabeça baixa por ~4 s, sem confete', () => {
+  it('shell failed: rain cloud, head down for ~4 s, no confetti', () => {
     const sim = newSim();
     const clock = { now: T0 };
     const rooms = [room('/a', 0)];
@@ -749,7 +749,7 @@ describe('espera de shell', () => {
     run(sim, clock, 0.5);
     const ana = sim.chars.get('ana')!;
     sim.effects.length = 0;
-    // um dos dois falhou; o outro continua rodando
+    // one failed; the other keeps running
     sim.applySnapshot(snap(rooms, [{ ...base, shells: [shell(MIN)], activity: done('a1', true) }], 2), clock.now);
     expect(ana.icon).toBe('storm');
     expect(sim.effects.length).toBe(0);

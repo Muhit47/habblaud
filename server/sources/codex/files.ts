@@ -1,12 +1,12 @@
-// Arquivos de uma pasta do Codex (CODEX_HOME) que a fonte lê: os rollouts (sessions/AAAA/MM/DD/ e
-// archived_sessions/) e os locks dos threads carregados (thread-writer-locks/<thread>.lock). Só leitura: nada é
-// criado e os locks são só conferidos pela EXISTÊNCIA (abrir com flock seguraria o lock e quebraria o Codex).
-// auth.json, config.toml, history.jsonl, shell_snapshots/, logs e os SQLite nunca são abertos.
+// Files in a Codex directory (CODEX_HOME) read by source: rollouts (sessions/YYYY/MM/DD/ and
+// archived_sessions/) and loaded thread locks (thread-writer-locks/<thread>.lock). Read-only: nothing is
+// created and locks are checked solely for EXISTENCE (opening with flock would acquire lock and break Codex).
+// auth.json, config.toml, history.jsonl, shell_snapshots/, logs, and SQLite databases are never opened.
 import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createCodexState, metaFromLine, parseRolloutLine, type RolloutMeta } from './rollout';
 
-/** rollout-<AAAA-MM-DDThh-mm-ss>-<thread>[_<rollout>].jsonl[.zst] (o `_<rollout>` é de thread revertido). */
+/** rollout-<YYYY-MM-DDThh-mm-ss>-<thread>[_<rollout>].jsonl[.zst] (`_<rollout>` indicates reverted thread). */
 const ROLLOUT_FILE = /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:_[0-9a-f-]{36})?\.jsonl(\.zst)?$/i;
 const LOCK_FILE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.lock$/i;
 
@@ -14,7 +14,7 @@ export const SESSIONS_DIR = 'sessions';
 export const ARCHIVED_DIR = 'archived_sessions';
 export const LOCKS_DIR = 'thread-writer-locks';
 
-/** Thread e compactação pelo nome do arquivo; undefined = não é um rollout. */
+/** Thread and compression from filename; undefined = not a rollout. */
 export function parseRolloutName(name: string): { threadId: string; compressed: boolean } | undefined {
   const m = ROLLOUT_FILE.exec(name);
   return m ? { threadId: m[1].toLowerCase(), compressed: !!m[2] } : undefined;
@@ -29,8 +29,8 @@ function listDir(dir: string): string[] {
 }
 
 /**
- * Pastas com rollouts: os dias de sessions/AAAA/MM/DD (do mais novo para o mais antigo: a pasta é a data de CRIAÇÃO
- * da conversa) e archived_sessions/ por último.
+ * Folders containing rollouts: session day folders sessions/YYYY/MM/DD (newest to oldest: folder represents CREATION
+ * date) and archived_sessions/ last.
  */
 export function rolloutDirs(home: string): string[] {
   const out: string[] = [];
@@ -47,13 +47,13 @@ export function rolloutDirs(home: string): string[] {
 
 export interface LockInfo {
   threadId: string;
-  /** Criação do lock (o Codex nunca escreve nele: o mtime é o momento em que foi criado). */
+  /** Lock creation (Codex never writes to it: mtime indicates creation moment). */
   createdAt: number;
 }
 
 /**
- * Locks dos threads carregados agora; null = a pasta não existe (versão do Codex sem locks, ou não montada no
- * Docker). O `.coordination.lock` e qualquer outro arquivo ficam de fora.
+ * Locks of currently loaded threads; null = directory does not exist (Codex version without locks, or unmounted in
+ * Docker). `.coordination.lock` and any other files are excluded.
  */
 export function readLocks(home: string): Map<string, LockInfo> | null {
   const dir = join(home, LOCKS_DIR);
@@ -72,7 +72,7 @@ export function readLocks(home: string): Map<string, LockInfo> | null {
       const born = st.birthtimeMs > 0 ? Math.min(st.birthtimeMs, st.mtimeMs) : st.mtimeMs;
       out.set(m[1].toLowerCase(), { threadId: m[1].toLowerCase(), createdAt: born });
     } catch {
-      // sumiu entre a listagem e o stat
+      // disappeared between directory listing and stat
     }
   }
   return out;
@@ -84,14 +84,14 @@ interface Found {
 }
 
 /**
- * Onde está o rollout de cada thread (pelo id no nome do arquivo), com cache. Um thread retomado continua no arquivo
- * antigo (a pasta é a da criação), então a procura varre as pastas por data; um thread revertido tem mais de um
- * arquivo e vale o modificado por último. As pastas dos dias mais recentes são revistas a cada 2 s e a
- * varredura completa, no máximo a cada 30 s.
+ * Rollout location for each thread (by id in filename), cached. A resumed thread stays in its original
+ * file (folder reflects creation), so discovery scans folders chronologically; a reverted thread has multiple
+ * files and latest modified takes precedence. Recent day folders are rescanned every 2s, and full
+ * scan runs at most every 30s.
  */
 export class RolloutIndex {
   private paths = new Map<string, Found>();
-  /** Threads cujo único rollout está compactado (.jsonl.zst): ainda não dá para ler. */
+  /** Threads whose only rollout is compressed (.jsonl.zst): cannot be read yet. */
   private compressedOnly = new Set<string>();
   private lastRecentScan = -Infinity;
   private lastFullScan = -Infinity;
@@ -101,7 +101,7 @@ export class RolloutIndex {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Caminho do rollout (não compactado) do thread; undefined = ainda não existe (ou não foi achado). */
+  /** Uncompressed rollout path for thread; undefined = does not exist yet (or not found). */
   find(threadId: string): string | undefined {
     const id = threadId.toLowerCase();
     const hit = this.paths.get(id);
@@ -115,21 +115,21 @@ export class RolloutIndex {
     return this.paths.get(id)?.path;
   }
 
-  /** O thread só tem rollout compactado (.zst). */
+  /** Thread only has compressed rollout (.zst). */
   isCompressedOnly(threadId: string): boolean {
     return this.compressedOnly.has(threadId.toLowerCase()) && !this.paths.has(threadId.toLowerCase());
   }
 
-  /** Avisa onde está o rollout (ex.: o `transcript_path` de um hook, já validado). */
+  /** Notifies rollout location (e.g. validated `transcript_path` from hook). */
   hint(threadId: string, path: string): void {
     try {
       this.paths.set(threadId.toLowerCase(), { path, mtimeMs: statSync(path).mtimeMs });
     } catch {
-      // ainda não existe
+      // does not exist yet
     }
   }
 
-  /** Varredura completa (sem stat, a não ser para desempatar um thread com mais de um arquivo). */
+  /** Full scan (no stat calls, except to break ties for threads with multiple files). */
   scanAll(): void {
     this.lastFullScan = this.lastRecentScan = this.now();
     this.scan(rolloutDirs(this.home));
@@ -166,8 +166,8 @@ export class RolloutIndex {
   }
 
   /**
-   * Rollouts modificados nos últimos `maxAgeMs` (com stat de cada um): a presença no modo sem locks. Atualiza o
-   * cache de caminhos de passagem.
+   * Rollouts modified within last `maxAgeMs` (stat called for each): presence check in lock-free mode.
+   * Updates cached paths along the way.
    */
   recentlyModified(maxAgeMs: number): Array<{ threadId: string; path: string; mtimeMs: number }> {
     const now = this.now();
@@ -195,21 +195,21 @@ export class RolloutIndex {
   }
 }
 
-// ------------------------------------------------------------------ começo do rollout
+// ------------------------------------------------------------------ rollout head
 
-/** Máximo lido atrás do fim da 1ª linha (o session_meta traz as instruções base: dezenas de KB). */
+/** Maximum read searching for end of 1st line (session_meta contains base instructions: tens of KB). */
 export const META_MAX_BYTES = 4 * 1024 * 1024;
-/** Trecho depois do session_meta lido atrás da primeira instrução (o título). */
+/** Segment after session_meta scanned for first instruction (title). */
 export const HEAD_SCAN_BYTES = 256 * 1024;
 
 export interface RolloutHead {
   meta?: RolloutMeta;
-  /** Primeira instrução (já mascarada e cortada). */
+  /** First instruction (pre-masked and truncated). */
   title?: string;
   firstAt?: number;
 }
 
-/** Lê `length` bytes a partir de `start` (síncrono). */
+/** Reads `length` bytes starting at `start` (synchronous). */
 function readRange(fd: number, start: number, length: number): Buffer {
   const buf = Buffer.alloc(Math.max(0, length));
   const n = length > 0 ? readSync(fd, buf, 0, length, start) : 0;
@@ -217,8 +217,8 @@ function readRange(fd: number, start: number, length: number): Buffer {
 }
 
 /**
- * O começo do rollout: o session_meta (1ª linha) e a primeira instrução. A janela do fim lida ao abrir uma sessão
- * longa não tem nenhum dos dois.
+ * Rollout head: session_meta (1st line) and initial prompt instruction. Tail window read when opening a
+ * long session contains neither.
  */
 export function readRolloutHead(path: string): RolloutHead {
   let fd: number;
@@ -252,7 +252,7 @@ export function readRolloutHead(path: string): RolloutHead {
     }
     if (nl < 0) return head;
     const rest = readRange(fd, nl + 1, HEAD_SCAN_BYTES).toString('utf8').split('\n');
-    rest.pop(); // a última linha pode ter sido cortada
+    rest.pop(); // last line may be truncated
     const state = createCodexState(meta);
     const ctx = { idPrefix: '', now: 0, activities: false };
     for (const line of rest) {

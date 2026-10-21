@@ -1,12 +1,12 @@
-// npm run remote:setup — liga o acesso pelo celular com login e HTTPS, num passo só.
+// npm run remote:setup — configures mobile access with authentication and HTTPS in a single step.
 //
-// Pergunta (ou recebe por opção) o usuário, a senha (escondida, duas vezes), o nome do endereço (<nome>.local) e, se
-// quiser, um endereço próprio (ex.: meuclaude.home); e então:
-//   1. cria a CA local e o certificado do servidor (server/remote/tls.ts) em ~/.habblaud/remote-tls;
-//   2. grava no .env SÓ o hash scrypt da senha (nunca a senha), o nome, a porta e HABBLAUD_REMOTE_BIND=0.0.0.0;
-//   3. deixa o anúncio do <nome>.local rodando como serviço (npm run remote:mdns; LaunchAgent/systemd);
-//   4. mostra os endereços, a impressão digital da CA e o passo a passo do celular.
-// Depois: npm run docker:up. Para desligar: npm run remote:setup -- --off.
+// Prompts for (or receives via option) username, password (hidden, twice), mDNS hostname (<name>.local), and optional
+// custom domain (e.g., meuclaude.home); then:
+//   1. creates local CA and server certificate (server/remote/tls.ts) in ~/.habblaud/remote-tls;
+//   2. saves to .env ONLY the scrypt password hash (never plaintext), hostname, port, and HABBLAUD_REMOTE_BIND=0.0.0.0;
+//   3. runs <name>.local mDNS advertisement as a background service (npm run remote:mdns; LaunchAgent/systemd);
+//   4. displays URLs, CA fingerprint, and mobile setup instructions.
+// Next: npm run docker:up. To disable: npm run remote:setup -- --off.
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
@@ -85,7 +85,7 @@ export function parseArgs(argv: string[]): SetupArgs {
   return out;
 }
 
-/** Por que a senha não serve (undefined = serve). */
+/** Reason password is rejected (undefined = valid). */
 export function passwordProblem(password: string, user: string): string | undefined {
   if (password.length < MIN_PASSWORD) return tr('use pelo menos {0} caracteres', [MIN_PASSWORD]);
   if (password.trim() !== password) return tr('sem espaços no começo ou no fim');
@@ -93,7 +93,7 @@ export function passwordProblem(password: string, user: string): string | undefi
   return undefined;
 }
 
-/** O .env com o acesso remoto ligado (o resto do arquivo fica igual). */
+/** The .env with remote access enabled (remainder of file is preserved). */
 export function remoteEnv(
   current: string,
   s: { user: string; hash: string; name: string; domain?: string; port: number; httpPort?: number; allow?: string },
@@ -198,7 +198,7 @@ function xml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** Instala (ou reinstala) o anúncio do <nome>.local como serviço. Devolve uma linha de status. */
+/** Installs (or reinstalls) <name>.local mDNS advertisement as a service. Returns status line. */
 function installService(): string {
   const cmd = tsxCommand();
   const logDir = join(HOME, '.habblaud', 'logs');
@@ -314,7 +314,7 @@ async function main(): Promise<void> {
   const existingPort = Number(readEnvValue(current, 'HABBLAUD_REMOTE_PORT'));
   const port = args.port ?? (Number.isInteger(existingPort) && existingPort > 0 ? existingPort : (await portFree(443)) ? 443 : 4748);
 
-  // Na 443, a 80 (se livre) só redireciona para https://: digitar "meuclaude.local" sem https:// também funciona.
+  // On port 443, port 80 (if free) redirects to https://: typing "meuclaude.local" without https:// also works.
   const existingHttp = Number(readEnvValue(current, 'HABBLAUD_REMOTE_HTTP_PORT'));
   const httpPort = port !== 443 ? undefined : existingHttp === 80 || (await portFree(80)) ? 80 : undefined;
 
@@ -327,7 +327,7 @@ async function main(): Promise<void> {
   const service = args.service ? installService() : tr('serviço não instalado (--no-service): rode npm run remote:mdns');
 
   const fp = caFingerprint(paths);
-  // O IP do Wi-Fi/cabo (rota padrão), não o de uma VPN que também entra no certificado.
+  // Wi-Fi/Ethernet IP (default route), excluding VPN interfaces that are also added to certificate.
   const ip = primaryIp() ?? cert.targets.ips.find((i) => i !== '127.0.0.1');
   const caNote = !cert.createdCa ? '' : hadCa ? tr(' CA local nova (o endereço mudou ou a anterior não tinha restrição de nomes): instale o certificado de novo no celular.') : tr(' CA local criada.');
   const urls = [

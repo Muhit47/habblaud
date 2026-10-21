@@ -316,10 +316,10 @@ describe('parseLine — sinais de shells', () => {
       L.assistant([L.tool('fg', 'Bash', { command: 'cat log' })]),
       L.result('fg', 'linha 1\nCommand running in background with ID: bzzzz'),
       L.assistant([L.tool('fg2', 'Bash', { command: 'jq . t.jsonl' })]),
-      // Caso real: um comando que imprime o JSON de um tool_result com essa frase na primeira linha.
+      // Real case: command printing JSON of a tool_result with this exact sentence on line 1.
       L.result('fg2', '[{"tool_use_id":"toolu_x","type":"tool_result","content":"Command running in background with ID: bo0ov3q3l. Output"}]'),
       L.assistant([L.tool('bg', 'Bash', { command: 'sleep 99', run_in_background: true })]),
-      // Versões sem toolUseResult.backgroundTaskId: o id vem do texto do próprio Claude Code.
+      // Formats without toolUseResult.backgroundTaskId: ID extracted directly from Claude Code output text.
       L.result('bg', 'Command running in background with ID: b7x2k9. Output is being written to: /tmp/x'),
     ]);
     expect(r[1].signals).toEqual([{ type: 'shellResult', toolUseId: 'fg', error: false }]);
@@ -389,7 +389,7 @@ describe('parseLine — sinais de shells', () => {
       const prefix = await scanPrefix(file, body.length, new Set());
       expect(prefix.state.customTitle).toBe('Antes');
       expect(prefix.state.aiTitle).toBe('Depois');
-      // Booleano de propósito: o valor antigo é a linha gigante, e o diff não pode imprimi-la.
+      // Intentionally boolean: previous value is a massive line and diff must not print it.
       expect(prefix.state.agentName === undefined).toBe(true);
       expect(warn).toHaveBeenCalledWith(`oversize-line:${file}`, expect.stringContaining('8 MiB'));
     } finally {
@@ -409,11 +409,11 @@ describe('janela final + prefixo em segundo plano', () => {
         L.assistant([L.tool('c1', 'TaskCreate', { subject: 'Primeira' })], { msgId: 'p1' }),
         L.result('c1', 'Task #1 created successfully'),
         L.raw('cost-state', { totalCostUSD: 2, totalLinesAdded: 5, totalLinesRemoved: 1 }),
-        // Mensagem que atravessa a fronteira: primeira linha no prefixo...
+        // Message crossing boundary: first line in prefix...
         L.assistant([L.thinking()], { msgId: 'mx', usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }),
       ];
       const tailLines = [
-        // ...e a segunda (uso final) na janela.
+        // ...and second (final usage) in window.
         L.assistant([L.tool('t9', 'Bash', { command: 'ls' })], { msgId: 'mx', usage: { input_tokens: 1, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }),
         L.assistant([L.tool('u1', 'TaskUpdate', { taskId: '1', status: 'completed' })], { msgId: 't2' }),
       ];
@@ -434,7 +434,7 @@ describe('janela final + prefixo em segundo plano', () => {
       expect(state.tasks).toEqual([{ id: '1', title: 'Primeira', status: 'completed' }]);
       expect(state.stats.costUSD).toBe(2);
       expect(state.stats.toolCalls).toBe(3);
-      // 'mx' foi contada só pela janela (uso final); 'p1' veio do prefixo.
+      // 'mx' counted only from window (final usage); 'p1' came from prefix.
       expect(state.stats.tokensOut).toBe(tailTokensOut + 5);
     } finally {
       tmp.cleanup();

@@ -1,9 +1,9 @@
-// Entregas (botão da caixa na barra do topo): o que cada agente terminou, do jeito que um BA receberia. A lista mostra a
-// manchete (primeira frase da resposta), o resumo em linguagem simples e as miniaturas dos anexos; um toque abre o
-// modal com o pedido, a resposta inteira e os anexos, e um toque num anexo abre o visualizador (imagem, PDF, vídeo,
-// página, texto). Dados de GET /api/deliveries (server/deliveries/deliveries.ts); arquivos por id opaco em
-// /api/deliveries/file/:id. Entrega nova chega com um aviso e conta no selo do botão até você abrir a lista.
-// Só com o terminal liberado (a resposta inteira e os arquivos do agente).
+// Deliveries (box button in the top bar): what each agent finished, presented the way a BA would receive it.
+// The list displays the headline (first sentence of the answer), summary in simple language, and attachment thumbnails;
+// clicking opens the modal with prompt, complete response, and attachments, and clicking an attachment opens the
+// viewer (image, PDF, video, page, text). Data from GET /api/deliveries (server/deliveries/deliveries.ts);
+// files by opaque id at /api/deliveries/file/:id. New deliveries arrive with a toast notification and count on the button badge
+// until you open the list. Only available when the terminal is unlocked (full response and agent files).
 import { tr } from '../../../shared/i18n';
 import type { DeliveryAttachment, DeliveryInfo } from '../../../shared/types';
 import { access } from '../net/access';
@@ -20,7 +20,7 @@ const POLL_MS = 30_000;
 const SEEN_KEY = 'habblaud.deliveries.seen';
 const TOAST_MS = 9_000;
 
-// ---------------------------------------------------------------- modelo (puro)
+// ---------------------------------------------------------------- model (pure)
 
 const KINDS = new Set(['image', 'pdf', 'video', 'page', 'text', 'file']);
 
@@ -29,7 +29,7 @@ function isAttachment(v: unknown): v is DeliveryAttachment {
   return !!a && typeof a.id === 'string' && /^[a-f0-9]{8,64}$/.test(a.id) && typeof a.name === 'string' && KINDS.has(a.kind as string);
 }
 
-/** Valida a resposta de /api/deliveries (o que não tiver o formato certo fica de fora). */
+/** Validates /api/deliveries response (items lacking correct format are discarded). */
 export function parseDeliveries(body: unknown): DeliveryInfo[] {
   const list = (body as { deliveries?: unknown } | null)?.deliveries;
   if (!Array.isArray(list)) return [];
@@ -41,12 +41,12 @@ export function parseDeliveries(body: unknown): DeliveryInfo[] {
     .map((d) => ({ ...d, attachments: d.attachments.filter(isAttachment) }));
 }
 
-/** Entregas mais novas que a última vez que você abriu a lista. */
+/** Deliveries newer than the last time the list was opened. */
 export function unseenCount(list: readonly DeliveryInfo[], seenAt: number): number {
   return list.filter((d) => d.finishedAt > seenAt).length;
 }
 
-/** As que chegaram depois da última consulta (para o aviso). */
+/** Those arriving after the last check (for the toast notification). */
 export function arrivals(list: readonly DeliveryInfo[], newestKnown: number): DeliveryInfo[] {
   return newestKnown ? list.filter((d) => d.finishedAt > newestKnown) : [];
 }
@@ -59,7 +59,7 @@ export function projectName(path: string | undefined): string {
   return path ? (path.split(/[\\/]/).filter(Boolean).pop() ?? path) : '';
 }
 
-/** "15 passos · 3 arquivos · 12 min" (o que interessa a quem recebe). */
+/** "15 steps · 3 files · 12 min" (key details for recipient). */
 export function workLine(d: Pick<DeliveryInfo, 'tools' | 'edited' | 'startedAt' | 'finishedAt'>): string {
   const parts = [d.tools === 1 ? tr('1 passo') : tr('{0} passos', [d.tools])];
   if (d.edited) parts.push(d.edited === 1 ? tr('1 arquivo alterado') : tr('{0} arquivos alterados', [d.edited]));
@@ -68,7 +68,7 @@ export function workLine(d: Pick<DeliveryInfo, 'tools' | 'edited' | 'startedAt' 
   return parts.join(' · ');
 }
 
-/** Rótulo curto do tipo de anexo na miniatura. */
+/** Short label for attachment type in thumbnail. */
 function kindLabel(kind: DeliveryAttachment['kind']): string {
   switch (kind) {
     case 'image':
@@ -98,11 +98,11 @@ function writeSeen(at: number): void {
   try {
     localStorage.setItem(SEEN_KEY, String(at));
   } catch {
-    // sem armazenamento: o selo volta a contar ao recarregar
+    // no storage: badge starts counting again upon reload
   }
 }
 
-// ---------------------------------------------------------------- componente
+// ---------------------------------------------------------------- component
 
 export class Deliveries implements UiComponent {
   readonly button: HTMLButtonElement;
@@ -201,8 +201,8 @@ export class Deliveries implements UiComponent {
 
   render(): void {
     const store = this.ctx.store;
-    // Só na página do celular (porta remota com login e o terminal liberado): no computador o terminal e o histórico
-    // já mostram tudo, e a barra não ganha botão nem consulta nova sem configurar o acesso pelo celular.
+    // Only on mobile page (remote port with login and terminal enabled): on desktop the terminal and history
+    // already show everything, and the bar doesn't get a button or poll without configuring mobile access.
     const available = access().remote && access().terminal && !!store.snapshot?.meta.terminal && !store.mock && !store.replaying;
     if (available !== this.available) {
       this.available = available;
@@ -219,7 +219,7 @@ export class Deliveries implements UiComponent {
     }
   }
 
-  /** Abre uma entrega pelo id (toque num aviso do celular ou ?delivery= no endereço). */
+  /** Opens a delivery by id (tap on mobile notification or ?delivery= in URL). */
   async openById(id: string): Promise<boolean> {
     let d = this.list.find((x) => x.id === id);
     if (!d) {
@@ -231,7 +231,7 @@ export class Deliveries implements UiComponent {
     return !!d;
   }
 
-  /** Abre a lista (atalho para outros componentes). */
+  /** Opens list (shortcut for other components). */
   openPanel(): void {
     if (!this.panelOpen) this.togglePanel();
   }
@@ -250,7 +250,7 @@ export class Deliveries implements UiComponent {
       this.error = '';
       this.newestKnown = Math.max(this.newestKnown, ...list.map((d) => d.finishedAt), 0);
       if (!this.seenAt) {
-        // Primeira vez: nada é "novo" (não acende o selo com a semana inteira).
+        // First time: nothing is "new" (doesn't trigger badge for entire previous week).
         this.seenAt = this.newestKnown;
         writeSeen(this.seenAt);
       }
@@ -433,7 +433,7 @@ export class Deliveries implements UiComponent {
     if (!this.viewer.open) this.viewer.showModal();
   }
 
-  /** Toque na imagem: tamanho real centrado onde tocou (para ler um print largo no celular); outro toque volta. */
+  /** Tap image: actual size centered at tap point (to inspect wide screenshots on mobile); tap again to reset. */
   private toggleZoom(img: HTMLImageElement, e: MouseEvent): void {
     const box = img.getBoundingClientRect();
     const zoomed = this.viewerBody.classList.toggle('is-zoomed');
@@ -449,7 +449,7 @@ export class Deliveries implements UiComponent {
     if (this.viewer.open && (this.current?.attachments.length ?? 0) > 1) this.openViewer(this.viewIndex + delta);
   }
 
-  /** Arrastar para o lado troca de anexo (celular). */
+  /** Horizontal swipe switches attachments (mobile). */
   private wireSwipe(): void {
     let x0 = 0;
     let y0 = 0;

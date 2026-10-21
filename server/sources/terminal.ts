@@ -1,50 +1,50 @@
-// Visão completa do transcript para o terminal: converte as linhas JSONL do Claude Code
-// em TerminalEntry (prompts, respostas, ferramentas e seus resultados), com segredos mascarados e
-// textos truncados. Independente do parser de atividades (transcript.ts): aqui o objetivo é mostrar a
-// conversa como o Claude Code a exibe, não resumir o que o personagem está fazendo.
+// Complete transcript view for terminal: converts Claude Code JSONL lines
+// into TerminalEntry (prompts, responses, tools, and results), with masked secrets and
+// truncated text. Decoupled from activity parsing (transcript.ts): goal here is to render
+// conversation as displayed by Claude Code, rather than summarizing character actions.
 //
-// O que os transcripts trazem (só a estrutura) e que molda as regras abaixo:
-// - cada linha de assistant traz UM bloco (thinking, text ou tool_use); a mesma mensagem (message.id)
-//   se espalha por várias linhas. O thinking quase sempre vem vazio (só a assinatura);
-// - um prompt digitado com o agente ocupado chega como attachment `queued_command` (commandMode
-//   'prompt'), não como linha user; notificações de tarefas em segundo plano chegam como linha user ou
-//   como attachment `queued_command` (as linhas queue-operation são só a fila e são ignoradas);
-// - comandos de barra locais e a saída deles vêm em linhas system `local_command`;
-// - erros da API: uma linha system `api_error` por tentativa e, quando o Claude Code desiste, uma
-//   mensagem sintética do assistant com `isApiErrorMessage`.
+// What transcripts provide (structure only) and how it shapes rules below:
+// - each assistant line contains ONE block (thinking, text, or tool_use); the same message (message.id)
+//   spans multiple lines. Thinking is almost always empty (signature only);
+// - prompts entered while agent is busy arrive as `queued_command` attachment (commandMode
+//   'prompt'), not as user line; background task notifications arrive as user line or
+//   as `queued_command` attachment (queue-operation lines are internal queue only and ignored);
+// - local slash commands and output arrive in `local_command` system lines;
+// - API errors: one `api_error` system line per attempt and, when Claude Code gives up, a
+//   synthetic assistant message with `isApiErrorMessage`.
 import type { TerminalEntry, TerminalInputKind } from '../../shared/types';
 import { formatDuration, maskSecrets, truncate } from '../../shared/activity';
 import { forkDirective, parseTaskNotification } from './transcript';
 import { tr } from '../../shared/i18n';
 
 export interface TerminalParser {
-  /** Interpreta uma linha do JSONL. Linhas inválidas ou irrelevantes devolvem []. */
+  /** Interprets a JSONL line. Invalid or irrelevant lines return []. */
   push(line: string): TerminalEntry[];
 }
 
-// ------------------------------------------------------------------ limites (caracteres)
+// ------------------------------------------------------------------ limits (characters)
 
-/** Prompts do usuário e respostas do agente. */
+/** User prompts and agent responses. */
 export const TEXT_MAX = 20_000;
 export const THINKING_MAX = 8_000;
-/** Argumentos de uma ferramenta (comando, diff, JSON...). */
+/** Tool arguments (command, diff, JSON...). */
 export const INPUT_MAX = 2_000;
-/** Resultado de uma ferramenta: caracteres e linhas (o que passar disso vem com `truncated`). */
+/** Tool result: character and line limits (overflow marked with `truncated`). */
 export const RESULT_MAX = 4_000;
 export const RESULT_MAX_LINES = 120;
-/** Detalhe de uma entrada 'system' (saída de comando, resumo da compactação...). */
+/** Detail for a 'system' entry (command output, compaction summary...). */
 export const DETAIL_MAX = 4_000;
-/** Argumento exibido no título de uma ferramenta: "Bash(…)". */
+/** Argument displayed in tool title: "Bash(...)". */
 export const TITLE_ARG_MAX = 100;
-/** Texto (uma linha) de uma entrada 'system'. */
+/** Single-line text for a 'system' entry. */
 const SYSTEM_TEXT_MAX = 200;
 /**
- * Ao recortar um texto ANTES de mascarar (para não rodar as expressões sobre megabytes que não serão
- * mostrados), o fim do recorte pode ter meio segredo que as expressões não reconhecem: esses últimos
- * caracteres são descartados.
+ * When trimming text BEFORE secret masking (to avoid regex execution over multi-megabyte spans that will not be
+ * rendered), boundary cuts might bisect a secret unrecognizable by regex patterns: trailing characters
+ * are safely discarded.
  */
 const TAIL_GUARD = 256;
-/** Ids já emitidos que são lembrados (duplicatas são locais: a mesma linha ou mensagem repetida). */
+/** Remembered emitted IDs (duplicates are local: same line or repeated message). */
 const SEEN_MAX = 20_000;
 const MSG_BLOCKS_MAX = 64;
 
@@ -70,14 +70,14 @@ function toMs(v: unknown): number | undefined {
   return Number.isNaN(t) ? undefined : t;
 }
 
-// ------------------------------------------------------------------ texto: limpeza, máscara e corte
+// ------------------------------------------------------------------ text: sanitization, masking, and truncation
 
 const REMINDER = /<system-reminder>[\s\S]*?(?:<\/system-reminder>|$)/g;
-// Sequências ANSI (cores, cursor, títulos OSC) e demais caracteres de controle, menos \t e \n.
+// ANSI escape sequences (colors, cursor, OSC titles) and other control characters, excluding \t and \n.
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-_]/g;
 const CONTROL = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
 
-/** Tira lembretes de sistema (opcional), cores ANSI e o que o \r de barras de progresso sobrescreveu. */
+/** Strips system reminders (optional), ANSI color codes, and \r progress bar overwrites. */
 function clean(s: string, reminders: boolean): string {
   let out = reminders && s.includes('<system-reminder>') ? s.replace(REMINDER, '') : s;
   if (out.includes('\x1b')) out = out.replace(ANSI, '');
@@ -95,8 +95,8 @@ function clean(s: string, reminders: boolean): string {
 }
 
 /**
- * Limpa e mascara no máximo `window` caracteres de `raw`. `cut` = o texto original era maior (e o fim
- * do recorte, onde poderia haver meio segredo, foi descartado). Todo corte posterior é seguro.
+ * Cleans and masks up to `window` characters of `raw`. `cut` = original text was larger (and trim
+ * boundary, where partial secrets could lurk, was discarded). Subsequent trimming is safe.
  */
 function safeText(raw: string, window: number, reminders = true): { text: string; cut: boolean } {
   if (raw.length <= window) return { text: maskSecrets(clean(raw, reminders)), cut: false };
@@ -104,7 +104,7 @@ function safeText(raw: string, window: number, reminders = true): { text: string
   return { text: masked.slice(0, Math.max(0, masked.length - TAIL_GUARD)), cut: true };
 }
 
-/** Corta um texto já mascarado em `max` caracteres e `maxLines` linhas, preservando as quebras. */
+/** Truncates pre-masked text to `max` characters and `maxLines` lines, preserving line breaks. */
 function clip(s: string, max: number, maxLines = Infinity): { text: string; truncated: boolean } {
   let end = Math.min(s.length, max);
   if (maxLines !== Infinity) {
@@ -116,7 +116,7 @@ function clip(s: string, max: number, maxLines = Infinity): { text: string; trun
     if (nl !== -1 && nl < end) end = nl;
   }
   if (end >= s.length) return { text: s, truncated: false };
-  // Não corta um caractere fora do plano básico (emoji) ao meio.
+  // Avoid splitting astral-plane characters (emojis) in half.
   const code = s.charCodeAt(end - 1);
   if (end > 0 && code >= 0xd800 && code <= 0xdbff) end--;
   return { text: s.slice(0, end).trimEnd(), truncated: true };
@@ -128,8 +128,8 @@ export interface Prepared {
 }
 
 /**
- * Texto multilinha pronto para exibir: limpo, mascarado, sem linhas vazias nas pontas e cortado. Também usado pelo
- * terminal do Codex (sources/codex/terminal.ts), como `marked` e `oneLine`.
+ * Multiline text ready for display: cleaned, masked, trimmed of boundary blanks, and capped. Also used by
+ * Codex terminal (sources/codex/terminal.ts), like `marked` and `oneLine`.
  */
 export function prepare(raw: string, max: number, maxLines = Infinity, reminders = true): Prepared {
   const safe = safeText(raw, max * 2 + 1_024, reminders);
@@ -137,12 +137,12 @@ export function prepare(raw: string, max: number, maxLines = Infinity, reminders
   return { text: c.text, truncated: c.truncated || safe.cut };
 }
 
-/** Para entradas sem o campo `truncated`: o corte vira uma última linha "…". */
+/** For entries lacking `truncated` field: trimming appends a trailing "..." line. */
 export function marked(p: Prepared): string {
   return p.truncated && p.text ? `${p.text}\n…` : p.text;
 }
 
-/** Primeira linha não vazia, mascarada e cortada em `max` (com " …" se havia mais linhas). */
+/** First non-empty line, masked and capped at `max` (with " ..." if additional lines existed). */
 export function oneLine(raw: string, max: number, reminders = true): string {
   const { text, cut } = safeText(raw, max * 4 + TAIL_GUARD * 2, reminders);
   const lines = text.split('\n');
@@ -153,13 +153,13 @@ export function oneLine(raw: string, max: number, reminders = true): string {
   return more && !line.endsWith('…') ? `${line} …` : line;
 }
 
-/** Uma linha para o `text` de uma entrada 'system' e, se ela perdeu informação, o texto todo no `detail`. */
+/** Single line for `text` of 'system' entry and, if truncated, complete text in `detail`. */
 function lineAndDetail(raw: string, max = SYSTEM_TEXT_MAX): { line: string; detail?: string } {
   const line = oneLine(raw, max);
   return line.endsWith('…') ? { line, detail: raw } : { line };
 }
 
-/** `<tag>conteúdo</tag>` (o primeiro). */
+/** First `<tag>content</tag>` match. */
 const TAGS = new Map<string, RegExp>();
 function inner(text: string, tag: string): string | undefined {
   let re = TAGS.get(tag);
@@ -187,7 +187,7 @@ function titled(label: string, arg: string | undefined): string {
   return shown ? `${label}(${shown})` : label;
 }
 
-/** O argumento cabe inteiro no título (então não precisa se repetir no JSON). */
+/** Argument fits entirely within title (avoiding duplication in JSON). */
 function fitsTitle(v: string): boolean {
   return !v.includes('\n') && v.trim().length <= TITLE_ARG_MAX;
 }
@@ -198,7 +198,7 @@ function textInput(raw: string | undefined, kind: TerminalInputKind = 'text'): P
   return input ? { input, inputKind: kind } : {};
 }
 
-/** JSON indentado dos argumentos, sem as chaves já mostradas no título; nada se não sobrar nada. */
+/** Indented JSON arguments without keys already rendered in title; empty if none remain. */
 function jsonInput(input: Rec, omit: readonly string[] = [], cwd?: string): Pick<ToolView, 'input' | 'inputKind'> {
   const restObj: Rec = {};
   let n = 0;
@@ -217,7 +217,7 @@ function jsonInput(input: Rec, omit: readonly string[] = [], cwd?: string): Pick
   return textInput(json, 'json');
 }
 
-/** Prefixa cada linha ("- " / "+ ") até `budget` caracteres; o corte vira uma linha "<prefixo>…". */
+/** Prefixes each line ("- " / "+ ") up to `budget` characters; cut becomes a "<prefix>..." line. */
 function prefixLines(text: string, prefix: string, budget: number, sourceCut: boolean): string {
   const src = text.replace(/\n$/, '');
   const out: string[] = [];
@@ -227,7 +227,7 @@ function prefixLines(text: string, prefix: string, budget: number, sourceCut: bo
     const nl = src.indexOf('\n', start);
     const line = `${prefix}${src.slice(start, nl === -1 ? src.length : nl)}`;
     if (used + line.length > budget) {
-      // Linha que não cabe (ex.: conteúdo minificado): mostra o começo dela.
+      // Oversized line (e.g. minified content): render prefix only.
       const room = Math.floor(budget - used);
       out.push(room > prefix.length + 20 ? `${line.slice(0, room).trimEnd()}…` : `${prefix}…`);
       return out.join('\n');
@@ -241,7 +241,7 @@ function prefixLines(text: string, prefix: string, budget: number, sourceCut: bo
   return out.join('\n');
 }
 
-/** Linhas "- antiga" / "+ nova" (mascaradas antes de qualquer corte). */
+/** "- old" / "+ new" diff lines (masked before any trimming). */
 function diffText(oldRaw: string, newRaw: string, budget = INPUT_MAX): string {
   const o = oldRaw ? safeText(oldRaw, budget * 2, false) : { text: '', cut: false };
   const n = newRaw ? safeText(newRaw, budget * 2, false) : { text: '', cut: false };
@@ -276,8 +276,8 @@ function questionsText(raw: unknown): string {
 }
 
 /**
- * Título e argumentos de uma chamada de ferramenta, no estilo do Claude Code: "Bash(npm test)".
- * Também usado pelos pedidos de permissão (server/permissions/).
+ * Title and arguments for tool call in Claude Code style: "Bash(npm test)".
+ * Also used by permission prompts (server/permissions/).
  */
 export function toolView(name: string, input: Rec, cwd?: string): ToolView {
   const s = (k: string) => str(input[k]);
@@ -354,12 +354,12 @@ export function toolView(name: string, input: Rec, cwd?: string): ToolView {
     const srv = server.replace(/^claude_ai_/, '').replace(/_/g, ' ');
     return { title: `${srv} - ${rest.join('__') || '?'} (MCP)`, ...jsonInput(input, [], cwd) };
   }
-  // Padrão: Nome(primeiro argumento de texto) + os demais argumentos em JSON.
+  // Default: Name(first text argument) + remaining arguments in JSON.
   const first = Object.entries(input).find(([, v]) => typeof v === 'string' && v.trim()) as [string, string] | undefined;
   return { title: titled(name, first?.[1]), ...jsonInput(input, first && fitsTitle(first[1]) ? [first[0]] : [], cwd) };
 }
 
-/** Texto de um tool_result: string ou blocos (texto; imagem → "[imagem]"; referência de ferramenta → nome). */
+/** Text from tool_result: string or blocks (text; image → "[image]"; tool reference → name). */
 function resultText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -394,13 +394,13 @@ class Parser implements TerminalParser {
   private lastAt?: number;
   private seq = 0;
   private readonly seen = new Set<string>();
-  /** Blocos de texto/thinking já vistos por mensagem (uma mensagem repetida não duplica entradas). */
+  /** Already seen text/thinking blocks per message (repeated messages do not duplicate entries). */
   private readonly msgBlocks = new Map<string, Set<string>>();
-  /** Último comando de barra (para rotular a saída que vem na linha seguinte). */
+  /** Last slash command (to label output arriving on following line). */
   private lastCommand?: string;
   /**
-   * Transcript de um fork: começa com 'fork-context-ref', a CÓPIA da chamada Agent do pai e o resultado
-   * dela junto com a instrução do fork (depois do bloco <fork-boilerplate>). A cópia não é do fork.
+   * Fork transcript: starts with 'fork-context-ref', duplicate of parent's Agent call and result
+   * along with fork instructions (after <fork-boilerplate> block). The copy does not belong to the fork.
    */
   private fork?: 'expect-spawn' | 'expect-result';
   private inheritedSpawn?: string;
@@ -410,7 +410,7 @@ class Parser implements TerminalParser {
     try {
       this.line(line);
     } catch {
-      // Linha estranha demais: fica o que já tiver saído dela; a leitura segue.
+      // Malformed line: retain whatever was parsed; reading continues.
     }
     return this.out;
   }
@@ -453,14 +453,14 @@ class Parser implements TerminalParser {
     }
   }
 
-  // ---------------------------------------------------------------- entradas
+  // ---------------------------------------------------------------- entries
 
   private userEntry(c: Ctx, raw: string): void {
     const text = marked(prepare(raw, TEXT_MAX));
     if (text) this.emit({ kind: 'user', id: `${c.uuid}:u`, at: c.at, text });
   }
 
-  /** `text` deve vir numa linha só (oneLine) ou ser fixo; a máscara aqui é a última garantia. */
+  /** `text` must fit in a single line (oneLine) or be fixed; masking here is final safeguard. */
   private sys(c: Ctx, text: string, o: { level?: Level; detail?: string; suffix?: string } = {}): void {
     if (!text) return;
     const e: SystemEntry = { kind: 'system', id: `${c.uuid}${o.suffix ?? ':s'}`, at: c.at, text: maskSecrets(text), level: o.level ?? 'info' };
@@ -471,7 +471,7 @@ class Parser implements TerminalParser {
     this.emit(e);
   }
 
-  /** Conteúdo livre de uma linha system: primeira linha no texto (com prefixo opcional), o resto no detalhe. */
+  /** Freeform content of system line: first line in text (with optional prefix), remainder in detail. */
   private sysContent(c: Ctx, content: string, level: Level, label?: string, suffix?: string): void {
     if (!content.trim()) return;
     const { line, detail } = lineAndDetail(content, label ? 160 : SYSTEM_TEXT_MAX);
@@ -506,13 +506,13 @@ class Parser implements TerminalParser {
       else if (b.type === 'image') images++;
     }
     if (forkResult) {
-      // Resultado da chamada herdada ("Fork started…"): a instrução do fork vem no texto. É o prompt dele.
+      // Result of inherited call ("Fork started..."): fork directive is in text. That is its prompt.
       this.fork = undefined;
       const directive = forkDirective(texts.join('\n'));
       if (directive) this.userEntry(c, directive);
       return;
     }
-    // Imagem ao lado de um tool_result pertence ao resultado; sozinha (ou com texto), é do prompt.
+    // Image beside tool_result belongs to result; standalone (or with text), belongs to prompt.
     if (texts.length || (images && !results)) this.userText(c, texts.join('\n'), results ? 0 : images);
   }
 
@@ -550,7 +550,7 @@ class Parser implements TerminalParser {
         return;
       }
       case 'bash-input': {
-        // Modo bash do usuário ("! comando"): a saída vem na linha seguinte.
+        // User bash mode ("! command"): output arrives on subsequent line.
         const cmd = inner(text, 'bash-input')?.trim();
         if (cmd) this.userEntry(c, `! ${cmd}`);
         return;
@@ -585,7 +585,7 @@ class Parser implements TerminalParser {
       default:
         break;
     }
-    // Imagens coladas já aparecem no texto como "[Image #1]"; sem essa marca, o marcador vai no fim.
+    // Pasted images appear in text as "[Image #1]"; without that marker, appended at end.
     this.userEntry(c, pics && !/\[Image\b/.test(text) ? `${text}\n${pics}` : text);
   }
 
@@ -629,7 +629,7 @@ class Parser implements TerminalParser {
 
   // ---------------------------------------------------------------- assistant
 
-  /** A mensagem já trouxe este bloco (linhas repetidas ou cumulativas da mesma mensagem). */
+  /** Message already yielded this block (repeated or cumulative lines for same message). */
   private repeated(msgId: string, key: string): boolean {
     let set = this.msgBlocks.get(msgId);
     if (!set) {
@@ -718,7 +718,7 @@ class Parser implements TerminalParser {
         return this.sys(c, trigger === 'manual' ? tr('Conversa compactada (/compact)') : trigger === 'auto' ? tr('Conversa compactada automaticamente') : tr('Conversa compactada'));
       }
       case 'api_error': {
-        // Uma linha por tentativa: só a primeira de cada sequência vira entrada.
+        // One line per attempt: only first of each sequence becomes an entry.
         const attempt = typeof j.retryAttempt === 'number' ? j.retryAttempt : undefined;
         if (attempt !== undefined && attempt > 1) return;
         const err = rec(j.error);
@@ -739,7 +739,7 @@ class Parser implements TerminalParser {
       case 'away_summary':
         return this.sysContent(c, content, 'info', tr('Recapitulação'));
       default:
-        // stop_hook_summary, bridge_status (traz o link da sessão remota)... só erros passam.
+        // stop_hook_summary, bridge_status (provides remote session link)... only errors pass.
         if (j.level === 'error') this.sysContent(c, content, 'error');
         return;
     }
@@ -747,7 +747,7 @@ class Parser implements TerminalParser {
 
   private attachment(c: Ctx): void {
     const a = rec(c.j.attachment);
-    // Só os comandos enfileirados interessam; os de outros agentes (peer/coordinator) são meta.
+    // Queued commands only; other agents (peer/coordinator) are metadata.
     if (!a || a.type !== 'queued_command' || a.isMeta === true || c.j.isMeta === true) return;
     let text = '';
     let images = 0;
@@ -767,7 +767,7 @@ class Parser implements TerminalParser {
   }
 }
 
-/** Parser com estado: uma instância por leitura de arquivo, alimentada linha a linha, na ordem do arquivo. */
+/** Stateful parser: one instance per file read, fed line-by-line in file order. */
 export function createTerminalParser(): TerminalParser {
   return new Parser();
 }

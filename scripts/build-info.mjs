@@ -29,7 +29,7 @@ export function gitBuildInfo(cwd = process.cwd(), env = process.env) {
   }
 }
 
-/** Escreve o arquivo ({commit, dirty, builtAt}) e devolve o que escreveu. */
+/** Writes file ({commit, dirty, builtAt}) and returns written payload. */
 export function writeBuildInfo(file, cwd = process.cwd(), now = new Date()) {
   const info = { ...gitBuildInfo(cwd), builtAt: now.toISOString() };
   mkdirSync(dirname(file), { recursive: true });

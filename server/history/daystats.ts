@@ -1,10 +1,10 @@
-// "Onde foi meu dia": amostra o escritório a cada segundo, acumula as estatísticas (shared/daystats.ts) e as
-// persiste em ${dataDir}/stats/AAAA-MM-DD.json (um arquivo por dia no fuso do servidor), a cada 30 s e ao
-// encerrar. No boot recarrega os arquivos recentes (o dia sobrevive a reinícios), apaga os de mais de 30 dias e
-// monta um índice das horas com dados. Erros de disco só viram aviso no log: o servidor nunca cai por isso.
+// "Where did my day go": samples office every second, aggregates metrics (shared/daystats.ts), and
+// persists to ${dataDir}/stats/YYYY-MM-DD.json (one file per day in server timezone) every 30 s and at
+// shutdown. Boot loads recent files (persisting day across restarts), purges files older than 30 days,
+// and indexes hours containing data. Disk errors log warnings without crashing server.
 //
-// Agentes do demo (prefixo "demo:") nunca entram nos dados reais: com o demo ligado eles alimentam um balde
-// separado, só em memória, semeado com um histórico fictício (shared/demo/daystats.ts) para o painel e os prints.
+// Demo agents ("demo:" prefix) never contaminate real data: when demo mode is active, they feed an
+// isolated in-memory bucket seeded with synthetic history (shared/demo/daystats.ts) for dashboard previews.
 import { mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentInfo, OfficeSnapshot } from '../../shared/types';
@@ -29,17 +29,17 @@ import { seedDemoHistory } from '../../shared/demo/daystats';
 import { errMsg, log } from '../log';
 import { tr } from '../../shared/i18n';
 
-/** Prefixo dos ids dos agentes do modo demonstração no servidor (ver Office.setDemo). */
+/** Prefix for demo agent IDs on server (see Office.setDemo). */
 export const DEMO_ID_PREFIX = 'demo:';
 const FILE_RE = /^(\d{4}-\d{2}-\d{2})\.json$/;
 
 export interface DayStatsDeps {
-  /** Pasta dos arquivos (`${dataDir}/stats`); null = só em memória (testes). */
+  /** Data directory (`${dataDir}/stats`); null = in-memory only (tests). */
   dir: string | null;
-  /** Estado atual do escritório (agentes reais e do demo, salas e contas). */
+  /** Current office state (real and demo agents, rooms, and accounts). */
   snapshot: () => Pick<OfficeSnapshot, 'agents' | 'rooms' | 'accounts' | 'meta'>;
   now?: () => number;
-  /** Fuso dos arquivos e da virada do dia (padrão: o do processo; no Docker, UTC). */
+  /** Timezone for files and day rollover (default: process timezone; UTC in Docker). */
   tz?: string;
   sampleMs?: number;
   flushMs?: number;
@@ -52,7 +52,7 @@ export class DayStatsService {
   private readonly book: StatsBook;
   private readonly tracker: StatsTracker;
   private demo: { book: StatsBook; tracker: StatsTracker } | null = null;
-  /** Horas com dados de cada arquivo em disco (para listar os dias sem abrir todos). */
+  /** Hours with recorded data per file on disk (for listing days without reading all). */
   private readonly index = new Map<string, number[]>();
   private sampleTimer: ReturnType<typeof setInterval> | null = null;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -69,7 +69,7 @@ export class DayStatsService {
     this.tracker = new StatsTracker(this.book, { startedAt: this.startedAt });
   }
 
-  /** Boot: apaga o que passou da retenção, indexa os arquivos e carrega ontem e hoje na memória. */
+  /** Boot: purges expired files, indexes files, and loads yesterday and today into memory. */
   load(): void {
     const today = this.today();
     this.cleanup(today);
@@ -91,7 +91,7 @@ export class DayStatsService {
     this.flushTimer.unref?.();
   }
 
-  /** Para os relógios, faz a última amostra e grava (chame antes de desligar o hub). */
+  /** Halts timers, captures final sample, and flushes to disk (call before shutting down hub). */
   stop(): void {
     if (this.sampleTimer) clearInterval(this.sampleTimer);
     if (this.flushTimer) clearInterval(this.flushTimer);
@@ -101,12 +101,12 @@ export class DayStatsService {
     this.flush();
   }
 
-  /** Uma amostra do escritório (o relógio chama a cada segundo). */
+  /** One office sample (timer calls every second). */
   sample(now = this.now()): void {
     const snap = this.deps.snapshot();
     const realAgents: AgentInfo[] = [];
     const demoAgents: AgentInfo[] = [];
-    // Demo = id e conta com o prefixo do simulador (uma pasta de conta chamada "demo" não vira demo).
+    // Demo = ID and account with simulator prefix (an account directory named "demo" is not demo).
     for (const a of snap.agents) (a.id.startsWith(DEMO_ID_PREFIX) && a.account.startsWith(DEMO_ID_PREFIX) ? demoAgents : realAgents).push(a);
     const real: StatsView = { agents: realAgents, rooms: snap.rooms, accounts: snap.accounts };
     const demo: StatsView = { agents: demoAgents, rooms: snap.rooms, accounts: snap.accounts };
@@ -123,7 +123,7 @@ export class DayStatsService {
     }
   }
 
-  /** Grava os dias que mudaram, aplica a retenção na virada do dia e libera da memória os dias antigos. */
+  /** Flushes modified days to disk, applies retention at day rollover, and unloads old days from memory. */
   flush(): void {
     const today = this.today();
     if (today !== this.retentionDay) this.cleanup(today);
@@ -134,7 +134,7 @@ export class DayStatsService {
         this.index.set(d.key, d.hoursWithData());
       }
     }
-    // Sem disco, nada é tirado da memória (o que ficou sujo continua lá até gravar).
+    // Without disk, nothing is unloaded from memory (dirty state persists until flushed).
     this.book.evictBefore(addDays(today, -1));
     this.demo?.book.evictBefore(addDays(today, -1));
   }
@@ -143,12 +143,12 @@ export class DayStatsService {
     return this.demo !== null;
   }
 
-  /** Hoje no fuso `tz`. */
+  /** Today's date in `tz` timezone. */
   today(tz = this.tz): string {
     return dayKeyOf(this.now(), tz);
   }
 
-  /** Dias com dados (no fuso `tz`), do mais recente ao mais antigo, dentro da retenção. */
+  /** Days with recorded data (in `tz` timezone), latest to oldest, within retention limit. */
   days(tz: string): StatsDaysResponse {
     const today = this.today(tz);
     const oldest = addDays(today, -RETENTION_DAYS);
@@ -167,8 +167,8 @@ export class DayStatsService {
   }
 
   /**
-   * Estatísticas do dia `day` (fuso `tz`). `source` ausente: o demo quando ele está ligado e o dia é hoje,
-   * senão os dados reais. null = não há dados desse dia (ou o demo pedido está desligado).
+   * Day statistics for `day` (`tz` timezone). Absent `source`: demo when active and day is today,
+   * otherwise real data. null = no data for this day (or requested demo is disabled).
    */
   day(day: string, tz: string, source?: StatsSource): DayStatsResponse | null {
     const now = this.now();
@@ -186,7 +186,7 @@ export class DayStatsService {
     return { source: src, demoAvailable: this.demo !== null, today, serverTime: now, stats: queryDay(datas, day, tz, now) };
   }
 
-  // ---------------------------------------------------------------- disco
+  // ---------------------------------------------------------------- disk
 
   private file(key: string): string | null {
     return this.deps.dir ? join(this.deps.dir, `${key}.json`) : null;
@@ -202,7 +202,7 @@ export class DayStatsService {
     }
   }
 
-  /** Lê um dia do disco; arquivo ilegível é posto de lado (`.corrupt`) e o dia recomeça vazio. */
+  /** Reads day from disk; unreadable file moved aside (`.corrupt`) and day resets empty. */
   private readDay(key: string): DayData | null {
     const file = this.file(key);
     if (!file) return null;
@@ -224,7 +224,7 @@ export class DayStatsService {
     try {
       renameSync(file, `${file}.corrupt`);
     } catch {
-      // sem permissão: será sobrescrito na próxima gravação
+      // permission denied: will be overwritten on next flush
     }
     this.index.delete(key);
     return null;
@@ -246,7 +246,7 @@ export class DayStatsService {
     }
   }
 
-  /** Apaga os arquivos de mais de RETENTION_DAYS dias. */
+  /** Purges files older than RETENTION_DAYS days. */
   private cleanup(today: string): void {
     this.retentionDay = today;
     const oldest = addDays(today, -RETENTION_DAYS);

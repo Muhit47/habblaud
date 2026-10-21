@@ -1,7 +1,7 @@
-// Plugins do Claude Code no próprio repositório (.claude-plugin/marketplace.json + mod/): versões alinhadas
-// com o package.json e estrutura que o Claude Code consegue carregar. O comportamento dos mods em si é
-// testado pelo Claude Code (`claude plugin test` em mod/habblaud e mod/habblaud-mensagens); aqui fica o que o
-// vitest consegue conferir sem o Claude Code: arquivos, versões, o hook de permissão do plugin rodando de verdade.
+// Claude Code plugins in repository (.claude-plugin/marketplace.json + mod/): versions aligned
+// with package.json and structure loadable by Claude Code. Behavior of mods tested by
+// Claude Code (`claude plugin test` in mod/habblaud and mod/habblaud-mensagens); vitest verifies
+// files, versions, and permission hook execution without requiring Claude Code.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
@@ -33,7 +33,7 @@ function settingsHooks(file: Rec): Array<{ event: string; matcher: unknown; hook
   return out;
 }
 
-/** Especificadores de `import ... from '...'`, `import '...'` e `export ... from '...'` de um arquivo. */
+/** Import and export specifiers parsed from file. */
 function importsOf(path: string): string[] {
   const src = readFileSync(path, 'utf8');
   const imports = [...src.matchAll(/^\s*import\s+(?:[^'";]*?\s*from\s*)?['"]([^'"]+)['"]/gm)];
@@ -98,8 +98,8 @@ describe('plugin habblaud-permissoes', () => {
   const dir = join(ROOT, 'mod/habblaud-permissoes');
   const hooks = settingsHooks(json('mod/habblaud-permissoes/hooks/hooks.json'));
 
-  // No plugin a espera vem do ambiente (HABBLAUD_PERMISSION_TIMEOUT), não do comando: o tempo limite do Claude Code
-  // precisa caber a maior espera que o hook aceita, senão ele mata o hook antes (era 330 s e cortava em 5 min; a espera vai até 24 h).
+  // In plugin, timeout originates from environment (HABBLAUD_PERMISSION_TIMEOUT), not command line: Claude Code timeout
+  // must accommodate maximum hook delay, otherwise hook is killed prematurely (previously 330s cut at 5 min; delay up to 24h).
   it('o mesmo hook do instalador: PermissionRequest, matcher "*", mensagem igual e tempo limite que cabe a espera máxima', () => {
     const installed = hookEntry(hookCommand('node', '/x/permission-hook.mjs', { port: 4747, timeoutS: MAX_TIMEOUT_MS / 1000 }), { port: 4747, timeoutS: MAX_TIMEOUT_MS / 1000 });
     expect(hooks).toHaveLength(1);
@@ -119,7 +119,7 @@ describe('plugin habblaud-permissoes', () => {
   it.skipIf(!SH)('o comando do plugin roda de verdade: com o Habblaud fora do ar, sai rápido e sem decisão', () => {
     const input = JSON.stringify({ session_id: 's', hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } });
     const t0 = Date.now();
-    // O Claude Code troca ${CLAUDE_PLUGIN_ROOT} no comando e também o exporta; o sh expande do ambiente igual.
+    // Claude Code substitutes ${CLAUDE_PLUGIN_ROOT} in command and exports it; sh expands from environment identically.
     const r = spawnSync(SH!, ['-c', String(hooks[0]?.hook.command)], {
       input,
       encoding: 'utf8',
@@ -136,7 +136,7 @@ describe('plugin habblaud-permissoes', () => {
     const r = spawnSync(process.execPath, [join(ROOT, 'scripts', 'permission-hook.mjs')], {
       input,
       encoding: 'utf8',
-      // Com o debug ligado o script conta no stderr o que fez: prova que o main do script novo rodou.
+      // With debug enabled script logs actions to stderr: proves entry point of new script executed.
       env: { PATH: process.env.PATH ?? '', HABBLAUD_PORT: '1', HABBLAUD_HOOK_DEBUG: '1' },
       timeout: 10_000,
     });

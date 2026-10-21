@@ -1,6 +1,7 @@
-// Renomear uma sala (botão direito na sala, na lista lateral ou no escritório): um campo flutuante perto do clique.
-// O nome fica no servidor (POST /api/rooms/rename, model/room-aliases.ts) e vale para todas as abas; vazio volta ao
-// nome da pasta. Enter salva, Esc cancela, clicar fora salva. A gaveta da sala tem também um lápis ao lado do nome.
+// Rename a room (right-click on room in sidebar or world): popup input near click position.
+// Name is saved on server (POST /api/rooms/rename, model/room-aliases.ts) and shared across tabs;
+// empty input resets to folder basename. Enter saves, Esc cancels, clicking outside commits.
+// Room drawer also has a pencil icon beside room name.
 import { isDemoId } from '../../../shared/timeline';
 import type { UiContext } from './context';
 import { h, setText } from './dom';
@@ -10,9 +11,8 @@ import { tr } from '../../../shared/i18n';
 const NAME_MAX = 40;
 
 /**
- * Dá para renomear esta sala daqui? O servidor recusa as de demonstração, quem não abriu o Habblaud pelo próprio
- * computador e o Habblaud exposto na rede (sem a trava do terminal); no modo mock e no timelapse não há servidor para
- * gravar.
+ * Can this room be renamed from here? Server rejects demo rooms, non-local origins,
+ * and network-exposed Habblaud instances without terminal lock; mock mode and timelapse lack writable server.
  */
 export function canRenameRoom(ctx: UiContext, roomId: string): boolean {
   return (
@@ -62,7 +62,7 @@ export class RoomRenamer {
     this.input.addEventListener('keyup', (e) => e.stopPropagation());
   }
 
-  /** Abre o campo para a sala, perto do ponto (px da janela). */
+  /** Opens rename input for room, positioned near point (window viewport px). */
   open(roomId: string, at: { x: number; y: number }): void {
     const room = this.ctx.store.room(roomId);
     if (!room) return;
@@ -96,7 +96,7 @@ export class RoomRenamer {
       if (this.roomId === id) this.close();
       this.ctx.announce(name ? tr('Sala renomeada para {0}.', [name]) : tr('A sala voltou ao nome da pasta.'));
     } catch (err) {
-      // fica aberto com o motivo (ex.: sala de demonstração, Habblaud aberto por outro endereço)
+      // stays open displaying error reason (e.g. demo room, unauthorized remote access)
       setText(this.hint, tr('Não deu: {0}', [(err as Error).message]));
       this.hint.classList.add('is-error');
     }

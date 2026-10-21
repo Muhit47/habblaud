@@ -1,9 +1,9 @@
-// Estado do escritório no navegador: recebe snapshots/feed/avisos do servidor via SSE
-// (ou do simulador local quando a URL tem ?mock=1) e notifica os assinantes.
-// Fonte alternativa (o timelapse, ui/timelapse.ts): pushReplay() publica snapshots reconstruídos e o
-// SSE segue conectado por baixo, com os snapshots ao vivo guardados até o stopReplay().
-// Também cuida da reconexão: quando o navegador desiste do stream (EventSource fechado após erro HTTP,
-// ex.: servidor reiniciando atrás de um proxy), tenta de novo com espera crescente.
+// Office state in the browser: receives snapshots/feed/notices from the server via SSE
+// (or from the local simulator when the URL has ?mock=1) and notifies subscribers.
+// Alternative source (timelapse, ui/timelapse.ts): pushReplay() publishes reconstructed snapshots and
+// SSE remains connected underneath, with live snapshots stored until stopReplay().
+// Also handles reconnection: when the browser gives up on the stream (EventSource closed after HTTP error,
+// e.g., server restarting behind a proxy), retries with increasing backoff.
 import type { AppearanceParts } from '../../../shared/appearance';
 import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
 import { DemoSimulator } from '../../../shared/demo/simulator';
@@ -16,13 +16,13 @@ export interface StoreEvents {
   feed: FeedItem[];
   notice: Notice;
   connection: ConnectionState;
-  /** O servidor está servindo outro build do cliente: esta página está desatualizada. Emitido uma vez. */
+  /** The server is serving another client build: this page is outdated. Emitted once. */
   update: { build: string; current: string };
 }
 
 /**
- * Build desta página: o nome do bundle principal (ex.: "main-BFqheOCa"), tirado da URL do próprio módulo.
- * No modo dev (código-fonte servido pelo Vite) não há bundle e o resultado é undefined.
+ * Build of this page: the main bundle name (e.g., "main-BFqheOCa"), taken from the module's own URL.
+ * In dev mode (source code served by Vite) there is no bundle and the result is undefined.
  */
 export function pageBuild(moduleUrl: string = import.meta.url): string | undefined {
   try {
@@ -34,7 +34,7 @@ export function pageBuild(moduleUrl: string = import.meta.url): string | undefin
 
 type Listener<K extends keyof StoreEvents> = (value: StoreEvents[K]) => void;
 
-/** O mínimo de EventSource que o store usa (permite injetar um falso nos testes). */
+/** Minimal EventSource interface used by the store (allows injecting a fake in tests). */
 export interface EventSourceLike {
   readonly readyState: number;
   addEventListener(type: string, listener: (ev: Event) => void): void;
@@ -43,16 +43,16 @@ export interface EventSourceLike {
 
 export interface StoreOptions {
   mock?: boolean;
-  /** Parâmetros do modo mock (padrão: a query string da página). */
+  /** Mock mode parameters (default: page query string). */
   search?: string;
-  /** Fábrica do stream (padrão: `new EventSource(url)`). */
+  /** Stream factory (default: `new EventSource(url)`). */
   eventSource?: (url: string) => EventSourceLike;
 }
 
 const FEED_LIMIT = 200;
-/** EventSource.CLOSED (constante literal: o EventSource não existe no Node dos testes). */
+/** EventSource.CLOSED (literal constant: EventSource does not exist in Node test environment). */
 const ES_CLOSED = 2;
-/** Espera entre tentativas de reconexão: 2 s, 4 s, 8 s… até 30 s. */
+/** Delay between reconnection attempts: 2 s, 4 s, 8 s… up to 30 s. */
 export const RECONNECT_BASE_MS = 2_000;
 export const RECONNECT_MAX_MS = 30_000;
 
@@ -61,8 +61,8 @@ export function reconnectDelay(attempt: number): number {
 }
 
 /**
- * Opções do simulador a partir da query string (?speed=2&sessions=6). `sessions=0` vale: escritório vazio. Para
- * capturas de tela: `seed=N` repete o mesmo escritório e `noquota=1` deixa a conta do Codex "sem cota".
+ * Simulator options from the query string (?speed=2&sessions=6). `sessions=0` is valid: empty office. For
+ * screenshots: `seed=N` repeats the same office and `noquota=1` leaves the Codex account "without quota".
  */
 export function mockOptionsFrom(search: string): { speed: number; sessions: number; seed?: number; codexNoQuota?: boolean } {
   const params = new URLSearchParams(search);
@@ -85,7 +85,7 @@ export function mockOptionsFrom(search: string): { speed: number; sessions: numb
 
 export class OfficeStore {
   snapshot: OfficeSnapshot | null = null;
-  /** Feed global, do mais antigo para o mais recente. */
+  /** Global feed, from oldest to newest. */
   feed: FeedItem[] = [];
   connection: ConnectionState = 'connecting';
   readonly mock: boolean;
@@ -98,16 +98,16 @@ export class OfficeStore {
   private mockTimer: ReturnType<typeof setInterval> | null = null;
   private readonly search: string;
   private readonly openStream: (url: string) => EventSourceLike;
-  /** Reconexão: tentativas seguidas sem sucesso e o timer da próxima. */
+  /** Reconnection: consecutive unsuccessful attempts and the timer for the next. */
   private attempts = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAt: number | null = null;
-  /** Desligado de propósito (disconnect()): não reconecta sozinho. */
+  /** Intentionally disconnected (disconnect()): does not reconnect automatically. */
   private stopped = true;
   private readonly onOnline = () => {
     if (!this.stopped && this.connection === 'closed') this.reconnectNow();
   };
-  /** Timelapse ligado: `snapshot` é o reconstruído; o último ao vivo fica em `live` (com a hora em que chegou). */
+  /** Timelapse active: `snapshot` is reconstructed; the latest live snapshot stays in `live` (with arrival time). */
   private replay = false;
   private live: { snap: OfficeSnapshot; at: number } | null = null;
 
@@ -140,7 +140,7 @@ export class OfficeStore {
     this.mockTimer = null;
   }
 
-  /** Reconecta imediatamente (botão "Tentar agora"), sem esperar o próximo intervalo. */
+  /** Reconnects immediately ("Try now" button), without waiting for the next interval. */
   reconnectNow(): void {
     if (this.mock) return;
     this.clearRetry();
@@ -149,7 +149,7 @@ export class OfficeStore {
     this.startSSE();
   }
 
-  /** Quando será a próxima tentativa automática de reconexão (epoch ms), ou null. */
+  /** When the next automatic reconnection attempt will occur (epoch ms), or null. */
   get nextRetryAt(): number | null {
     return this.retryAt;
   }
@@ -166,7 +166,7 @@ export class OfficeStore {
     return (this.snapshot?.agents ?? []).filter((a) => a.roomId === roomId);
   }
 
-  /** Histórico longo de um agente (servidor). No modo mock e no timelapse devolve o `recent`. */
+  /** Extended agent history (server). In mock mode and timelapse returns `recent`. */
   async agentHistory(id: string): Promise<Activity[]> {
     if (this.mock || this.replay) return this.agent(id)?.recent ?? [];
     const res = await fetch(`/api/agents/${encodeURIComponent(id)}`);
@@ -175,7 +175,7 @@ export class OfficeStore {
     return detail.history;
   }
 
-  /** Liga/desliga os agentes de demonstração no servidor. */
+  /** Toggles demo agents on the server. */
   async setDemo(enabled: boolean): Promise<boolean> {
     if (this.mock) return true;
     const res = await fetch('/api/demo', {
@@ -186,7 +186,7 @@ export class OfficeStore {
     return res.ok;
   }
 
-  /** "Verificar agora": pede ao servidor uma consulta ao GitHub (o resultado chega no snapshot). */
+  /** "Check now": requests a GitHub check from the server (result arrives in snapshot). */
   async checkUpdates(): Promise<boolean> {
     if (this.mock) return false;
     const res = await fetch('/api/updates/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
@@ -195,17 +195,17 @@ export class OfficeStore {
 
   // ---------------------------------------------------------------- timelapse
 
-  /** Snapshots vêm de uma fonte alternativa (o timelapse), não do SSE. */
+  /** Snapshots come from an alternative source (timelapse), not from SSE. */
   get replaying(): boolean {
     return this.replay;
   }
 
-  /** Último snapshot ao vivo (durante o timelapse, `snapshot` é o reconstruído). */
+  /** Latest live snapshot (during timelapse, `snapshot` is reconstructed). */
   get liveSnapshot(): OfficeSnapshot | null {
     return this.replay ? (this.live?.snap ?? null) : this.snapshot;
   }
 
-  /** Publica um snapshot da fonte alternativa; o primeiro liga o modo replay (o ao vivo fica guardado). */
+  /** Publishes snapshot from alternative source; first one enables replay mode (live is preserved). */
   pushReplay(snap: OfficeSnapshot): void {
     if (!this.replay) {
       this.replay = true;
@@ -214,14 +214,14 @@ export class OfficeStore {
     this.setSnapshot(snap);
   }
 
-  /** Desliga a fonte alternativa e volta ao último snapshot ao vivo. */
+  /** Disables the alternative source and returns to the latest live snapshot. */
   stopReplay(): void {
     if (!this.replay) return;
     this.replay = false;
     const live = this.live;
     this.live = null;
     if (live) {
-      // `serverTime` avançado pelo tempo guardado: a UI acerta o relógio pelo snapshot que acabou de chegar.
+      // `serverTime` advanced by elapsed time: UI aligns the clock with the newly arrived snapshot.
       this.setSnapshot({ ...live.snap, serverTime: live.snap.serverTime + (Date.now() - live.at) });
     } else {
       this.snapshot = null;
@@ -231,8 +231,8 @@ export class OfficeStore {
   }
 
   /**
-   * Detalhe de um pedido de permissão (com os argumentos: comando, diff...). Os pedidos do demo já vêm
-   * completos no snapshot; os reais vêm de GET /api/permissions/:id (só com acesso local).
+   * Details of a permission request (with arguments: command, diff...). Demo requests arrive
+   * complete in the snapshot; real requests come from GET /api/permissions/:id (local access only).
    */
   async permissionDetail(agentId: string, id: string): Promise<PermissionRequestInfo | undefined> {
     const inline = this.agent(agentId)?.permission;
@@ -244,8 +244,8 @@ export class OfficeStore {
   }
 
   /**
-   * Responde um pedido de permissão pelo escritório. Devolve undefined se deu certo, ou a mensagem de erro
-   * do servidor (pedido já respondido, acesso que não é local...).
+   * Responds to a permission request from the office. Returns undefined on success, or the server error
+   * message (request already answered, non-local access...).
    */
   async decidePermission(id: string, d: PermissionDecision): Promise<string | undefined> {
     if (this.mock) {
@@ -264,20 +264,20 @@ export class OfficeStore {
       const body = (await res.json()) as { error?: unknown };
       if (typeof body.error === 'string') return body.error;
     } catch {
-      // Resposta sem JSON (ex.: guard): usa a mensagem padrão.
+      // Non-JSON response (e.g., guard): use default message.
     }
     return tr('Não foi possível responder (erro {0}).', [res.status]);
   }
 
   /**
-   * Grava o personagem do projeto (PUT /api/agents/:id/character). Devolve undefined se deu certo, ou a mensagem de
-   * erro (nome em uso, acesso que não é local...).
+   * Saves project character (PUT /api/agents/:id/character). Returns undefined on success, or the error
+   * message (name in use, non-local access...).
    */
   async saveCharacter(id: string, body: { name: string; seed: number; parts: AppearanceParts }): Promise<string | undefined> {
     return this.characterRequest(id, 'PUT', body);
   }
 
-  /** "Voltar ao sorteio": apaga o personagem do projeto (DELETE /api/agents/:id/character). */
+  /** "Return to draw": deletes project character (DELETE /api/agents/:id/character). */
   async resetCharacter(id: string): Promise<string | undefined> {
     return this.characterRequest(id, 'DELETE', {});
   }
@@ -299,17 +299,17 @@ export class OfficeStore {
       const data = (await res.json()) as { error?: unknown };
       if (typeof data.error === 'string') return data.error;
     } catch {
-      // Resposta sem JSON (ex.: guard): usa a mensagem padrão.
+      // Non-JSON response (e.g., guard): use default message.
     }
     return tr('Não foi possível salvar o personagem (erro {0}).', [res.status]);
   }
 
-  // ---------------------------------------------------------------- mensagens pelo escritório
+  // ---------------------------------------------------------------- messages via the office
 
   /**
-   * Manda uma mensagem a um agente (POST /api/messages): a mensagem criada (status `queued`) ou o erro do servidor
-   * (agente que não recebe mensagens, fila cheia, acesso que não é local...). Sem conexão com o servidor: lança.
-   * No ?mock=1 a entrega é fictícia (o simulador põe a atividade no agente).
+   * Sends a message to an agent (POST /api/messages): created message (status `queued`) or server error
+   * (agent does not receive messages, full queue, non-local access...). Without connection to server: throws.
+   * In ?mock=1 delivery is simulated (simulator sets activity on agent).
    */
   async sendMessage(agentId: string, text: string): Promise<{ message: OutboxMessage } | { error: string }> {
     if (this.mock) return this.mockSend(agentId, text);
@@ -318,14 +318,14 @@ export class OfficeStore {
     try {
       body = await res.json();
     } catch {
-      // Resposta sem JSON (ex.: guard): usa a mensagem padrão.
+      // Non-JSON response (e.g., guard): use default message.
     }
     if (res.status === 201 && body && typeof body === 'object') return { message: body as OutboxMessage };
     const error = (body as { error?: unknown } | undefined)?.error;
     return { error: typeof error === 'string' ? error : tr('erro {0}', [res.status]) };
   }
 
-  /** Situação de uma mensagem (GET /api/messages/:id). null = o servidor não a conhece (404). Sem conexão: lança. */
+  /** Message status (GET /api/messages/:id). null = server does not know it (404). Without connection: throws. */
   async messageStatus(id: string): Promise<OutboxMessage | null> {
     if (this.mock) {
       const m = this.mockOutbox.get(id);
@@ -337,7 +337,7 @@ export class OfficeStore {
     return (await res.json()) as OutboxMessage;
   }
 
-  /** Mensagens do ?mock=1 (entregues pelo simulador depois de ~1 s). */
+  /** Messages in ?mock=1 (delivered by simulator after ~1 s). */
   private mockOutbox = new Map<string, OutboxMessage>();
   private mockSeq = 0;
 
@@ -391,10 +391,10 @@ export class OfficeStore {
   }
 
   private updateAnnounced = false;
-  /** Build desta página (ver pageBuild); exposto para testes. */
+  /** Build of this page (see pageBuild); exposed for tests. */
   pageBuildId: string | undefined = pageBuild();
 
-  /** Avisa (uma vez) quando o servidor passou a servir outro build do cliente. */
+  /** Notifies (once) when server starts serving another client build. */
   private checkBuild(serverBuild: string | undefined): void {
     if (this.updateAnnounced || this.mock || !serverBuild) return;
     const current = this.pageBuildId;
@@ -412,7 +412,7 @@ export class OfficeStore {
     this.emit('feed', fresh);
   }
 
-  /** Lê o JSON de um evento SSE; mensagens corrompidas são ignoradas sem derrubar o stream. */
+  /** Reads JSON from an SSE event; corrupted messages are ignored without crashing the stream. */
   private parse<T>(ev: Event, what: string): T | null {
     try {
       return JSON.parse((ev as MessageEvent).data) as T;
@@ -423,7 +423,7 @@ export class OfficeStore {
   }
 
   private startSSE(): void {
-    // Rede de volta (Wi-Fi, VPN): não espera o próximo intervalo para religar.
+    // Network restored (Wi-Fi, VPN): do not wait for next interval to reconnect.
     if (typeof addEventListener === 'function') addEventListener('online', this.onOnline);
     this.setConnection('connecting');
     let es: EventSourceLike;
@@ -436,7 +436,7 @@ export class OfficeStore {
       return;
     }
     this.source = es;
-    // Eventos de um stream já substituído (reconexão) não valem mais.
+    // Events from an already replaced stream (reconnection) are no longer valid.
     const current = () => this.source === es;
     es.addEventListener('open', () => {
       if (!current()) return;
@@ -446,7 +446,7 @@ export class OfficeStore {
     });
     es.addEventListener('error', () => {
       if (!current()) return;
-      // CONNECTING: o próprio navegador vai tentar de novo. CLOSED: desistiu; a reconexão fica por nossa conta.
+      // CONNECTING: browser will retry on its own. CLOSED: gave up; reconnection is handled by us.
       if (es.readyState === ES_CLOSED) {
         this.setConnection('closed');
         this.scheduleRetry();
@@ -497,7 +497,7 @@ export class OfficeStore {
     this.retryAt = null;
   }
 
-  /** Simulador do modo ?mock=1 (também responde os pedidos de permissão fictícios). */
+  /** Simulator for ?mock=1 mode (also answers mock permission requests). */
   private mockSim: DemoSimulator | null = null;
 
   private startMock(): void {

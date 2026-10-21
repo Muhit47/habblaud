@@ -1,31 +1,31 @@
-// Mensagens pelo escritório para as sessões do Codex: `codex queue --thread <threadId> --message <texto>` põe a
-// mensagem na fila do thread (ela entra quando a sessão fica ociosa; o dono do thread consulta a fila a cada ~10 s; o
-// turno que ela abre traz turn_trigger "queue"). O comando precisa rodar no Mac (host), com o CODEX_HOME da conta:
-// - modo Node: o próprio servidor roda o comando (binário HABBLAUD_CODEX_BIN ou `codex` do PATH);
-// - Docker: o auxiliar do host (scripts/codex-bridge.ts, npm run codex:bridge) busca as mensagens em
-//   POST /api/codex/bridge/poll, roda o mesmo comando e confirma em POST /api/codex/bridge/ack.
-// Sem shell (execFile), com prazo, e nunca com -c, --enable, --disable nem --no-daemon (mudariam a configuração ou o
-// servidor da sessão). Retorno 0 ("Queued message <id> for thread <thread>.") = entrou na fila — mesmo que ninguém
-// esteja com o thread aberto agora; outro retorno = falhou, e a 1ª linha do stderr diz por quê ("Error: ... no rollout
-// found for thread id ..."). Se o servidor compartilhado do Codex (daemon) não estiver no ar, o próprio comando o sobe.
-// Node puro e sem dependências: também é importado pelo auxiliar do host (via tsx).
+// Office messages for Codex sessions: `codex queue --thread <threadId> --message <text>` enqueues message
+// into thread queue (consumed when session is idle; thread owner polls queue every ~10 s; turn created
+// carries turn_trigger "queue"). Command must execute on host machine with account's CODEX_HOME:
+// - Node mode: server executes command directly (binary HABBLAUD_CODEX_BIN or `codex` in PATH);
+// - Docker: host helper (scripts/codex-bridge.ts, npm run codex:bridge) polls messages via
+//   POST /api/codex/bridge/poll, executes command, and acknowledges via POST /api/codex/bridge/ack.
+// Without shell (execFile), with timeout, never with -c, --enable, --disable, or --no-daemon (which could mutate configuration
+// or session daemon). Exit code 0 ("Queued message <id> for thread <thread>.") = enqueued — even if no
+// session currently has thread open; non-zero exit = failed, and first stderr line explains reason ("Error: ... no rollout
+// found for thread id ..."). If shared Codex daemon is not running, command automatically starts it.
+// Pure Node with zero dependencies: also imported by host helper (via tsx).
 import { execFile } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { tr } from '../../shared/i18n';
 
-/** Prazo de um `codex queue`. */
+/** Timeout for `codex queue` command. */
 export const QUEUE_TIMEOUT_MS = 20_000;
-/** Id de thread do Codex (UUID; `codex queue --thread` também aceitaria nomes, mas o Habblaud só manda ids). */
+/** Codex thread ID (UUID; `codex queue --thread` accepts names, but Habblaud always sends IDs). */
 export const THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ERROR_MAX = 300;
 
 export interface CodexQueueJob {
-  /** Pasta CODEX_HOME da conta (caminho do host). */
+  /** Account CODEX_HOME directory (host path). */
   codexHome: string;
-  /** Id do thread (AgentInfo.sessionId do agente do Codex). */
+  /** Thread ID (AgentInfo.sessionId of Codex agent). */
   thread: string;
-  /** O texto como foi digitado. */
+  /** Text exactly as entered by user. */
   text: string;
 }
 
@@ -42,12 +42,12 @@ function canExecute(p: string): boolean {
 }
 
 /**
- * Nome do binário no PATH. No Windows, só o `codex.exe`: o `codex` sem extensão e o `codex.cmd` que o npm põe ao lado
- * são scripts, e o execFile (sem shell) não os roda.
+ * Binary name in PATH. On Windows, strictly `codex.exe`: extensionless `codex` and `codex.cmd` generated
+ * by npm are scripts that execFile (without shell) cannot invoke.
  */
 export const CODEX_BIN_NAME = process.platform === 'win32' ? 'codex.exe' : 'codex';
 
-/** Binário do Codex: HABBLAUD_CODEX_BIN (caminho de um executável) ou `codex` no PATH. undefined = não achou. */
+/** Codex binary: HABBLAUD_CODEX_BIN (executable path) or `codex` in PATH. undefined = not found. */
 export function findCodexBin(env: NodeJS.ProcessEnv, isExecutable: (p: string) => boolean = canExecute): string | undefined {
   const explicit = env.HABBLAUD_CODEX_BIN?.trim();
   if (explicit) return isExecutable(explicit) ? explicit : undefined;
@@ -59,12 +59,12 @@ export function findCodexBin(env: NodeJS.ProcessEnv, isExecutable: (p: string) =
   return undefined;
 }
 
-/** Argumentos de `codex queue` (com "=": um texto que começa com "-" nunca vira uma opção). */
+/** Arguments for `codex queue` (with "=": text starting with "-" is never parsed as a flag). */
 export function queueArgs(thread: string, text: string): string[] {
   return ['queue', `--thread=${thread}`, `--message=${text}`];
 }
 
-/** Primeira linha não vazia (o Codex escreve o erro como "Error: ..."), cortada. */
+/** First non-empty line (Codex prints error as "Error: ..."), truncated. */
 export function firstLine(s: string | undefined): string | undefined {
   const line = (s ?? '')
     .split(/\r?\n/)
@@ -74,7 +74,7 @@ export function firstLine(s: string | undefined): string | undefined {
   return line.length > ERROR_MAX ? `${line.slice(0, ERROR_MAX - 1)}…` : line;
 }
 
-/** Roda `codex queue` com o binário dado. Nunca rejeita: falha vira `{ok: false, error}`. */
+/** Runs `codex queue` with given binary. Never rejects: failures resolve to `{ok: false, error}`. */
 export function createCodexQueueRunner(bin: string, opts: { env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): CodexQueueRunner {
   const timeoutMs = opts.timeoutMs ?? QUEUE_TIMEOUT_MS;
   return (job) =>
@@ -91,7 +91,7 @@ export function createCodexQueueRunner(bin: string, opts: { env?: NodeJS.Process
           done({ ok: false, error: firstLine(stderr) ?? tr('o codex queue falhou (código {0})', [String(e.code ?? '?')]) });
         });
       } catch {
-        // Argumento que não dá para passar a um processo (ex.: caractere NUL no texto).
+        // Argument invalid for process spawn (e.g. NUL byte in message string).
         done({ ok: false, error: tr('a mensagem tem caracteres que não dá para mandar ao Codex') });
       }
     });

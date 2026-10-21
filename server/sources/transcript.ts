@@ -1,7 +1,7 @@
-// Interpretação dos transcripts JSONL do Claude Code (sessão principal e subagentes).
-// Cada linha atualiza um TranscriptState (títulos, tarefas, estatísticas...) e pode gerar
-// atividades (o que o personagem está fazendo) e sinais (ciclo de vida de subagentes).
-// Tipos de linha desconhecidos são ignorados; uma linha inválida nunca derruba a leitura.
+// Interpretation of Claude Code JSONL transcripts (main session and subagents).
+// Each line updates a TranscriptState (titles, tasks, statistics...) and can generate
+// activities (what the character is doing) and signals (subagent lifecycle).
+// Unknown line types are ignored; an invalid line never crashes the reader.
 import { createReadStream } from 'node:fs';
 import type { Activity, AgentStats, TaskItem, TaskStatus } from '../../shared/types';
 import { describePrompt, describeShellJob, describeTool, maskSecrets, SPECIAL, truncate, type ActivityDescription } from '../../shared/activity';
@@ -10,7 +10,7 @@ import { detectGitHubNotification, detectGitHubResult, githubCallOf, type GitHub
 import type { ShellStart } from './shells';
 import { LineBuffer, warnOversizedLine } from './tail';
 
-// ------------------------------------------------------------------ tarefas
+// ------------------------------------------------------------------ tasks
 
 export type TaskOp =
   | { op: 'replace'; tasks: TaskItem[] }
@@ -78,8 +78,8 @@ export interface SpawnInfo {
 }
 
 /**
- * Sinais para o ciclo de vida dos subagentes (extraídos do transcript de quem os disparou) e dos
- * shells que o agente espera (Bash/Monitor; ver shells.ts).
+ * Signals for subagent lifecycle (extracted from the launcher's transcript) and for
+ * shells awaited by the agent (Bash/Monitor; see shells.ts).
  */
 export type TranscriptSignal =
   | { type: 'spawn'; spawn: SpawnInfo }
@@ -87,23 +87,23 @@ export type TranscriptSignal =
   | { type: 'finished'; toolUseId: string; agentId?: string; runId?: string; error: boolean }
   | { type: 'notification'; toolUseId?: string; taskId?: string; status?: string; summary?: string }
   | { type: 'stopped'; taskId: string }
-  /** Bash (primeiro ou segundo plano) ou Monitor chamado. */
+  /** Foreground/background Bash or Monitor invocation. */
   | { type: 'shellStart'; shell: ShellStart }
-  /** tool_result de um Bash/Monitor: `taskId` = id da tarefa em segundo plano, quando houver. */
+  /** Bash/Monitor tool_result: `taskId` = background task id, when present. */
   | { type: 'shellResult'; toolUseId: string; taskId?: string; error: boolean }
-  /** Fim de turno ou interrupção: nenhum comando em primeiro plano segue rodando. */
+  /** Turn end or interruption: no foreground command continues running. */
   | { type: 'turnEnd' }
-  /** Evento do GitHub (PR, merge, push, CI, release) no resultado de uma ferramenta; ver github.ts. */
+  /** GitHub event (PR, merge, push, CI, release) in tool result; see github.ts. */
   | { type: 'github'; event: GitHubEvent; toolUseId: string };
 
-/** Sinais que interessam ao rastreador de shells (inclusive no começo do arquivo, lido em segundo plano). */
+/** Signals relevant to shell tracker (including at head of file, read in background). */
 const SHELL_SIGNALS = new Set<TranscriptSignal['type']>(['shellStart', 'shellResult', 'notification', 'stopped', 'turnEnd']);
 
 export interface ParsedActivity {
   activity: Activity;
-  /** Torna-se a atividade atual do agente (erros de ferramentas antigas só vão para o histórico). */
+  /** Becomes the agent's current activity (errors from older tools go to history only). */
   current: boolean;
-  /** Chamada de ferramenta que originou a atividade, quando houver. */
+  /** Tool call that initiated the activity, when present. */
   toolUseId?: string;
 }
 
@@ -113,9 +113,9 @@ export interface TranscriptState {
   aiTitle?: string;
   lastPrompt?: string;
   tasks: TaskItem[];
-  /** TaskCreate aguardando o id real (tool_use id -> id provisório). */
+  /** TaskCreate awaiting authoritative ID (tool_use ID -> provisional ID). */
   pendingTaskCreates: Map<string, string>;
-  /** Operações de tarefas feitas desde o início da janela lida (até o prefixo do arquivo ser mesclado). */
+  /** Task operations performed since start of read window (until file prefix is merged). */
   taskOpsLog: TaskOp[] | null;
   sawTaskReplace: boolean;
   stats: AgentStats;
@@ -125,33 +125,33 @@ export interface TranscriptState {
   permissionMode?: string;
   firstAt?: number;
   lastAt?: number;
-  /** stop_reason da última linha de assistant. */
+  /** stop_reason of last assistant line. */
   lastStopReason?: string | null;
-  /** O turno terminou (fim de turno, end_turn ou interrupção) e nada novo começou. */
+  /** Turn has ended (turn completion, end_turn, or interruption) and nothing new started. */
   ended: boolean;
-  /** Ferramentas chamadas que ainda não tiveram resultado. */
+  /** Invoked tools that have not yielded a result yet. */
   pendingTools: Map<string, string>;
-  /** Nomes das ferramentas por tool_use id (para erros e resultados de subagentes). */
+  /** Tool names by tool_use id (for errors and subagent results). */
   toolNames: Map<string, string>;
   /** TaskStop/KillShell: tool_use id -> id da tarefa parada. */
   stopRequests: Map<string, string>;
-  /** Chamadas que podem virar evento do GitHub (gh/git push, MCP do GitHub), até o resultado. */
+  /** Calls that may become a GitHub event (gh/git push, GitHub MCP), until result arrives. */
   github: Map<string, GitHubCall>;
-  /** Uso de tokens já contado por mensagem (as linhas de uma mensagem trazem o uso parcial). */
+  /** Token usage already accounted for per message (lines of a message carry partial usage). */
   usageByMsg: Map<string, { tin: number; tout: number }>;
-  /** Ids das primeiras mensagens da janela lida (para não contar duas vezes ao mesclar o prefixo). */
+  /** IDs of first messages in read window (to prevent double counting when merging prefix). */
   firstMsgIds: Set<string> | null;
-  /** Mensagens cujo uso não deve ser contado (pertencem à janela já lida). */
+  /** Messages whose usage should not be counted (belonging to already read window). */
   skipUsage?: ReadonlySet<string>;
   current?: { id: string; toolUseId?: string; kind: Activity['kind']; at: number; msgId?: string };
   seq: number;
   /**
-   * Transcript de um fork (subagente que herda o contexto do pai). Ele começa com uma linha
-   * 'fork-context-ref' e a CÓPIA da chamada Agent do pai seguida do resultado dela ("Fork started…")
-   * junto com a instrução do fork. 'expect-spawn' = a próxima linha de assistant é essa cópia.
+   * Fork transcript (subagent inheriting parent context). Begins with a
+   * 'fork-context-ref' line and DUPLICATE of parent's Agent call followed by its result ("Fork started…")
+   * alongside the fork directive. 'expect-spawn' = next assistant line is this duplicate.
    */
   fork?: 'expect-spawn' | 'expect-result';
-  /** tool_use id da chamada herdada (o mesmo do meta.json do fork): não é uma ferramenta do fork. */
+  /** tool_use id of inherited call (matches fork meta.json): not a tool executed by the fork. */
   inheritedSpawn?: string;
 }
 
@@ -175,19 +175,19 @@ export function createTranscriptState(opts: { trackPrefix?: boolean } = {}): Tra
 }
 
 export interface ParseContext {
-  /** Prefixo dos ids de atividade (o id do agente), para que sejam únicos no escritório. */
+  /** Prefix for activity IDs (agent ID), ensuring office-wide uniqueness. */
   idPrefix: string;
   now: number;
-  /** false = só atualiza o estado (leitura do prefixo em segundo plano). */
+  /** false = update state only (background prefix reading). */
   activities?: boolean;
 }
 
 export interface LineResult {
   activities: ParsedActivity[];
   signals: TranscriptSignal[];
-  /** Título, tarefas, estatísticas ou metadados mudaram. */
+  /** Title, tasks, statistics, or metadata changed. */
   changed: boolean;
-  /** Epoch ms da linha (o `timestamp` dela ou, sem ele, o `now` do contexto). */
+  /** Epoch ms of the line (its `timestamp` or fallback `now` from context). */
   at: number;
 }
 
@@ -231,15 +231,15 @@ function firstLine(s: string, max = 140): string | undefined {
   return line ? truncate(line.replace(/<\/?[a-z_-]+>/gi, ''), max) : undefined;
 }
 
-/** Extrai os campos de um `<task-notification>` (resultado de tarefa em segundo plano). */
+/** Extracts fields from `<task-notification>` (background task outcome). */
 export function parseTaskNotification(text: string): { taskId?: string; toolUseId?: string; status?: string; summary?: string } {
   const tag = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim() || undefined;
   return { taskId: tag('task-id'), toolUseId: tag('tool-use-id'), status: tag('status'), summary: tag('summary') };
 }
 
 /**
- * Id da tarefa em segundo plano no tool_result de um Bash/Monitor: `toolUseResult.backgroundTaskId`
- * ("Command running in background with ID: bo0ov3q3l..." no texto) ou campos equivalentes.
+ * Background task ID in tool_result of Bash/Monitor: `toolUseResult.backgroundTaskId`
+ * ("Command running in background with ID: bo0ov3q3l..." in text) or equivalent fields.
  */
 export function backgroundIdOf(tur: Record<string, unknown>, content: unknown, tool?: string): string | undefined {
   for (const k of ['backgroundTaskId', 'backgroundId', 'shellId', 'bash_id', 'monitorId']) {
@@ -251,8 +251,8 @@ export function backgroundIdOf(tur: Record<string, unknown>, content: unknown, t
     if (v) return v.trim();
   }
   if (tool !== 'Bash' && tool !== 'Monitor') return undefined;
-  // Só o começo do texto, na forma do próprio Claude Code ("Command running in background with ID: x"):
-  // a saída de um comando em primeiro plano pode conter qualquer coisa (inclusive essa frase).
+  // Prefix check matching Claude Code ("Command running in background with ID: x"):
+  // foreground command output may contain anything (including this sentence).
   const head = textOf(content).trimStart().split('\n', 1)[0].slice(0, 300);
   const re =
     tool === 'Monitor'
@@ -263,9 +263,9 @@ export function backgroundIdOf(tur: Record<string, unknown>, content: unknown, t
 
 const INTERRUPTED = /^\[Request interrupted by user/;
 const REJECTED = /doesn't want to proceed|tool use was rejected|user rejected/i;
-// Mensagens "de sistema" gravadas como user (comandos locais, lembretes, saída de bash...).
+// "System" messages recorded as user (local commands, reminders, bash output...).
 const SYSTEM_TAG = /^<(local-command-[\w-]+|command-stdout|command-stderr|system-reminder|bash-[\w-]+|user-memory-input|user-prompt-submit-hook|persisted-output)\b/;
-// Comandos de barra que não são instruções de trabalho.
+// Slash commands that are not work instructions.
 const LOCAL_COMMANDS = new Set([
   '/clear', '/compact', '/model', '/cost', '/usage', '/status', '/config', '/login', '/logout', '/exit', '/quit', '/resume',
   '/context', '/mcp', '/help', '/permissions', '/memory', '/doctor', '/theme', '/vim', '/terminal-setup', '/rename', '/agents',
@@ -390,7 +390,7 @@ class LineParser {
     const s = this.s;
     if (s.skipUsage?.has(msgId)) return;
     if (s.firstMsgIds && s.firstMsgIds.size < FIRST_MSG_IDS && !s.usageByMsg.has(msgId)) s.firstMsgIds.add(msgId);
-    // Linhas da mesma mensagem repetem o uso (às vezes parcial): conta só o acréscimo.
+    // Lines of the same message repeat usage (sometimes partial): count delta only.
     const prev = s.usageByMsg.get(msgId) ?? { tin: 0, tout: 0 };
     const dIn = Math.max(0, tin - prev.tin);
     const dOut = Math.max(0, tout - prev.tout);
@@ -408,8 +408,8 @@ class LineParser {
     if (!m || typeof m !== 'object') return;
     const s = this.s;
     if (s.fork === 'expect-spawn') {
-      // Cópia da chamada que criou o fork (vem do transcript do pai): não conta como atividade,
-      // ferramenta, uso de tokens nem disparo de subagente do próprio fork.
+      // Copy of the call that spawned the fork (originates in parent transcript): do not count as activity,
+      // tool, token usage, or subagent invocation of the fork itself.
       const spawn = Array.isArray(m.content)
         ? (m.content as Array<Record<string, unknown>>).find((b) => b?.type === 'tool_use' && (b.name === 'Agent' || b.name === 'Task'))
         : undefined;
@@ -436,7 +436,7 @@ class LineParser {
       if (!b || typeof b !== 'object') return;
       const suffix = `:${i}`;
       if (b.type === 'thinking' || b.type === 'redacted_thinking') {
-        // Um único "Pensando…" por mensagem.
+        // Exactly one "Thinking…" indicator per message.
         const cur = s.current;
         if (cur?.kind === 'think' && (cur.msgId === msgId || this.at - cur.at < 30_000)) return;
         this.push(SPECIAL.think(), { suffix, msgId });
@@ -545,8 +545,8 @@ class LineParser {
       else if (b.type === 'text' && typeof b.text === 'string') texts.push(b.text);
     }
     if (this.s.fork === 'expect-result' && results.some((r) => str(r.tool_use_id) === this.s.inheritedSpawn)) {
-      // Resultado da chamada herdada ("Fork started…"): não é o fim de nada. A instrução do fork vem
-      // no texto, depois do bloco <fork-boilerplate>: é o "prompt" dele.
+      // Inherited call result ("Fork started…"): does not conclude anything. Fork directive resides
+      // in text following <fork-boilerplate> block: this is its "prompt".
       this.s.fork = undefined;
       const directive = forkDirective(texts.join('\n'));
       if (directive) this.userText(directive);
@@ -592,7 +592,7 @@ class LineParser {
     if (n.summary) sig.summary = n.summary;
     this.out.signals.push(sig);
     if (withActivity) this.push(SPECIAL.backgroundResult(n.summary));
-    // CI lançado em segundo plano: o desfecho é o código de saída da notificação
+    // Background-launched CI: outcome is notification exit code
     const gh = n.toolUseId ? this.s.github.get(n.toolUseId) : undefined;
     if (gh?.background && n.toolUseId) {
       this.s.github.delete(n.toolUseId);
@@ -615,7 +615,7 @@ class LineParser {
       if (REJECTED.test(content)) {
         this.push(SPECIAL.rejected(name), { suffix: `:r:${id}` });
       } else {
-        // Só vira a atividade atual se for o erro da ferramenta em andamento.
+        // Only becomes current activity if it is an error from tool in progress.
         const current = !s.current || s.current.toolUseId === id;
         this.push(SPECIAL.error(name, firstLine(content)), { suffix: `:e:${id}`, tool: name, current });
       }
@@ -656,7 +656,7 @@ class LineParser {
       if (!isError) this.out.signals.push({ type: 'stopped', taskId: stopped });
     }
 
-    // Bash/Monitor: em segundo plano o resultado traz o id da tarefa; em primeiro plano, é o fim do comando.
+    // Bash/Monitor: in background, result carries task id; in foreground, marks command completion.
     const bgId = backgroundIdOf(tur, b.content, name);
     if (name === 'Bash' || name === 'Monitor' || (name === undefined && bgId)) {
       const sig: TranscriptSignal = { type: 'shellResult', toolUseId: id, error: isError };
@@ -664,7 +664,7 @@ class LineParser {
       this.out.signals.push(sig);
     }
 
-    // Eventos do GitHub: em segundo plano, o desfecho chega na notificação de término.
+    // GitHub events: in background, outcome arrives in termination notification.
     const gh = s.github.get(id);
     if (gh) {
       s.github.delete(id);
@@ -699,14 +699,14 @@ class LineParser {
   }
 }
 
-/** Instrução de um fork: o texto depois do bloco <fork-boilerplate>, sem o rótulo "Your directive:". */
+/** Fork directive: text following <fork-boilerplate> block, omitting "Your directive:" label. */
 export function forkDirective(text: string): string {
   const end = text.lastIndexOf('</fork-boilerplate>');
   const rest = end >= 0 ? text.slice(end + '</fork-boilerplate>'.length) : text;
   return rest.trim().replace(/^your directive:\s*/i, '').trim();
 }
 
-/** Interpreta uma linha JSONL. Linhas inválidas ou desconhecidas não geram nada. */
+/** Interprets a JSONL line. Invalid or unknown lines yield nothing. */
 export function parseLine(state: TranscriptState, raw: string, ctx: ParseContext): LineResult {
   let j: unknown;
   try {
@@ -726,15 +726,15 @@ export function parseLine(state: TranscriptState, raw: string, ctx: ParseContext
   return p.out;
 }
 
-/** Título exibido: custom-title > agent-name > ai-title > último prompt (truncado). */
+/** Display title: custom-title > agent-name > ai-title > latest prompt (truncated). */
 export function titleOf(state: TranscriptState): string | undefined {
   const t = state.customTitle ?? state.agentName ?? state.aiTitle ?? state.lastPrompt;
   return t ? truncate(t, 90) : undefined;
 }
 
-// ------------------------------------------------------------------ prefixo do arquivo
+// ------------------------------------------------------------------ file prefix
 
-// Linhas que importam para títulos/tarefas/estatísticas anteriores à janela lida no boot.
+// Lines relevant for titles/tasks/statistics preceding boot read window.
 const PREFIX_MARKERS = [
   '"type":"assistant"',
   '"type":"custom-title"',
@@ -743,11 +743,11 @@ const PREFIX_MARKERS = [
   '"type":"last-prompt"',
   '"type":"cost-state"',
   '"type":"permission-mode"',
-  // Início de um fork: a cópia da chamada Agent do pai que vem logo depois não é dele.
+  // Start of a fork: duplicate of parent's Agent call immediately following does not belong to it.
   '"type":"fork-context-ref"',
-  // Lançamentos em segundo plano (para casar a notificação de término com o subagente/workflow).
+  // Background launches (to correlate termination notification with subagent/workflow).
   '"async_launched"',
-  // Shells em segundo plano: lançamento e término (para saber quais ainda rodam).
+  // Background shells: launch and termination (to determine which are still running).
   '"backgroundTaskId"',
   '<task-notification>',
 ];
@@ -761,19 +761,19 @@ function prefixRelevant(state: TranscriptState, line: string): boolean {
   return false;
 }
 
-/** Sinal de shell com o horário da linha que o gerou. */
+/** Shell signal with timestamp of generating line. */
 export interface ShellEvent {
   signal: TranscriptSignal;
   at: number;
 }
 
 /**
- * Lê em stream (sem bloquear o event loop) os bytes [0, end) de um transcript, só para
- * recuperar títulos, tarefas e estatísticas anteriores à janela lida no boot — e os
- * lançamentos em segundo plano ('launched'), que casam notificações futuras com subagentes,
- * e os sinais de shells (`shellEvents`), para achar shells em segundo plano ainda abertos.
- * Com `keepActivities`, também devolve as últimas N atividades desse trecho (ids com `idPrefix`),
- * para a linha do tempo longa não começar só no fim do arquivo.
+ * Streams (without blocking the event loop) bytes [0, end) of a transcript solely to
+ * recover titles, tasks, and statistics preceding the boot read window — as well as
+ * background launches ('launched') correlating future notifications with subagents,
+ * and shell signals (`shellEvents`) to find background shells still open.
+ * With `keepActivities`, also returns the last N activities of that span (prefixed with `idPrefix`),
+ * ensuring the extended timeline does not merely start at EOF.
  */
 export async function scanPrefix(
   path: string,
@@ -822,7 +822,7 @@ export async function scanPrefix(
   return { state, signals, activities: activities.slice(-keep), shellEvents };
 }
 
-/** Mescla o que veio do prefixo do arquivo no estado montado a partir da janela final. */
+/** Merges data from file prefix into state assembled from tail window. */
 export function mergePrefix(state: TranscriptState, prefix: TranscriptState): void {
   state.customTitle ??= prefix.customTitle;
   state.agentName ??= prefix.agentName;

@@ -1,10 +1,10 @@
-// Caixa de mensagem: manda um texto ao agente principal pelo Habblaud (POST /api/messages) e o plugin
-// habblaud-mensagens o entrega à sessão como se você o tivesse digitado (no Codex, `codex queue` a põe na fila da
-// sessão, que a usa quando fica ociosa). Fica na gaveta do agente e no rodapé do
-// terminal (só a sessão ao vivo). Enter manda, Shift+Enter quebra a linha; a linha de situação acompanha a entrega
-// (GET /api/messages/:id) até ela se resolver. As teclas digitadas aqui não disparam os atalhos globais. O rascunho de
-// cada agente fica guardado (só na memória) ao trocar de agente. O microfone (ui/dictation.ts, Whisper local no Mac)
-// põe o texto ditado no cursor; aparece quando o ditado funciona daqui. A lógica pura está em ui/composer-model.ts.
+// Message box: sends text to the main agent via Habblaud (POST /api/messages) and the plugin
+// habblaud-mensagens delivers it to the session as if typed (in Codex, `codex queue` puts it into session
+// queue, which picks it up when idle). Positioned in the agent drawer and footer of
+// terminal (live session only). Enter sends, Shift+Enter line-breaks; status line tracks delivery
+// (GET /api/messages/:id) until settled. Keystrokes typed here do not trigger global hotkeys. Drafts
+// for each agent are preserved in memory when switching agents. Microphone (ui/dictation.ts, local Whisper on macOS)
+// inserts speech at cursor; appears when dictation is available. Pure logic is in ui/composer-model.ts.
 import { MESSAGE_MAX } from '../../../shared/messages';
 import type { AgentInfo, OutboxMessage, Provider } from '../../../shared/types';
 import {
@@ -32,24 +32,24 @@ import { tr } from '../../../shared/i18n';
 export type ComposerVariant = 'drawer' | 'terminal';
 
 export interface ComposerOptions {
-  /** Esc dentro da caixa: para onde vai o foco (padrão: só sai da caixa). */
+  /** Escape inside box: where focus moves (default: simply blurs). */
   onEscape?: () => void;
 }
 
 export class MessageComposer {
   readonly el: HTMLElement;
-  /** Agente da caixa (ou a chave da conversa, no terminal do histórico). */
+  /** Box's current agent (or session key in history terminal). */
   private agentId = '';
   private mode: ComposerMode = { kind: 'off', text: '' };
-  /** Rascunho por agente: é ele que manda no conteúdo da caixa. */
+  /** Draft per agent: controls box content. */
   private drafts = new Map<string, string>();
-  /** Último envio de cada agente (a linha de situação). */
+  /** Last submission per agent (status line). */
   private states = new Map<string, SendState>();
-  /** Ferramenta de cada agente que recebeu mensagem (o texto da entrega e do prazo muda no Codex). */
+  /** Provider of each recipient agent (delivery text and deadline wording varies on Codex). */
   private providers = new Map<string, Provider>();
-  /** Ferramenta do agente da caixa. */
+  /** Provider of current agent in box. */
   private provider: Provider = 'claude';
-  /** O que a caixa mostra agora ("<agente>|<pronta>"): ao mudar, o conteúdo vem do rascunho. */
+  /** What box currently renders ("<agent>|<ready>"): on change, content syncs from draft. */
   private shown = '';
 
   private row: HTMLElement;
@@ -59,10 +59,10 @@ export class MessageComposer {
   private tip: HTMLElement | null;
   private status: HTMLElement;
   private dictate: DictationButton;
-  /** Linha do ditado (gravando, transcrevendo, idioma, erro). */
+  /** Dictation line (recording, transcribing, language, error). */
   private dictStatus: HTMLElement;
   private dictTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Rascunho que recebe o ditado em andamento (o agente pode mudar enquanto o Mac transcreve). */
+  /** Draft receiving ongoing dictation (active agent may change while Mac transcribes). */
   private dictKey = '';
   private canDictate = false;
 
@@ -105,7 +105,7 @@ export class MessageComposer {
     this.row = h('div', { class: `ui-msg__row${term ? ' ui-term__prompt ui-term__prompt--mic' : ''}` });
     if (term) this.row.append(h('span', { class: 'ui-term__caret', text: '>', attrs: { 'aria-hidden': 'true' } }));
     this.row.append(this.box, this.dictate.el, this.sendBtn);
-    // Clique na "linha do prompt" (fora do botão) põe o cursor na caixa, como num terminal.
+    // Clicking prompt row outside button focuses textarea, like a terminal.
     this.row.addEventListener('mousedown', (e) => {
       if (e.target === this.row && !this.box.disabled) {
         e.preventDefault();
@@ -119,8 +119,8 @@ export class MessageComposer {
   }
 
   /**
-   * Atualiza a caixa para `agent` (undefined = nenhum: sessão do histórico ou agente que saiu); `key` identifica o
-   * rascunho. Devolve o modo: a gaveta esconde a seção quando é 'off'.
+   * Updates box for `agent` (undefined = none: history session or exited agent); `key` identifies
+   * draft. Returns mode: drawer hides section when 'off'.
    */
   render(agent: AgentInfo | undefined, key = agent?.id ?? ''): ComposerMode['kind'] {
     const store = this.ctx.store;
@@ -134,10 +134,10 @@ export class MessageComposer {
     const term = this.variant === 'terminal';
     this.provider = agent?.provider === 'codex' ? 'codex' : 'claude';
 
-    // Troca de agente (ou a caixa passou a valer/deixou de valer): o conteúdo vem do rascunho guardado.
+    // Agent switch (or box became ready/unready): content comes from stored draft.
     const shown = `${key}|${ready}`;
     if (shown !== this.shown) {
-      // Gravando para outro agente: para sem transcrever (a fala era para aquele).
+      // Recording for another agent: cancel without transcribing.
       this.dictate.cancel();
       this.shown = shown;
       this.agentId = key;
@@ -153,15 +153,15 @@ export class MessageComposer {
     setTitle(this.box, ready ? '' : mode.text);
     this.row.classList.toggle('is-disabled', !ready);
     setHidden(this.sendBtn, !ready);
-    // Consulta em cache (30 s): o Mac pode instalar o Whisper ou parar o auxiliar com a página aberta.
+    // Cached check (30s): macOS might install Whisper or stop helper while page is open.
     void dictationAvailable().then((ok) => {
       if (ok === this.canDictate) return;
       this.canDictate = ok;
       this.ctx.invalidate();
     });
-    // Transcrevendo: o botão fica até o texto chegar (ele vai para o rascunho de quem ditou).
+    // Transcribing: button remains visible until text arrives (goes to dictation draft).
     setHidden(this.dictate.el, !this.canDictate || (!ready && !this.dictate.busy));
-    // Na gaveta, a dica do plugin entra no lugar da caixa; no terminal ela já está no lugar do texto.
+    // In drawer, plugin hint replaces box; in terminal it's in the placeholder text.
     setHidden(this.row, !term && !ready);
     if (this.tip) {
       setHidden(this.tip, !ready);
@@ -180,14 +180,14 @@ export class MessageComposer {
     return mode.kind;
   }
 
-  // ---------------------------------------------------------------- internos
+  // ---------------------------------------------------------------- internals
 
   private onKey(e: KeyboardEvent): void {
-    // Os atalhos globais (F, T, P, /, setas...) não valem dentro da caixa. Com Ctrl/⌘ a tecla segue adiante
-    // (Ctrl/⌘+F busca na conversa do terminal; os atalhos globais ignoram essas combinações).
+    // Global hotkeys (F, T, P, /, arrows...) do not apply inside box. With Ctrl/Cmd keys pass through
+    // (Ctrl/Cmd+F searches in terminal; global hotkeys ignore these combos).
     if (!e.ctrlKey && !e.metaKey) e.stopPropagation();
     if (e.key === 'Escape') {
-      // Esc só sai da caixa (o próximo fecha o terminal ou a gaveta).
+      // Escape blurs box (subsequent Escape closes terminal or drawer).
       e.preventDefault();
       e.stopPropagation();
       if (this.opts.onEscape) this.opts.onEscape();
@@ -200,7 +200,7 @@ export class MessageComposer {
     }
   }
 
-  /** Texto ditado: no cursor, se a caixa ainda é a de quem ditou; senão, no fim do rascunho daquele agente. */
+  /** Dictated text: at cursor if current box is still the speaker's; otherwise at end of their draft. */
   private insertDictated(text: string): void {
     const key = this.dictKey;
     if (key === this.agentId && !this.box.disabled) {
@@ -223,7 +223,7 @@ export class MessageComposer {
     setText(this.dictStatus, text);
     setHidden(this.dictStatus, !text);
     this.dictStatus.classList.toggle('is-error', error);
-    // Avisos de sucesso somem sozinhos; "Gravando…" e "Transcrevendo…" ficam até a próxima mudança.
+    // Success messages auto-hide; "Recording…" and "Transcribing…" stay until next change.
     if (!error && !/…$/.test(text)) this.dictTimer = setTimeout(() => setHidden(this.dictStatus, true), 6_000);
   }
 
@@ -231,7 +231,7 @@ export class MessageComposer {
     this.sendBtn.disabled = this.mode.kind !== 'ready' || !canSend(this.box.value) || this.states.get(this.agentId)?.phase === 'sending';
   }
 
-  /** Cresce com o texto até o limite do CSS (~6 linhas; depois rola). Escondida, mede quando aparecer. */
+  /** Grows with text up to CSS limit (~6 lines; then scrolls). If hidden, measures when shown. */
   private resize(): void {
     const box = this.box;
     if (!box.isConnected || box.offsetParent === null) return;
@@ -258,11 +258,11 @@ export class MessageComposer {
       r = { error: OFFLINE_ERROR };
     }
     if ('error' in r) {
-      // Recusada: o texto continua na caixa para tentar de novo.
+      // Rejected: text stays in box for retry.
       this.setState(agentId, { phase: 'rejected', error: r.error, at: Date.now() });
       return;
     }
-    // Na fila: a caixa esvazia (a não ser que você tenha continuado a escrever enquanto o envio ia).
+    // Queued: box clears (unless typing continued while sending).
     if ((this.drafts.get(agentId) ?? '') === raw) {
       this.drafts.delete(agentId);
       if (this.agentId === agentId && this.box.value === raw) {
@@ -275,7 +275,7 @@ export class MessageComposer {
     if (!isSettled(m.status)) this.poll(agentId, m.id, Date.now());
   }
 
-  /** Consulta a situação até ela se resolver (ou o prazo acabar). Para quando outro envio toma a linha de situação. */
+  /** Polls status until settled (or deadline expires). Stops when another submission takes over status line. */
   private poll(agentId: string, id: string, since: number): void {
     const step = async () => {
       if (this.states.get(agentId)?.id !== id) return;
@@ -283,7 +283,7 @@ export class MessageComposer {
       try {
         m = await this.ctx.store.messageStatus(id);
       } catch {
-        // Sem conexão agora: tenta de novo na próxima volta.
+        // No connection right now: retry on next loop.
       }
       const cur = this.states.get(agentId);
       if (cur?.id !== id) return;

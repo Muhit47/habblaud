@@ -1,16 +1,16 @@
-// Janelas móveis: arrastar pela barra solta o painel do lugar padrão (vira "flutuante"); puxar qualquer borda ou
-// quina redimensiona (e também solta); duplo clique na barra devolve ao lugar. Posição e tamanho ficam no navegador
-// (localStorage, por painel). Em telas estreitas os painéis continuam fixos.
+// Movable windows: dragging the title bar unpins the panel from its default dock (makes it "floating");
+// pulling any edge or corner resizes (and also unpins); double-clicking the title bar docks it back.
+// Position and dimensions are persisted in the browser (localStorage, per panel). On narrow viewports, panels stay docked.
 import { ICONS } from './icons';
 import { tr } from '../../../shared/i18n';
 
 const DRAG_THRESHOLD = 4;
-/** Quanto da janela precisa continuar visível na tela. */
+/** How much of the window must remain visible on screen. */
 const KEEP_VISIBLE = 80;
 const MIN_W = 300;
 const MIN_H = 160;
 
-/** Bordas e quinas que redimensionam: n/s mexem em cima/embaixo, e/w na direita/esquerda. */
+/** Edges and corners that resize: n/s adjust top/bottom, e/w adjust right/left. */
 const EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const;
 type Edge = (typeof EDGES)[number];
 
@@ -22,13 +22,13 @@ interface Box {
 }
 
 export interface MovableOptions {
-  /** Chave no localStorage. */
+  /** Key in localStorage. */
   key: string;
-  /** Pode soltar agora? (false em telas estreitas). */
+  /** Can it float now? (false on narrow screens). */
   enabled?: () => boolean;
-  /** Chamado ao soltar ou devolver o painel ao lugar. */
+  /** Invoked when unpinning or docking the panel back. */
   onChange?: (floating: boolean) => void;
-  /** Chamado depois de mover ou redimensionar (ex.: reajustar um terminal). */
+  /** Invoked after moving or resizing (e.g. re-fitting a terminal). */
   onMove?: () => void;
 }
 
@@ -58,7 +58,7 @@ export class Movable {
     const saved = load(opts.key);
     if (saved && this.allowed()) this.float(saved, false);
     addEventListener('resize', () => {
-      // Tela estreita: volta ao lugar sem esquecer a posição guardada, que volta quando a tela alarga de novo.
+      // Narrow viewport: dock back without discarding saved coordinates, restored when viewport widens again.
       if (!this.allowed()) this.unfloat();
       else if (this.box) this.apply(this.box);
       else {
@@ -66,7 +66,7 @@ export class Movable {
         if (saved) this.float(saved, true);
       }
     });
-    // Redimensionado pelo canto (resize: both): guarda o tamanho novo.
+    // Resized via corner handle (resize: both): persist new dimensions.
     if (typeof ResizeObserver === 'function') {
       new ResizeObserver(() => {
         if (!this.box || this.max || this.drag?.moving || this.sizing || this.el.hidden) return;
@@ -84,7 +84,7 @@ export class Movable {
     return this.box !== null;
   }
 
-  /** Ocupando a tela toda do Habblaud (por cima de tudo; não arrasta). */
+  /** Occupies entire Habblaud screen (on top of everything; not draggable). */
   get maximized(): boolean {
     return this.max;
   }
@@ -98,8 +98,8 @@ export class Movable {
   }
 
   /**
-   * Relê a posição guardada (outra janela com a mesma chave pode ter mudado) e aplica: duas janelas que se
-   * revezam no mesmo lugar (os dois terminais) ficam sempre na mesma posição.
+   * Re-reads saved position (another window with the same key might have changed) and applies it:
+   * two windows taking turns in the same slot (the two terminals) remain consistently positioned.
    */
   restore(): void {
     const saved = load(this.opts.key);
@@ -111,17 +111,17 @@ export class Movable {
     }
   }
 
-  /** Volta ao lugar padrão (e esquece a posição guardada). */
+  /** Docks back to default slot (and clears saved position). */
   dock(): void {
     if (!this.box) return;
     save(this.opts.key, null);
     this.unfloat();
   }
 
-  /** Volta ao lugar padrão sem mexer na posição guardada. */
+  /** Docks back to default slot without clearing saved position. */
   private unfloat(): void {
     if (!this.box) return;
-    // Um salvamento pendente gravaria a caixa que já não vale (ou apagaria a guardada).
+    // A pending save timer would persist an outdated box (or overwrite the saved one).
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
     this.box = null;
@@ -131,7 +131,7 @@ export class Movable {
     this.opts.onMove?.();
   }
 
-  /** Alça invisível numa borda/quina: puxar redimensiona a janela (soltando-a do lugar, se estava fixa). */
+  /** Invisible handle on an edge/corner: dragging resizes window (unpinning it if docked). */
   private edgeHandle(edge: Edge): HTMLElement {
     const g = document.createElement('div');
     g.className = `ui-resize ui-resize--${edge}`;
@@ -159,7 +159,7 @@ export class Movable {
         b.x = z.start.x + z.start.w - b.w;
       }
       if (edge.includes('n')) {
-        // Para no limite de cima: passando dele, a borda de baixo desceria.
+        // Clamps at top boundary: past this point, the bottom edge would shift down.
         b.h = Math.max(MIN_H, Math.min(z.start.h - dy, z.start.y + z.start.h - this.minTop()));
         b.y = z.start.y + z.start.h - b.h;
       }
@@ -224,21 +224,21 @@ export class Movable {
   }
 
   /**
-   * Limite de cima: logo abaixo da barra superior, como os painéis no lugar. Por cima dela, a barra da janela
-   * ficaria coberta e não haveria por onde arrastar de volta (nem fechar, no terminal).
+   * Top limit: just below the top bar, like docked panels. Above it, the window bar would be covered
+   * and there would be nowhere to drag back from (or close, in the terminal).
    */
   private minTop(): number {
     const s = getComputedStyle(this.el);
     return (parseFloat(s.getPropertyValue('--top-h')) || 0) + (parseFloat(s.getPropertyValue('--gap')) || 0);
   }
 
-  /** Aplica a caixa, mantendo um pedaço da janela (e a barra) dentro da tela. */
+  /** Applies box, keeping a piece of window (and bar) inside screen. */
   private apply(b: Box): void {
     const w = Math.max(MIN_W, Math.min(b.w, innerWidth));
     const x = Math.min(innerWidth - KEEP_VISIBLE, Math.max(KEEP_VISIBLE - w, b.x));
-    // O limite de cima vence o de baixo: numa janela baixa demais, a barra continua alcançável.
+    // Top limit wins over bottom: in a window too low, bar remains reachable.
     const y = Math.max(this.minTop(), Math.min(innerHeight - MIN_H, b.y));
-    // A altura encolhe para a janela não passar da borda de baixo.
+    // Height shrinks so window does not pass bottom edge.
     const h = Math.max(MIN_H, Math.min(b.h, innerHeight - y - 8));
     this.box = { x, y, w, h };
     const s = this.el.style;
@@ -254,7 +254,7 @@ export class Movable {
   }
 }
 
-/** Botão "expandir na tela toda / restaurar" de uma janela móvel (o `get` devolve o Movable dela). */
+/** "expand to full screen / restore" button for a movable window (the `get` returns its Movable). */
 export function maximizeButton(get: () => Movable | undefined, onToggle?: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
@@ -276,7 +276,7 @@ export function maximizeButton(get: () => Movable | undefined, onToggle?: () => 
   return b;
 }
 
-/** Clique num botão/campo da barra não arrasta. */
+/** Clicking button/field on bar does not drag. */
 function interactive(t: EventTarget | null): boolean {
   return t instanceof Element && !!t.closest('button, a, input, select, textarea, [role="button"], kbd');
 }
@@ -286,7 +286,7 @@ function load(key: string): Box | null {
     const v = JSON.parse(localStorage.getItem(key) ?? 'null') as Partial<Box> | null;
     if (v && [v.x, v.y, v.w, v.h].every((n) => typeof n === 'number' && Number.isFinite(n))) return v as Box;
   } catch {
-    // sem armazenamento
+    // no storage
   }
   return null;
 }
@@ -296,6 +296,6 @@ function save(key: string, b: Box | null): void {
     if (b) localStorage.setItem(key, JSON.stringify({ x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h) }));
     else localStorage.removeItem(key);
   } catch {
-    // sem armazenamento
+    // no storage
   }
 }

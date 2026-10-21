@@ -1,5 +1,5 @@
-// Integração da vida social com a simulação (sem DOM): rodas que se formam sozinhas, quem é chamado
-// de volta ao trabalho, apostas, moedinhas pelo trabalho e quem espera shell.
+// Social integration with simulation (DOM-free): spontaneous gatherings, recalls
+// to work, bets, coins earned from work, and shell waiting.
 import { describe, expect, it } from 'vitest';
 import type { AgentInfo, OfficeSnapshot, RoomInfo } from '../../../../shared/types';
 import type { Appearance, ArtModule, RoomTheme } from '../../art/api';
@@ -93,7 +93,7 @@ function newSim(): Sim {
 const ROOMS = [room('/a', 0), room('/b', 1)];
 
 describe('vida social', () => {
-  it('dois ociosos se juntam numa roda sozinhos, sem ninguém forçar', () => {
+  it('two idle agents spontaneously start a gathering without external force', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap(ROOMS, [agent('ana', '/a', 'idle'), agent('caio', '/b', 'idle')]), clock.now);
@@ -104,7 +104,7 @@ describe('vida social', () => {
     for (const m of active(g)) expect(sim.chars.get(m.id)!.gathering).toBe(g);
   });
 
-  it('sozinho no escritório, ninguém começa uma roda de grupo (só o espelho, que vale sozinho)', () => {
+  it('alone in office, no one starts a group gathering (only mirror, which works solo)', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap(ROOMS, [agent('ana', '/a', 'idle'), agent('caio', '/b', 'working')]), clock.now);
@@ -139,7 +139,7 @@ describe('vida social', () => {
     expect(sim.chars.get('ana')!.gathering).toBe(g);
   });
 
-  it('jokenpô valendo: o dinheiro só muda de mãos (soma igual) e o placar fecha', () => {
+  it('RPS with stakes: coins simply transfer hands (sum conserved) and score records', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap(ROOMS, [agent('ana', '/a', 'idle'), agent('caio', '/b', 'idle')]), clock.now);
@@ -164,7 +164,7 @@ describe('vida social', () => {
     for (const s of sim.spots.all()) expect(sim.spots.ownerOf(s.id)?.startsWith('g:') ?? false).toBe(false);
   });
 
-  it('ping-pong até 5: um vence, o placar e o feed registram', () => {
+  it('ping-pong to 5: winner emerges, score and feed record', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap(ROOMS, [agent('ana', '/a', 'idle'), agent('caio', '/b', 'idle')]), clock.now);
@@ -179,7 +179,7 @@ describe('vida social', () => {
     expect(sim.social.events.some((e) => e.agentId === g.winner && /pingue-pongue \(5 a \d\)/.test(e.text))).toBe(true);
   });
 
-  it('moedinhas pelo trabalho: tarefa concluída (+10) e pedido atendido (+5), com "+🪙" sobre a cabeça', () => {
+  it('coins for work: completed task (+10) and fulfilled request (+5), with "+🪙" floating overhead', () => {
     const sim = newSim();
     const clock = { now: T0 };
     const tasks = [{ id: '1', title: 'Login', status: 'in_progress' as const }];
@@ -194,7 +194,7 @@ describe('vida social', () => {
     expect(sim.social.floaters.filter((f) => f.charId === 'ana').map((f) => f.text).sort()).toEqual([`+🪙${TASK_REWARD}`, `+🪙${TURN_REWARD}`].sort());
   });
 
-  it(`quem espera shell só entra numa roda depois de ${SHELL_SOCIAL_MIN_MS / 1000} s (antes, pipoca na mesa)`, () => {
+  it(`agents waiting on shell only join gatherings after ${SHELL_SOCIAL_MIN_MS / 1000} s (prior, popcorn at desk)`, () => {
     const sim = newSim();
     const clock = { now: T0 };
     const shells = [{ id: 'b1', label: 'Testes', startedAt: T0, background: true, kind: 'shell' as const }];
@@ -224,7 +224,7 @@ describe('vida social', () => {
     for (const s of sim.spots.all()) expect(sim.spots.ownerOf(s.id)?.startsWith('g:') ?? false).toBe(false);
   });
 
-  it('a interface recebe personalidade, carteira, vínculos e o que está fazendo', () => {
+  it('UI receives personality, wallet, relationships, and current activity', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap(ROOMS, [agent('ana', '/a', 'idle'), agent('caio', '/b', 'idle')]), clock.now);

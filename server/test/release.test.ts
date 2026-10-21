@@ -1,4 +1,4 @@
-// scripts/release.ts (funções puras) e a regra de que cada versão tem a sua seção no CHANGELOG.md.
+// scripts/release.ts (pure helper functions) and rule verifying each release has an entry in CHANGELOG.md.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -35,7 +35,7 @@ describe('changelogSection', () => {
   it('sem seção ou com seção vazia: undefined', () => {
     expect(changelogSection(SAMPLE, '0.4.0')).toBeUndefined();
     expect(changelogSection(SAMPLE, '0.1.0')).toBeUndefined();
-    // "0.2.0" não casa com "0.2.01", e o ponto não vira curinga.
+    // "0.2.0" does not match "0.2.01", and dot is not wildcard.
     expect(changelogSection('## [0.2.01]\n\n- não', '0.2.0')).toBeUndefined();
     expect(changelogSection('## [0x2y0]\n\n- não', '0.2.0')).toBeUndefined();
   });

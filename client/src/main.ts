@@ -1,5 +1,5 @@
-// Ponto de entrada do cliente: primeiro o dicionário do idioma ativo (só ele vai para o navegador), depois o app
-// (client/src/app.ts), porque vários módulos chamam tr() ao carregar. Se o dicionário não carregar, fica em português.
+// Client entrypoint: loads active language dictionary first (only active bundle sent to browser), followed by app
+// (client/src/app.ts), as several modules call tr() at load time. If dictionary fails to load, defaults to Portuguese.
 import { getLocale, registerDictionary, type Locale } from '../../shared/i18n';
 
 const LOADERS: Partial<Record<Locale, () => Promise<Readonly<Record<string, string>>>>> = {

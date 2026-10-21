@@ -1,4 +1,4 @@
-// Ajuda ("?"): legenda de status e ícones, controles, o que o escritório mostra, contas e uso, e o Codex.
+// Help ("?"): status and icon legend, controls, what the office shows, accounts and usage, and Codex.
 import type { AgentStatus } from '../../../shared/types';
 import type { HelpSection } from './context';
 import { h, iconButton, prefersReducedMotion } from './dom';
@@ -38,7 +38,7 @@ const ICON_HELP: [string, string][] = [
   ['⚠️', tr('Algo deu errado')],
 ];
 
-/** Rodas da vida social (quem está à toa se junta com os colegas). */
+/** Social circles (idle characters gather with peers). */
 const SOCIAL_HELP: [string, string][] = [
   ['📺', tr('TV no lounge: futebol (comemoram o gol junto com a tela), novela ou desenho, com pipoca.')],
   ['🎮', tr('Videogame no sofá (melhor de 3) ou duelo nos fliperamas, com torcida.')],
@@ -49,14 +49,14 @@ const SOCIAL_HELP: [string, string][] = [
   ['🪙', tr('Carteira: entram com 🪙100 (subagentes 🪙30), ganham 🪙10 por tarefa concluída, 🪙5 por pedido atendido e 🪙15 por entrega de subagente.')],
 ];
 
-/** Eventos do GitHub vistos ao vivo nas sessões (gh, git push, MCP do GitHub). */
+/** GitHub events seen live in sessions (gh, git push, GitHub MCP). */
 const GITHUB_HELP: [string, string][] = [
   ['🎉', tr('Festa: PR aberto ou mergeado, release publicada (ou CI verde depois de um alarme). Confete cai na sala, todos comemoram e uma faixa diz o motivo (~12 s).')],
   ['🚨', tr('Alarme: o CI ficou vermelho. Giroflex nos cantos da sala, chão avermelhado e um balão “!” sobre quem viu a falha, até um CI verde na sala (ou 10 min).')],
   ['🚀', tr('Push: só o aviso e o feed, sem mexer na sala.')],
 ];
 
-/** O Codex no escritório: o que muda em relação ao Claude Code (trechos `assim` viram código). */
+/** Codex in office: differences from Claude Code (code spans rendered appropriately). */
 const CODEX_HELP: string[] = [
   tr('Cada projeto aberto no Codex (no terminal ou no app) vira uma sala: a mesma do Claude Code naquela pasta, e os dois dividem a sala.'),
   tr('Os agentes do Codex têm o chip da conta vazado (só a borda na cor da conta) e o selo CODEX na etiqueta e nos detalhes.'),
@@ -68,7 +68,7 @@ const CODEX_HELP: string[] = [
   tr('Meu dia: o Codex conta tokens, mas não grava custo.'),
 ];
 
-/** O fim da espera (o servidor marca com uma atividade ✅ ou ❌). */
+/** End of shell wait (server marks with ✅ or ❌ activity). */
 const SHELL_END_HELP: [string, string][] = [
   ['🎉', tr('Terminou bem: levanta, comemora com confete e uma estrela.')],
   ['🌧️', tr('Falhou ou foi interrompido: nuvenzinha de chuva sobre a cabeça e ombros caídos.')],
@@ -162,7 +162,7 @@ export class HelpDialog {
         this.codexSection(),
       ),
     );
-    // Clique no fundo (fora do conteúdo) fecha.
+    // Clicking backdrop (outside content) closes.
     this.el.addEventListener('click', (e) => {
       if (e.target === this.el) this.el.close();
     });
@@ -172,7 +172,7 @@ export class HelpDialog {
     if (!this.el.open) this.el.showModal();
     const target = section ? this.sections.get(section) : undefined;
     if (!target) return;
-    // Rola até a seção pedida e a destaca por um instante.
+    // Scrolls to requested section and briefly highlights it.
     requestAnimationFrame(() => {
       target.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
       target.classList.remove('is-highlight');
@@ -183,7 +183,7 @@ export class HelpDialog {
     });
   }
 
-  /** Legenda da espera por shell: a "escalada cômica" do personagem conforme o shell demora. */
+  /** Shell wait legend: comedic escalation as shell takes longer. */
   private shellSection(): HTMLElement {
     const item = (emoji: string, text: string) =>
       h('li', {}, h('span', { class: 'ui-icon-legend__icon', text: emoji, attrs: { 'aria-hidden': 'true' } }), h('span', { text }));
@@ -201,7 +201,7 @@ export class HelpDialog {
     );
   }
 
-  /** Legenda da vida social: as rodas dos ociosos, as personalidades e as moedinhas. */
+  /** Social life legend: gatherings, personalities, and coins. */
   private socialSection(): HTMLElement {
     const item = (emoji: string, text: string) =>
       h('li', {}, h('span', { class: 'ui-icon-legend__icon', text: emoji, attrs: { 'aria-hidden': 'true' } }), h('span', { text }));
@@ -220,7 +220,7 @@ export class HelpDialog {
     );
   }
 
-  /** Legenda do GitHub no escritório: festa e alarme nas salas. */
+  /** GitHub legend: celebrations and alarms in rooms. */
   private githubSection(): HTMLElement {
     const item = (emoji: string, text: string) =>
       h('li', {}, h('span', { class: 'ui-icon-legend__icon', text: emoji, attrs: { 'aria-hidden': 'true' } }), h('span', { text }));
@@ -260,7 +260,7 @@ export class HelpDialog {
     return el;
   }
 
-  /** O Codex no escritório (o "Como funciona" do cartão de uso de uma conta do Codex abre aqui). */
+  /** Codex in office ("How it works" on Codex account card opens here). */
   private codexSection(): HTMLElement {
     const el = h(
       'section',
@@ -277,7 +277,7 @@ export class HelpDialog {
   }
 }
 
-/** Um chip de conta de exemplo (legenda). */
+/** Sample account chip (legend). */
 function accountSample(short: string, color: string, codex = false): HTMLElement {
   const chip = createAccountChip('sm');
   updateAccountChip(chip, { id: short, short, name: codex ? 'Codex' : tr('Conta {0}', [short]), color, configDir: '', sessions: 0, usageStatus: 'disabled', ...(codex ? { provider: 'codex' as const } : {}) });

@@ -1,5 +1,5 @@
-// WorldService: a releitura automática de /v1/me na lista de espera (relógio falso; o resto do serviço é coberto pelas
-// rotas em http.test.ts).
+// WorldService: automatic re-reading of /v1/me in the waiting list (fake clock; the rest of the service is covered by the
+// routes in http.test.ts).
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MeResponse, WorldAccess } from '../../shared/world/protocol';
@@ -13,7 +13,7 @@ setQuiet(true);
 
 const TOKEN = 't'.repeat(43);
 
-/** `extra`: campos a mais do /v1/me (`player`, `account.reservedName`...). */
+/** `extra`: additional fields from /v1/me (`player`, `account.reservedName`...). */
 function me(access: WorldAccess, extra: Omit<Partial<MeResponse>, 'account'> & { account?: Partial<MeResponse['account']> } = {}): WorldResult<MeResponse> {
   const { account, ...rest } = extra;
   return {
@@ -76,7 +76,7 @@ describe('WorldService: lista de espera', () => {
     expect(store.get()?.access).toBe('approved');
     expect(onChange).toHaveBeenCalledTimes(1);
 
-    // Aprovada: para de perguntar.
+    // Approved: stops polling.
     await vi.advanceTimersByTimeAsync(4 * WAITING_POLL_MS);
     expect(meFn).toHaveBeenCalledTimes(2);
   });
@@ -175,14 +175,14 @@ describe('WorldService: status barato', () => {
       });
       const client = { me: meFn } as unknown as WorldClient;
       const service = new WorldService({ config: { enabled: true, dev: true, url: 'http://127.0.0.1:1' }, terminal: true, store, client, now: () => now, meTtlMs: 30_000 });
-      // Nada guardado ainda: espera a primeira leitura.
+      // Nothing cached yet: waits for the first read.
       expect((await service.status()).account?.emailMasked).toBe('a***@exemplo.com');
       expect(meFn).toHaveBeenCalledTimes(1);
-      // Dentro do prazo: nem toca na rede.
+      // Within TTL: does not touch network.
       now += 10_000;
       await service.status();
       expect(meFn).toHaveBeenCalledTimes(1);
-      // Venceu e o servidor demora: responde na hora com o que tem e relê por trás.
+      // Expired and the server is slow: responds immediately with cached data and refetches in the background.
       now += 30_000;
       slow = true;
       const st = await service.status();
@@ -190,7 +190,7 @@ describe('WorldService: status barato', () => {
       expect(meFn).toHaveBeenCalledTimes(2);
       release!();
       await new Promise((ok) => setImmediate(ok));
-      // Com refresh, espera a leitura.
+      // With refresh, waits for the read.
       slow = false;
       await service.status(true);
       expect(meFn).toHaveBeenCalledTimes(3);
@@ -225,12 +225,12 @@ describe('WorldService: retomada sem resposta do servidor do mundo', () => {
   const ok: Reply = { ok: true, status: 200, data: { state: 'online' } };
   const down: Reply = { ok: false, status: 502, code: 'world_unreachable' };
 
-  /** `replies`: as respostas do resume, em ordem (depois delas, sempre ok). */
+  /** `replies`: resume responses in order (after them, always ok). */
   function start(replies: Reply[]) {
     const resumeBuilding = vi.fn(async () => replies.shift() ?? ok);
     const pauseBuilding = vi.fn(async () => ({ ok: true as const, status: 200, data: { state: 'paused' as const } }));
     const client = { me: async () => me('approved'), resumeBuilding, pauseBuilding } as unknown as WorldClient;
-    // random 0.5: a espera é exatamente a base (2 s, 4 s, 8 s...).
+    // random 0.5: the delay is exactly the base (2 s, 4 s, 8 s...).
     const service = new WorldService({ config: { enabled: true, dev: true, url: 'http://127.0.0.1:1' }, terminal: true, store, client, random: () => 0.5 });
     services.push(service);
     return { service, resumeBuilding, pauseBuilding };
@@ -250,7 +250,7 @@ describe('WorldService: retomada sem resposta do servidor do mundo', () => {
     expect(resumeBuilding).toHaveBeenCalledTimes(3);
     await vi.advanceTimersByTimeAsync(8_000);
     expect(resumeBuilding).toHaveBeenCalledTimes(4);
-    // Confirmada: para de tentar.
+    // Confirmed: stops retrying.
     await vi.advanceTimersByTimeAsync(120_000);
     expect(resumeBuilding).toHaveBeenCalledTimes(4);
   });

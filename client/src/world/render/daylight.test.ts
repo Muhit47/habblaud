@@ -1,5 +1,5 @@
-// Ciclo dia/noite (puro): fases, nível de luz e cores por hora e minuto, virada da meia-noite,
-// faixas de sol, hora efetiva e leitura do ?hora= da URL.
+// Day/night cycle (pure): phases, light levels, and colors by hour and minute, midnight wrap,
+// sunlight beams, effective hour, and URL ?hora= parsing.
 import { describe, expect, it } from 'vitest';
 import {
   ambientAt,
@@ -43,8 +43,8 @@ describe('fases do dia', () => {
   });
 });
 
-describe('nível de luz e cores', () => {
-  it('meio-dia é neutro (nada a desenhar); a noite é escura e azulada', () => {
+describe('light levels and colors', () => {
+  it('noon is neutral (nothing to draw); night is dark and bluish', () => {
     const noon = ambientAt(12);
     expect(noon.night).toBe(0);
     expect(noon.outside).toEqual([255, 255, 255]);
@@ -59,12 +59,12 @@ describe('nível de luz e cores', () => {
     // interiores acesos continuam claros (e quentes: o vermelho domina o azul)
     expect(lum(late.inside)).toBeGreaterThan(200);
     expect(late.inside[0]).toBeGreaterThan(late.inside[2]);
-    // áreas comuns vazias ficam na penumbra, entre a sala acesa e o exterior
+    // empty common areas stay in dim light, between lit room and exterior
     expect(lum(late.dim)).toBeLessThan(lum(late.inside));
     expect(lum(late.dim)).toBeGreaterThan(lum(late.outside));
   });
 
-  it('amanhecer e entardecer têm tom quente', () => {
+  it('dawn and dusk have warm tone', () => {
     for (const h of [6.5, 18]) {
       const a = ambientAt(h);
       expect(a.warm).toBeGreaterThan(0.9);
@@ -74,17 +74,17 @@ describe('nível de luz e cores', () => {
     expect(ambientAt(23).warm).toBe(0);
   });
 
-  it('interpola por minuto: a noite cresce de forma contínua no entardecer', () => {
+  it('interpolates per minute: night increases continuously during dusk', () => {
     let prev = ambientAt(17).night;
     for (let m = 1; m <= 180; m++) {
       const a = ambientAt(17 + m / 60);
       expect(a.night).toBeGreaterThanOrEqual(prev - 1e-9);
-      // sem saltos entre minutos vizinhos
+      // no discontinuities between adjacent minutes
       expect(a.night - prev).toBeLessThan(0.02);
       prev = a.night;
     }
     expect(prev).toBe(1);
-    // meio caminho entre duas chaves: valores intermediários
+    // halfway between two keyframes: intermediate values
     const mid = ambientAt(18.3);
     expect(mid.night).toBeGreaterThan(ambientAt(18).night);
     expect(mid.night).toBeLessThan(ambientAt(18.6).night);
@@ -100,18 +100,18 @@ describe('nível de luz e cores', () => {
     expect(prev).toBe(0);
   });
 
-  it('a virada da meia-noite é contínua', () => {
+  it('midnight wrap is continuous', () => {
     const before = ambientAt(23 + 59 / 60);
     const after = ambientAt(0);
     const next = ambientAt(1 / 60);
     expect(ambientDistance(before, after)).toBeLessThan(3);
     expect(ambientDistance(after, next)).toBeLessThan(3);
     expect(ambientAt(24)).toEqual(ambientAt(0));
-    // a madrugada é um pouco mais fechada que o começo da noite
+    // pre-dawn is slightly darker than early night
     expect(lum(ambientAt(2).outside)).toBeLessThan(lum(ambientAt(20).outside));
   });
 
-  it('mistura de cores e transição suave entre ambientes', () => {
+  it('color blending and smooth ambient transition', () => {
     expect(mixRgb([0, 0, 0], [255, 255, 255], 0.5)).toEqual([128, 128, 128]);
     expect(mixRgb([10, 20, 30], [200, 200, 200], -1)).toEqual([10, 20, 30]);
     expect(mixRgb([10, 20, 30], [200, 200, 200], 2)).toEqual([200, 200, 200]);
@@ -125,7 +125,7 @@ describe('nível de luz e cores', () => {
 });
 
 describe('sol pelas janelas', () => {
-  it('só de dia; curto ao meio-dia, longo com o sol baixo', () => {
+  it('daylight only; short at noon, long with low sun', () => {
     expect(sunbeamAt(3)).toBeNull();
     expect(sunbeamAt(6)).toBeNull();
     expect(sunbeamAt(21)).toBeNull();
@@ -135,19 +135,19 @@ describe('sol pelas janelas', () => {
     expect(Math.abs(noon.skew)).toBeLessThan(0.05);
   });
 
-  it('de manhã tomba para oeste, à tarde para leste; mais forte nas horas douradas', () => {
+  it('tilts west in morning, east in afternoon; stronger during golden hours', () => {
     expect(sunbeamAt(8)!.skew).toBeLessThan(0);
     expect(sunbeamAt(16)!.skew).toBeGreaterThan(0);
     expect(sunbeamAt(17.2)!.alpha).toBeGreaterThan(sunbeamAt(12)!.alpha);
-    // aparece e some suave perto do nascer/pôr
+    // smooth fade near sunrise/sunset
     expect(sunbeamAt(6.2)!.alpha).toBeLessThan(sunbeamAt(7.2)!.alpha);
   });
 });
 
-describe('hora efetiva e parâmetro ?hora=', () => {
+describe('effective hour and ?hora= parameter', () => {
   const date = new Date(2026, 9, 8, 14, 45, 0);
 
-  it('lê os formatos aceitos', () => {
+  it('parses accepted formats', () => {
     expect(parseHourParam('?hora=21:30')).toBe(21.5);
     expect(parseHourParam('?hora=6:05')).toBeCloseTo(6 + 5 / 60);
     expect(parseHourParam('?hora=06:00')).toBe(6);
@@ -158,7 +158,7 @@ describe('hora efetiva e parâmetro ?hora=', () => {
     expect(parseHourParam('?hora=24:00')).toBe(0);
   });
 
-  it('ignora ausente ou inválido', () => {
+  it('ignores absent or invalid values', () => {
     expect(parseHourParam('')).toBeNull();
     expect(parseHourParam(null)).toBeNull();
     expect(parseHourParam('?mock=1')).toBeNull();
@@ -170,7 +170,7 @@ describe('hora efetiva e parâmetro ?hora=', () => {
     expect(parseHourParam('?hora=-3')).toBeNull();
   });
 
-  it('a hora forçada vale sobre a preferência; senão a preferência; senão o relógio', () => {
+  it('forced hour overrides preference; otherwise preference; otherwise clock', () => {
     expect(effectiveHour('auto', null, date)).toBeCloseTo(14.75);
     expect(effectiveHour('day', null, date)).toBe(FIXED_DAY_HOUR);
     expect(effectiveHour('night', null, date)).toBe(FIXED_NIGHT_HOUR);
@@ -180,7 +180,7 @@ describe('hora efetiva e parâmetro ?hora=', () => {
     expect(isNeutral(ambientAt(FIXED_DAY_HOUR))).toBe(true);
   });
 
-  it('modo a partir das opções do mundo (o interruptor antigo ainda vale)', () => {
+  it('mode derived from world options (legacy toggle still supported)', () => {
     expect(daylightModeOf({ dayNight: true })).toBe('auto');
     expect(daylightModeOf({ dayNight: false })).toBe('day');
     expect(daylightModeOf({ dayNight: false, daylight: 'night' })).toBe('night');

@@ -1,5 +1,5 @@
-// Preferências da interface, persistidas em localStorage ('habblaud:prefs').
-// Puro: o armazenamento é injetado (testável em node).
+// UI preferences, persisted in localStorage ('habblaud:prefs').
+// Pure module: storage implementation is injected (testable in Node).
 import { DEFAULT_SOUND_SETTINGS, sanitizeSoundSettings, type SoundSettings } from '../audio/scheduler';
 import type { DaylightMode, WorldOptions } from '../world/api';
 import { DEFAULT_WORLD_OPTIONS } from '../world/api';
@@ -10,20 +10,20 @@ export interface UiPrefs {
   showNames: boolean;
   bubbles: WorldOptions['bubbles'];
   liveliness: WorldOptions['liveliness'];
-  /** Ciclo dia/noite: automático (hora local), sempre dia ou sempre noite. */
+  /** Day/night cycle: auto (local time), always day, or always night. */
   daylight: DaylightMode;
   theme: NonNullable<WorldOptions['theme']>;
-  /** Sons sintetizados (interruptor geral; desligado por padrão). */
+  /** Synthesized sound effects (master switch; off by default). */
   sound: boolean;
-  /** Volume mestre e categorias dos sons. */
+  /** Master volume and audio category settings. */
   sounds: SoundSettings;
-  /** Notification do navegador para alertas com a aba oculta. */
+  /** Browser notification API for alerts when tab is hidden. */
   browserNotifications: boolean;
   sidebarOpen: boolean;
   feedOpen: boolean;
-  /** Contas ocultas na barra lateral (AccountInfo.id). */
+  /** Hidden accounts in sidebar (AccountInfo.id). */
   hiddenAccounts: string[];
-  /** Habblaud World: aviso quando o primeiro visitante entra no seu prédio (a cada conexão). Ligado por padrão. */
+  /** Habblaud World: notify when first visitor enters your building (per connection). Enabled by default. */
   worldVisitNotify: boolean;
 }
 
@@ -48,7 +48,7 @@ const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T)
   typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
 const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
 
-/** Valida campo a campo: valores desconhecidos ou corrompidos caem no padrão. */
+/** Validates field by field: unknown or corrupted values fall back to defaults. */
 export function sanitizePrefs(raw: unknown): UiPrefs {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const d = DEFAULT_PREFS;
@@ -56,7 +56,7 @@ export function sanitizePrefs(raw: unknown): UiPrefs {
     showNames: bool(o.showNames, d.showNames),
     bubbles: oneOf(o.bubbles, ['all', 'important', 'none'] as const, d.bubbles),
     liveliness: oneOf(o.liveliness, ['calm', 'normal', 'lively'] as const, d.liveliness),
-    // preferências antigas: o interruptor "dia e noite" desligado vira "sempre dia"
+    // legacy prefs: disabled "day and night" toggle maps to "always day"
     daylight: oneOf(o.daylight, ['auto', 'day', 'night'] as const, o.dayNight === false ? 'day' : d.daylight),
     theme: oneOf(o.theme, ['auto', 'none', 'christmas', 'halloween'] as const, d.theme),
     sound: bool(o.sound, d.sound),
@@ -84,16 +84,16 @@ export function savePrefs(storage: StorageLike | null, prefs: UiPrefs): void {
   try {
     storage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {
-    // Armazenamento cheio ou bloqueado (aba anônima): as preferências valem só nesta sessão.
+    // Storage full or restricted (private browsing): preferences apply to current session only.
   }
 }
 
-/** Parte das preferências que o mundo (canvas) consome. */
+/** Subset of preferences consumed by the world canvas. */
 export function worldOptionsFrom(p: UiPrefs): Partial<WorldOptions> {
   return { showNames: p.showNames, bubbles: p.bubbles, liveliness: p.liveliness, dayNight: p.daylight !== 'day', daylight: p.daylight, theme: p.theme };
 }
 
-/** localStorage com proteção contra navegadores que lançam exceção ao acessá-lo. */
+/** Safe localStorage accessor guarding against browser environments that throw on access. */
 export function safeLocalStorage(): Storage | null {
   try {
     return typeof localStorage === 'undefined' ? null : localStorage;
@@ -103,8 +103,8 @@ export function safeLocalStorage(): Storage | null {
 }
 
 /**
- * Migração do nome antigo (CodeTown, até a 0.3.2): as chaves eram `codetown:prefs`,
- * `codetown:update-seen`, `codetown.wallets.v1`... e passaram a começar com `habblaud`.
+ * Legacy branding migration (CodeTown up to 0.3.2): keys were `codetown:prefs`,
+ * `codetown:update-seen`, `codetown.wallets.v1`... and now use the `habblaud` prefix.
  */
 const LEGACY_NAME = 'codetown';
 const LEGACY_PREFIXES = [`${LEGACY_NAME}:`, `${LEGACY_NAME}.`];
@@ -113,15 +113,15 @@ const NAME = 'habblaud';
 type ListableStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>;
 
 /**
- * Renomeia as chaves do nome antigo para quem atualiza não perder as preferências nem as moedinhas.
- * Roda no boot, antes de qualquer leitura. Se a chave nova já existe, ela vale e a antiga só é apagada.
- * Retorna quantas chaves copiou.
+ * Migrates legacy storage keys so users upgrading don't lose preferences or tokens.
+ * Runs at startup before any reads. If a new key already exists, it takes precedence and legacy key is purged.
+ * Returns number of keys migrated.
  */
 export function migrateLegacyKeys(storage: ListableStorage | null): number {
   if (!storage) return 0;
   const legacy: string[] = [];
   try {
-    // Lista antes de mexer: apagar durante a varredura muda os índices de key(i).
+    // Snapshot keys prior to modification: deleting during iteration alters key(i) indices.
     for (let i = 0; i < storage.length; i++) {
       const key = storage.key(i);
       if (key && LEGACY_PREFIXES.some((p) => key.startsWith(p))) legacy.push(key);
@@ -138,10 +138,10 @@ export function migrateLegacyKeys(storage: ListableStorage | null): number {
         storage.setItem(key, value);
         copied++;
       }
-      // Só apaga depois de copiar: se a gravação falhar (cota cheia), a antiga fica para a próxima vez.
+      // Only delete after successful write: if write throws (quota exceeded), legacy key is retained for retry.
       storage.removeItem(old);
     } catch {
-      // segue com as outras chaves
+      // continue with remaining keys
     }
   }
   return copied;

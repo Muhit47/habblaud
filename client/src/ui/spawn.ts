@@ -1,8 +1,8 @@
-// Novo agente (botão na barra do topo): começa uma sessão do Claude Code em segundo plano no Mac, na pasta escolhida e
-// com o pedido (POST /api/spawn; server/spawn/spawn.ts). As pastas são os projetos recentes do computador
-// (GET /api/spawn/folders: histórico de sessões + salas), para escolher com um toque; "Outra pasta" aceita um caminho
-// digitado. O pedido pode levar anexos (POST /api/spawn/attachments, um por arquivo, antes do pedido) e ser ditado
-// (ui/dictation.ts, Whisper local no Mac). Pasta que o Claude Code não conhece cai no app (Enter lá).
+// New agent (top bar button): launches a Claude Code session in the background on Mac, in chosen folder
+// and prompt (POST /api/spawn; server/spawn/spawn.ts). Folders are recent computer projects
+// (GET /api/spawn/folders: session history + rooms), selectable with a click; "Other folder" accepts typed
+// path. Prompt can carry attachments (POST /api/spawn/attachments, per-file, before prompt) and dictation
+// (ui/dictation.ts, local Whisper on Mac). Unknown folders to Claude Code open in app (requiring Enter).
 import { tr } from '../../../shared/i18n';
 import { isDemoId } from '../../../shared/timeline';
 import type { OfficeSnapshot } from '../../../shared/types';
@@ -16,8 +16,8 @@ export const MAX_FILES = 8;
 export const MAX_FILE_BYTES = 15 * 1024 * 1024;
 const POLL_MS = 700;
 /**
- * Quanto a página espera o pedido abrir: mais que o servidor leva para desistir (fila 30 s + `claude --bg` e `open`,
- * 50 s; server/spawn/spawn.ts), para nunca dizer "não confirmou" de algo que ainda vai abrir.
+ * How long the page waits for request to launch: longer than server timeout (queue 30s + `claude --bg` and `open`,
+ * 50s; server/spawn/spawn.ts), to avoid false "did not confirm" errors for pending launches.
  */
 const WAIT_MS = 90_000;
 const LAST_FOLDER_KEY = 'habblaud.spawn.folder';
@@ -37,7 +37,7 @@ export interface FolderOption {
   sessions?: number;
 }
 
-/** Pastas das salas, da mais recente para a mais antiga (reserva quando o servidor não manda a lista). */
+/** Room folders, sorted newest to oldest (fallback when server doesn't provide list). */
 export function spawnFolders(snap: Pick<OfficeSnapshot, 'rooms' | 'agents'> | null | undefined): string[] {
   if (!snap) return [];
   const last = new Map<string, number>();
@@ -49,12 +49,12 @@ export function spawnFolders(snap: Pick<OfficeSnapshot, 'rooms' | 'agents'> | nu
   return [...new Set(paths)];
 }
 
-/** Caminho curto para a lista: a pasta pessoal vira "~". */
+/** Shortened display path: user home directory replaced with "~". */
 export function shortPath(path: string): string {
   return path.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, '~').replace(/^[A-Za-z]:\\Users\\[^\\]+(?=\\|$)/i, '~');
 }
 
-/** "agora", "5 min", "3 h", "2 d" (vazio sem horário). */
+/** "now", "5 min", "3 h", "2 d" (empty if no timestamp). */
 export function ago(at: number, now = Date.now()): string {
   if (!at) return '';
   const min = Math.max(0, Math.round((now - at) / 60_000));
@@ -104,7 +104,7 @@ function writePref(path: string): void {
   try {
     localStorage.setItem(LAST_FOLDER_KEY, path);
   } catch {
-    // sem armazenamento: só não lembra
+    // no storage available: simply do not persist
   }
 }
 
@@ -218,7 +218,7 @@ export class SpawnPanel {
   toggle(anchor: HTMLElement): void {
     this.anchor = anchor;
     if (this.isOpen) return this.hide();
-    // Primeiro com o que o escritório já sabe; a lista do servidor (histórico) chega logo depois.
+    // First display office cached data; server list (history) arrives shortly after.
     if (!this.folders.length) this.setFolders(spawnFolders(this.ctx.store.snapshot).map((path) => ({ path, name: path.split(/[\\/]/).pop() || path, lastAt: 0 })));
     void this.loadFolders();
     void this.checkDictation();
@@ -229,7 +229,7 @@ export class SpawnPanel {
     if (typeof this.el.showPopover === 'function') this.el.showPopover();
     else this.el.classList.add('is-open');
     anchor.setAttribute('aria-expanded', 'true');
-    // No celular, focar o campo abriria o teclado por cima da lista de projetos.
+    // On mobile, focusing the input would immediately cover project list with keyboard.
     if (!matchMedia('(pointer: coarse)').matches) this.prompt.focus();
   }
 
@@ -245,7 +245,7 @@ export class SpawnPanel {
       const r = await api<{ folders: FolderOption[] }>('/api/spawn/folders');
       if (Array.isArray(r.folders) && r.folders.length) this.setFolders(r.folders);
     } catch {
-      // fica a lista das salas
+      // keep room list fallback
     }
   }
 

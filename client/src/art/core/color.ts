@@ -1,5 +1,5 @@
-// Utilitários de cor (puros): parse, mistura e rampas de sombreado com deslocamento de matiz.
-// Sombras puxam para o azul (frio) e brilhos para o amarelo (quente), como em pixel art tradicional.
+// Color utilities (pure): parse, blend, and hue-shifted shading ramps.
+// Shadows shift toward blue (cool) and highlights toward yellow (warm), as in classic pixel art.
 
 export type RGBA = readonly [number, number, number, number];
 
@@ -105,7 +105,7 @@ export function hslToRgb(h: number, s: number, l: number): [number, number, numb
   return [Math.round(ch(hh + 1 / 3) * 255), Math.round(ch(hh) * 255), Math.round(ch(hh - 1 / 3) * 255)];
 }
 
-/** Move a matiz `h` em direção a `target` por até `deg` graus (caminho mais curto). */
+/** Shifts hue `h` toward `target` by up to `deg` degrees (shortest path). */
 function towardHue(h: number, target: number, deg: number): number {
   let d = ((target - h + 540) % 360) - 180;
   if (Math.abs(d) < deg) return target;
@@ -116,8 +116,8 @@ function towardHue(h: number, target: number, deg: number): number {
 const shadeCache = new Map<string, string>();
 
 /**
- * Clareia (k > 0) ou escurece (k < 0) uma cor em `k` de luminosidade HSL, com deslocamento de matiz:
- * sombras vão para o azul-violeta e luzes para o amarelo. Mantém o alfa.
+ * Lightens (k > 0) or darkens (k < 0) a color by `k` HSL lightness, with hue shift:
+ * shadows shift toward violet-blue and highlights toward yellow. Preserves alpha.
  */
 export function shade(c: string, k: number): string {
   if (k === 0) return c;
@@ -141,7 +141,7 @@ export function shade(c: string, k: number): string {
   return out;
 }
 
-/** Mistura linear entre duas cores (t = 0 → a, t = 1 → b). */
+/** Linear blend between two colors (t = 0 → a, t = 1 → b). */
 export function mix(a: string, b: string, t: number): string {
   const ca = parseColor(a);
   const cb = parseColor(b);
@@ -154,19 +154,19 @@ export function mix(a: string, b: string, t: number): string {
   );
 }
 
-/** Mesma cor com outro alfa (0–1). */
+/** Same color with adjusted alpha (0–1). */
 export function withAlpha(c: string, a: number): string {
   const [r, g, b] = parseColor(c);
   return toHex(r, g, b, Math.round(clamp01(a) * 255));
 }
 
-/** Luminância relativa aproximada (0–1). */
+/** Approximate relative luminance (0–1). */
 export function luminance(c: string): number {
   const [r, g, b] = parseColor(c);
   return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 }
 
-/** Saturação/luminosidade ajustadas diretamente (sem deslocamento de matiz). */
+/** Direct saturation/lightness adjustment (without hue shifting). */
 export function tone(c: string, opts: { s?: number; l?: number; h?: number }): string {
   const [r, g, b, a] = parseColor(c);
   const [h, s, l] = rgbToHsl(r, g, b);
@@ -201,7 +201,7 @@ export function ramp(base: string, step = 0.08): Ramp {
   return r;
 }
 
-/** Cor de contorno: versão bem escura da cor vizinha, puxada para o cinza-azulado padrão. */
+/** Outline color: very dark shade of neighboring color, shifted toward default slate-blue. */
 export const OUTLINE = '#272b3b';
 const outlineCache = new Map<number, string>();
 

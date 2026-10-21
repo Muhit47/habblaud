@@ -1,7 +1,7 @@
-// Hook do Codex (mod/habblaud-codex/hook.mjs) rodado como processo de verdade contra o servidor de teste (rotas de
-// verdade e uma fonte do Codex falsa): eventos de observação (sem saída), a conta pelo CODEX_HOME, pelo
-// transcript_path ou ~/.codex, a configuração em ~/.habblaud/codex-hook.json, e o PermissionRequest (aprovar, recusar,
-// terminal, tempo esgotado, Habblaud fora do ar). HOME e CODEX_HOME sempre em pastas temporárias; stdin sintético.
+// Codex hook (mod/habblaud-codex/hook.mjs) executed as real child process against test server (real
+// routes and mock Codex source): observation events (silent), account resolution via CODEX_HOME,
+// transcript_path, or ~/.codex, config in ~/.habblaud/codex-hook.json, and PermissionRequest (allow, deny,
+// terminal, timeout, Habblaud offline). Mock HOME and CODEX_HOME in temp directories; synthetic stdin.
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
@@ -16,7 +16,7 @@ setQuiet(true);
 
 const HOOK = resolve(__dirname, '../../mod/habblaud-codex/hook.mjs');
 
-/** Funções exportadas pelo hook (JavaScript puro, sem tipos). */
+/** Functions exported by hook (pure JavaScript, untyped). */
 interface HookModule {
   readConfig(env: NodeJS.ProcessEnv): { port: number; waitMs: number };
   codexHomeOf(env: NodeJS.ProcessEnv, input: unknown): string;
@@ -27,7 +27,7 @@ interface HookModule {
 }
 const hook = (await import(pathToFileURL(HOOK).href)) as HookModule;
 
-/** Fonte do Codex falsa: guarda os eventos recebidos. */
+/** Mock Codex source: records received events. */
 class FakeLive {
   calls: Array<{ account: string | undefined; input: Record<string, unknown> }> = [];
   applyHookEvent(account: string | undefined, input: Record<string, unknown>): boolean {
@@ -86,7 +86,7 @@ function runHook(stdin: string, env: NodeJS.ProcessEnv = {}): Promise<HookRun> {
   });
 }
 
-/** JSON (sintético) de um evento de hook do Codex. */
+/** Synthetic JSON payload representing a Codex hook event. */
 function codexEvent(event: string, over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     session_id: CODEX_THREAD,
@@ -158,7 +158,7 @@ describe('hook.mjs do Codex (processo)', () => {
     expect(live.calls.map((c) => c.input.hook_event_name)).toEqual(['PermissionRequest']);
     const info = srv.registry!.detail(id)!;
     expect(info).toMatchObject({ provider: 'codex', tool: 'Bash', title: 'Bash(npm test)' });
-    // A espera do arquivo (30 s) vira o prazo do pedido no escritório.
+    // File wait (30 s) sets prompt timeout in office UI.
     expect(info.expiresAt - info.createdAt).toBeGreaterThan(25_000);
     expect(info.expiresAt - info.createdAt).toBeLessThanOrEqual(30_000);
     expect(srv.registry!.decide(id, { behavior: 'allow' })).toBe('ok');
@@ -237,7 +237,7 @@ describe('hook.mjs do Codex (funções)', () => {
   });
 
   it('codexHomeOf/accountOf: CODEX_HOME (com ~), transcript_path (sessions/ ou archived_sessions/) e ~/.codex', () => {
-    // resolve/join como o hook: no Windows, com a letra do drive e `\`.
+    // resolve/join matches hook: on Windows, with drive letter and backslashes.
     expect(hook.codexHomeOf({ HOME: '/u', CODEX_HOME: '~/.codex-b/' }, {})).toBe(resolve('/u/.codex-b'));
     expect(hook.codexHomeOf({ HOME: '/u' }, { transcript_path: `/x/.codex-c/sessions/2026/10/09/rollout-a-${CODEX_THREAD}.jsonl` })).toBe(resolve('/x/.codex-c'));
     expect(hook.codexHomeOf({ HOME: '/u' }, { transcript_path: `/x/.codex-d/archived_sessions/rollout-a.jsonl` })).toBe(resolve('/x/.codex-d'));

@@ -1,11 +1,10 @@
-// Windows: encerrar uma sessão do Claude Code aberta noutro terminal sem deixar o terminal "sujo".
-// O Claude Code liga modos do terminal (mouse, foco, teclado estendido, win32-input-mode, colagem entre
-// colchetes, tela alternativa) e os desliga ao sair normalmente. Encerrado à força (TerminateProcess), ninguém
-// os desliga e o Windows Terminal passa a mandar eventos de mouse/foco para o shell como texto.
-// Por isso um PowerShell auxiliar se liga ao console da sessão (AttachConsole), encerra o processo e escreve
-// nesse console as sequências que desligam esses modos, e devolve o modo de entrada do console ao normal.
-// Antes de encerrar, o auxiliar confere que o PID ainda é o mesmo processo (início exato, FILETIME): um PID
-// reaproveitado por outro programa não é encerrado.
+// Windows: terminates Claude Code session in another terminal without corrupting console modes.
+// Claude Code enables advanced terminal modes (mouse, focus, extended keyboard, win32-input-mode,
+// bracketed paste, alt screen) and resets them on normal exit. Forcefully killed (TerminateProcess),
+// modes remain active and Windows Terminal passes mouse/focus escape sequences as raw text to shell.
+// Therefore a PowerShell helper attaches to session console (AttachConsole), terminates process, sends
+// mode-reset escape sequences to console, and restores console input mode to normal defaults.
+// Before terminating, verifies PID still belongs to same process (exact FILETIME): reused PID is never killed.
 import { execFile } from 'node:child_process';
 import { tr } from '../../shared/i18n';
 
@@ -55,9 +54,9 @@ if ([HabblaudConsole]::GetConsoleMode($in, [ref]$m)) {
 }
 
 /**
- * Encerra `pid` (só se ele ainda começou em `fileTime`) e limpa os modos do terminal dele. Se o auxiliar falhar
- * antes de encerrar, encerra direto, desde que `stillSame` confirme de novo que é o mesmo processo (o terminal
- * pode ficar com os modos ligados, como antes).
+ * Terminates `pid` (only if process started at `fileTime`) and resets terminal modes. If helper fails
+ * before terminating, terminates directly as long as `stillSame` confirms matching process (terminal
+ * may retain active console modes).
  */
 export function killWithConsoleReset(pid: number, fileTime: string, stillSame: () => Promise<boolean>, timeoutMs = 15_000): Promise<void> {
   if (!Number.isSafeInteger(pid) || pid <= 0) return Promise.reject(new Error(tr('pid inválido')));

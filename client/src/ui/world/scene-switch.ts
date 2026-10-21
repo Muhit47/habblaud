@@ -1,7 +1,7 @@
-// Botão Mundo na barra do topo: troca o escritório pela cidade do Habblaud World e volta (botão Escritório ou Esc).
-// Só aparece com a cena disponível: `meta.world.scene.available` do servidor local (no modo demonstração, com a
-// conta liberada), pela página do próprio computador (nunca pela porta do celular) e nunca no timelapse. A cena em si é montada por app.ts (CitySceneHost); aqui fica o botão, o
-// estado "na cidade" da interface (classe `is-city` no #ui) e a ida e volta.
+// World button in top bar: switches between office and Habblaud World city (Office button or Esc).
+// Only appears when scene is available: local server `meta.world.scene.available` (demo mode or
+// approved account), accessed on host machine (never mobile port) and never during timelapse. Scene
+// itself managed by app.ts (CitySceneHost); this component controls button, `is-city` class, and transitions.
 import { tr } from '../../../../shared/i18n';
 import type { WorldSource } from '../../net/world';
 import type { Selection } from '../../world/api';
@@ -11,25 +11,24 @@ import { ICONS } from '../icons';
 import { worldGate } from './settings-world';
 import { worldSectionMode, type WorldGate } from './world-model';
 
-/** O que a interface precisa da cena da cidade (implementado em app.ts, com a cena carregada sob demanda). */
+/** Interface contract for city scene (implemented in app.ts, loaded on demand). */
 export interface CitySceneHost {
   readonly open: boolean;
-  /** Mostra a cidade (carrega a cena na primeira vez) e esconde o escritório. */
+  /** Displays city scene (lazy-loads on first invocation) and hides office. */
   show(): Promise<void>;
   hide(): void;
   zoomBy(factor: number): void;
   recenter(): void;
-  /** Esc: fecha o que estiver aberto na cidade (cartão); false = nada para fechar. */
+  /** Esc: closes open modal/card in city; false = nothing open to dismiss. */
   escape(): boolean;
-  /** "Ver como os outros veem": entra no próprio prédio (com a cidade já aberta). */
+  /** "View as others see it": enters own building (with city scene already open). */
   visitOwn?(): void;
 }
 
 /**
- * A cena Mundo está disponível? `meta.world.scene.available` (do servidor local: conta liberada, personagem criado, a
- * trava do terminal e sem banimento nem suspensão; no modo demonstração, o do FakeWorldApi; sem o campo, não) e a
- * página aberta pelo próprio computador: o snapshot também vai ao celular, mas as rotas da cena não (como a seção do
- * World e o selo da barra).
+ * Is World scene available? Checks `meta.world.scene.available` (approved account, character created,
+ * local terminal lock active, unbanned/unsuspended; in demo mode, FakeWorldApi) and host machine
+ * access (mobile port omits city scene routes).
  */
 export function citySceneAvailable(src: WorldSource, gate: WorldGate): boolean {
   const meta = src.meta();
@@ -52,7 +51,7 @@ export class SceneSwitch implements UiComponent {
     this.icon = h('span', { class: 'ui-scene-btn__icon', attrs: { 'aria-hidden': 'true' } });
     this.label = h('span', { class: 'ui-scene-btn__label' });
     this.button = h('button', { class: 'ui-scene-btn', type: 'button', hidden: true, on: { click: () => void this.toggle() } }, this.icon, this.label);
-    // ?scene=city: abre direto na cidade (capturas do modo demonstração)
+    // ?scene=city: direct launch into city scene (demo mode screenshots)
     this.autoOpen = typeof location !== 'undefined' && new URLSearchParams(location.search).get('scene') === 'city';
   }
 
@@ -73,7 +72,7 @@ export class SceneSwitch implements UiComponent {
     if (this.busy || this.host.open || !this.available()) return;
     this.busy = true;
     try {
-      // a gaveta e o terminal fecham: na cidade não há agente selecionado
+      // close drawer and terminal: city scene has no active selected agent
       if (this.ctx.selection()) this.ctx.select(null);
       await this.host.show();
       this.ctx.announce(tr('Você está na cidade do Habblaud World. Esc volta ao escritório.'));
@@ -85,7 +84,7 @@ export class SceneSwitch implements UiComponent {
     }
   }
 
-  /** "Ver como os outros veem": abre a cidade (se preciso) e entra no próprio prédio. */
+  /** "View as others see it": launches city (if needed) and enters player's own building. */
   async visitOwn(): Promise<void> {
     if (!this.host.open) await this.open();
     if (this.host.open) this.host.visitOwn?.();
@@ -99,8 +98,8 @@ export class SceneSwitch implements UiComponent {
   }
 
   /**
-   * Escolher um agente ou sala com a cidade aberta (aviso, Responder, notificação, entrega) volta ao escritório: na
-   * cidade a gaveta e o terminal ficam escondidos. Chamado por `ctx.select` antes de medir a área livre e focar.
+   * Selecting agent or room while in city (notice, Answer, delivery) returns to office:
+   * drawer and terminal remain hidden in city. Called by `ctx.select` before insetting free area.
    */
   leaveFor(sel: Selection): void {
     if (sel) this.close();
@@ -108,7 +107,7 @@ export class SceneSwitch implements UiComponent {
 
   render(): void {
     const ok = this.available();
-    // a cena saiu do ar (conta, timelapse): volta ao escritório
+    // scene became unavailable (account status change, timelapse): return to office
     if (!ok && this.host.open) this.close();
     setHidden(this.button, !ok && !this.host.open);
     const city = this.host.open;

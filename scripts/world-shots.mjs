@@ -1,18 +1,18 @@
-// Capturas da seção do Habblaud World no modo demonstração (?mock=1&world=approved: só dados fictícios do
-// FakeWorldApi, nada do escritório de verdade): o cartão "Seu prédio" (docs/screenshots/world-predio.png), a janela
-// "Ver o que foi enviado" (docs/screenshots/world-enviado.png) e a cidade de mentira (&scene=city: só prédios e
-// jogadores fictícios do FakeWorldStream de client/src/net/world-stream.ts) no fim da tarde (world-cidade.png), o
-// cartão de um prédio (world-cartao.png) e a visita ao prédio do vizinho (o interior de exemplo de
-// shared/world/visit-sample.ts): o escritório por dentro (world-visita.png) e o painel com o cartão de um agente
-// (world-visita-painel.png). Durante a visita, nenhuma requisição a /api sai da página (o modo demonstração não tem
-// servidor; ao vivo, a cena só fala com /api/world/*). O social leve (Fase 5): a roda de cumprimentos com os balões
-// (world-social.png) e a praça de noite com o termômetro da meta e os fogos (world-praca.png, pelo botão de teste de
-// &fireworks=1). Sobe o Vite sozinho (ou usa --url de um Habblaud já rodando) e fotografa com o Chromium
-// headless do Playwright, sem tocar no navegador de quem roda.
+// Screenshots of Habblaud World in demo mode (?mock=1&world=approved: mock data from FakeWorldApi,
+// no actual office data): "Your building" card (docs/screenshots/world-predio.png), "View what was sent" dialog
+// (docs/screenshots/world-enviado.png), and mock city (&scene=city: synthetic buildings and avatars from
+// FakeWorldStream in client/src/net/world-stream.ts) at dusk (world-cidade.png), building card popup
+// (world-cartao.png), and neighbor building visit (sample interior from shared/world/visit-sample.ts): interior
+// view (world-visita.png) and agent inspector card (world-visita-painel.png). During visit, zero network requests
+// to /api leave page (demo mode operates offline; in live mode scene communicates only with /api/world/*).
+// Phase 5 light social: greeting circle with speech bubbles (world-social.png), and nighttime plaza with
+// weekly milestone meter and fireworks (world-praca.png, via &fireworks=1 test button). Launches Vite automatically
+// (or attaches via --url to running Habblaud) and captures screenshots via headless Chromium
+// in Playwright without affecting user's installed browser.
 //
-// Uso: npm run shots:world [-- --url http://localhost:4747] [--out docs/screenshots] [--chromium /caminho/do/chrome]
-// Sem o Chromium headless da versão do playwright-core do projeto: npx playwright-core install chromium-headless-shell,
-// ou --chromium (ou HABBLAUD_CHROMIUM) com o caminho de outro executável.
+// Usage: npm run shots:world [-- --url http://localhost:4747] [--out docs/screenshots] [--chromium /path/to/chrome]
+// Without headless Chromium for project playwright-core version: npx playwright-core install chromium-headless-shell,
+// or --chromium (or HABBLAUD_CHROMIUM) specifying an alternate executable path.
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,11 +44,11 @@ try {
     if (m.type() === 'error' || m.type() === 'warning') problems.push(`[console.${m.type()}] ${m.text()}`);
   });
   page.on('pageerror', (e) => problems.push(`[pageerror] ${e.message}`));
-  // Português (a língua de origem), mesmo com o navegador em outra língua.
+  // Portuguese (source language), even if the browser is in another language.
   await page.addInitScript(() => localStorage.setItem('habblaud:locale', 'pt-BR'));
   await page.goto(`${base}/?mock=1&world=approved`, { waitUntil: 'load', timeout: 60_000 });
 
-  // O chip "no mundo" da barra do topo abre Configurações › Habblaud World.
+  // "in the world" top bar chip opens Settings › Habblaud World.
   await page.locator('.ui-world-chip').click({ timeout: 20_000 });
   const card = page.locator('.ui-world__building.is-connected');
   await card.waitFor({ timeout: 10_000 });
@@ -63,7 +63,7 @@ try {
   await page.locator('.ui-world-sent').screenshot({ path: join(out, 'world-enviado.png'), animations: 'disabled' });
   console.log('salvo:', join(out, 'world-enviado.png'));
 
-  // A cidade (botão Mundo): hora fixa, câmera parada entre a praça e o meu prédio, sem os avisos do escritório.
+  // City scene (World button): fixed hour, static camera between plaza and player building, omitting office notices.
   const city = async (hora, extra = '') => {
     await page.goto(`${base}/?mock=1&world=approved&scene=city&hora=${hora}${extra}`, { waitUntil: 'load', timeout: 60_000 });
     await page.waitForFunction(() => window.habblaud?.city?.scene()?.me(), null, { timeout: 20_000 });
@@ -76,7 +76,7 @@ try {
   await page.screenshot({ path: join(out, 'world-cidade.png') });
   console.log('salvo:', join(out, 'world-cidade.png'));
 
-  // O cartão do prédio do vizinho ao passar o mouse (lote 4,1: a fachada da frente, com a porta na calçada sul).
+  // Neighbor building card on hover (lot 4,1: front facade, door on south sidewalk).
   await city('14');
   await page.evaluate(() => window.habblaud.city.scene().lookAt(70, 17, 2));
   await page.waitForTimeout(900);
@@ -96,7 +96,7 @@ try {
   await page.screenshot({ path: join(out, 'world-cartao.png'), clip: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } });
   console.log('salvo:', join(out, 'world-cartao.png'));
 
-  // A visita (Fase 4): anda até a porta do vizinho (lote 4,1, aceso) e aperta E.
+  // Neighbor visit (Phase 4): walk to neighbor's door (plot 4,1, lit) and press E.
   await city('14');
   const neighbor = await page.evaluate(() => {
     const s = window.habblaud.city.scene();
@@ -116,7 +116,7 @@ try {
   page.on('request', onRequest);
   await page.keyboard.press('e');
   await page.waitForFunction(() => !!window.habblaud.city.scene().visit(), null, { timeout: 10_000 });
-  // o social de dentro (Fase 5): um carimbo na portaria (vai para o quadro da recepção), sem o aviso na foto
+  // interior social (Phase 5): reception desk stamp (displayed on reception board), excluding transient notice in screenshot
   await page.addStyleTag({ content: '.ui-city-toast { display: none !important; }' });
   await page.locator('.ui-visit-social__stamp').click();
   await page.locator('.ui-visit-social__choice[data-stamp="rocket"]').click();
@@ -136,7 +136,7 @@ try {
   const outside = apiDuringVisit.filter((u) => !new URL(u).pathname.startsWith('/api/world/'));
   if (outside.length) problems.push(`[visita] rotas fora de /api/world/: ${outside.join(', ')}`);
 
-  // A roda de cumprimentos (G) quando um dos bots passa perto da minha porta, com os balões de quem se cumprimenta.
+  // Greeting circle (G) when a bot roams near player door, showing greeting speech bubbles.
   await city('15:30');
   await page.waitForFunction(
     () => {

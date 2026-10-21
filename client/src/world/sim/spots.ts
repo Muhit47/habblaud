@@ -1,4 +1,4 @@
-// Registro de spots com reservas (1 ocupante por spot) e busca de alternativas livres.
+// Spot registry with reservations (1 occupant per spot) and available alternative resolution.
 import type { SpotDef, SpotKind } from '../layout/types';
 
 export class SpotRegistry {
@@ -72,7 +72,7 @@ export class SpotRegistry {
     for (const [id, o] of this.owners) if (o === by) this.owners.delete(id);
   }
 
-  /** Spots reservados por alguém. */
+  /** Spots reserved by a character. */
   reservedBy(by: string): string[] {
     const out: string[] = [];
     for (const [id, o] of this.owners) if (o === by) out.push(id);
@@ -80,8 +80,8 @@ export class SpotRegistry {
   }
 
   /**
-   * Spot livre de um tipo, o mais próximo de `near` (distância Manhattan em tiles), opcionalmente
-   * filtrado. Com `rng`, sorteia entre os 3 mais próximos para variar o destino.
+   * Free spot of specified kind, nearest to `near` (Manhattan tile distance), optionally
+   * filtered. With `rng`, picks randomly among 3 closest to vary destination.
    */
   findFree(kind: SpotKind, opts: { near?: { tx: number; ty: number }; filter?: (s: SpotDef) => boolean; by?: string; rng?: () => number } = {}): SpotDef | null {
     const list = this.byKind.get(kind);

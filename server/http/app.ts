@@ -1,4 +1,4 @@
-// Rotas da API (/api/*). Respostas JSON; rotas desconhecidas -> 404 JSON.
+// API routes (/api/*). JSON responses; unknown routes -> 404 JSON.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '../../shared/appearance';
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
@@ -30,93 +30,92 @@ export interface ApiDeps {
   sources: () => SourceInfo[];
   version: string;
   inDocker: boolean;
-  /** Terminal ligado (ServerConfig.terminal: só com bind local). */
+  /** Terminal enabled (ServerConfig.terminal: only with local bind). */
   terminal?: boolean;
-  /** Streams do terminal; sem eles o recurso fica desligado mesmo com `terminal`. */
+  /** Terminal streams; without them the feature is disabled even if `terminal` is true. */
   terminals?: TerminalStreams;
   /**
-   * Histórico de sessões do terminal (GET /api/sessions/*, http/sessions.ts): o HistorySet de todas as ferramentas
-   * (ou um provedor sozinho); mesma trava do terminal.
+   * Terminal session history (GET /api/sessions/*, http/sessions.ts): HistorySet across all tools
+   * (or a single provider); same lock as terminal.
    */
   sessions?: SessionLookup;
-  /** Rotas do timelapse (/api/timeline/*, ver http/timeline.ts); devolve false para o resto. */
+  /** Timelapse routes (/api/timeline/*, see http/timeline.ts); returns false for other paths. */
   timeline?: (req: IncomingMessage, res: ServerResponse, url: URL) => boolean;
   /**
-   * Rotas de /api/permissions (responder pelo escritório, server/permissions/http.ts). Só existem com bind
-   * local (ServerConfig.terminal); a trava do Host local é conferida aqui antes de chamá-las.
+   * /api/permissions routes (replying via office UI, server/permissions/http.ts). Only available with
+   * local bind (ServerConfig.terminal); local Host lock is verified here prior to calling them.
    */
   permissions?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
   /**
-   * Rotas das mensagens pelo escritório (/api/messages, a caixa de entrada do plugin em /api/mod/inbox e a do auxiliar
-   * do Codex em /api/codex/bridge/*, server/messages/http.ts). Só existem com ServerConfig.messages (a trava do
-   * terminal e HABBLAUD_MENSAGENS); a trava do Host local é conferida aqui antes de chamá-las.
+   * Office messaging routes (/api/messages, plugin inbox at /api/mod/inbox, and Codex bridge
+   * at /api/codex/bridge/*, server/messages/http.ts). Only available with ServerConfig.messages
+   * (terminal lock and HABBLAUD_MENSAGENS); local Host lock verified here prior to calling them.
    */
   messages?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
   /**
-   * Terminal interativo e ações nos agentes (/api/pty/*, POST /api/agents/:id/stop|takeover; http/pty.ts).
-   * Ausente = desligado (sem HABBLAUD_PTY=1, Docker, sem node-pty ou sem bind local).
+   * Interactive terminal and agent actions (/api/pty/*, POST /api/agents/:id/stop|takeover; http/pty.ts).
+   * Missing = disabled (without HABBLAUD_PTY=1, Docker, node-pty unavailable, or without local bind).
    */
   pty?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
   /**
-   * Fonte do Codex ao vivo: recebe os eventos dos hooks do Codex (POST /api/codex/events, server/codex/http.ts). Sem
-   * ela a rota responde {ok: false}. Só com Host local e, fora do Docker, conexão pelo loopback (os eventos só observam:
-   * não dependem da trava do terminal).
+   * Live Codex source: receives events from Codex hooks (POST /api/codex/events, server/codex/http.ts). Without
+   * it route replies {ok: false}. Strictly local Host and, outside Docker, loopback connection (events only observe:
+   * independent of terminal lock).
    */
   codexLive?: CodexLive;
-  /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
+  /** Spawn new agent via office UI (/api/spawn and host helper /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
-  /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
+  /** Suggested folders in "New agent" modal (GET /api/spawn/folders; spawn/folders.ts): recent projects. */
   spawnFolders?: () => Promise<SpawnFolder[]>;
-  /** Anexos do "Novo agente" (POST /api/spawn/attachments; spawn/attachments.ts). */
+  /** Attachments for "New agent" (POST /api/spawn/attachments; spawn/attachments.ts). */
   attachments?: AttachmentStore;
-  /** Ditado (/api/dictation e, para o auxiliar do host, /api/host/dictation/*; dictation/dictation.ts). */
+  /** Dictation (/api/dictation and host helper /api/host/dictation/*; dictation/dictation.ts). */
   dictation?: DictationService;
-  /** Entregas (GET /api/deliveries e os anexos em /api/deliveries/file/:id; deliveries/deliveries.ts). */
+  /** Deliveries (GET /api/deliveries and file attachments at /api/deliveries/file/:id; deliveries/deliveries.ts). */
   deliveries?: DeliveryIndex;
-  /** Quem lê os arquivos das entregas (e, para o auxiliar do host, /api/host/files/*; deliveries/fetcher.ts). */
+  /** File fetcher for deliveries (and host helper at /api/host/files/*; deliveries/fetcher.ts). */
   files?: FileFetcher;
-  /** Renomeia a sala (POST /api/rooms/rename {id, name}; vazio volta ao padrão). Devolve o nome em uso, ou undefined se a sala não existe. */
+  /** Renames room (POST /api/rooms/rename {id, name}; empty reverts to default). Returns active name, or undefined if missing. */
   renameRoom?: (id: string, name: string) => string | undefined;
-  /** Estatísticas do "Meu dia" (GET /api/stats, http/stats.ts). */
+  /** "Where did my day go" statistics (GET /api/stats, http/stats.ts). */
   stats?: DayStatsService;
-  /** Verificação de versão nova no GitHub (GET /api/updates, POST /api/updates/check; updates/checker.ts). */
+  /** Check for new versions on GitHub (GET /api/updates, POST /api/updates/check; updates/checker.ts). */
   updates?: {
     status(): UpdateStatus;
     check(opts: { manual?: boolean }): Promise<UpdateStatus>;
   };
   /**
-   * Porta remota com login (http/remote.ts): `is` diz se a requisição chegou por ela (já autenticada); `allows`, o que
-   * HABBLAUD_REMOTE_ALLOW libera. Requisição remota nunca vale pelo Host: só pelo que `allows` liberar.
+   * Remote port with login (http/remote.ts): `is` checks if request came via remote port (already authenticated);
+   * `allows` checks HABBLAUD_REMOTE_ALLOW permissions. Remote request is never considered local Host.
    */
   remote?: { is(req: IncomingMessage): boolean; allows(feature: RemoteFeature): boolean };
   /**
-   * Rotas do Habblaud World (/api/world/*, server/world/http.ts). Ausente = HABBLAUD_WORLD=0: 404 em todas. Só pela porta
-   * local com Host local: pela porta do celular, nem com login (403 `local_only`).
+   * Habblaud World routes (/api/world/*, server/world/http.ts). Missing = HABBLAUD_WORLD=0: 404 on all.
+   * Strictly local port with local Host: blocked on remote port even with login (403 `local_only`).
    */
   world?: (req: IncomingMessage, res: ServerResponse, url: URL) => void;
 }
 
-/** GET /api/agents/:id/terminal (ids nunca contêm '/'). */
+/** GET /api/agents/:id/terminal (IDs never contain '/'). */
 const TERMINAL_ROUTE = /^\/api\/agents\/([^/]+)\/terminal$/;
-/** POST /api/agents/:id/stop|takeover (terminal interativo). */
+/** POST /api/agents/:id/stop|takeover (interactive terminal). */
 const AGENT_ACTION_ROUTE = /^\/api\/agents\/[^/]+\/(stop|takeover)$/;
 
-/** PUT|DELETE /api/agents/:id/character: personagem do projeto (ver Office.setCharacter). */
+/** PUT|DELETE /api/agents/:id/character: project character appearance (see Office.setCharacter). */
 const CHARACTER_ROUTE = /^\/api\/agents\/([^/]+)\/character$/;
 const NOT_EDITABLE = tr('agente não encontrado: só o agente principal de uma sessão aberta tem personagem editável');
 
-/** Conexão vinda do próprio computador (127.x, ::1 ou ::ffff:127.x). */
+/** Connection originating from loopback interface (127.x, ::1, or ::ffff:127.x). */
 function isLoopbackAddress(addr: string | undefined): boolean {
   if (!addr) return false;
   const a = addr.replace(/^::ffff:/i, '');
   return a === '::1' || /^127\./.test(a);
 }
 
-/** Rotas das mensagens pelo escritório (server/messages/http.ts); /api/mod/summary fica de fora (sem trava). */
+/** Office messaging routes (server/messages/http.ts); /api/mod/summary is exempt (unlocked). */
 /**
- * Rotas dos hooks, dos plugins e do auxiliar do host: registrar e esperar pedidos de permissão, buscar as mensagens de
- * uma sessão, as rodadas do auxiliar. Só valem pela porta local; pela remota, nem com login (o celular aprova e manda
- * mensagens pelas rotas da página).
+ * Hook, plugin, and host-helper routes: register and wait for permission requests, fetch messages for
+ * a session, poll rounds. Strictly valid on local port; denied on remote port even with login.
  */
 function isLocalOnlyPath(path: string): boolean {
   return (
@@ -158,15 +157,15 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
     'Content-Length': Buffer.byteLength(data),
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
-    // A API só é lida pela própria página: nada de leitura "no-cors" por outras origens.
+    // API is only read by the web app itself: no "no-cors" reads by other origins.
     'Cross-Origin-Resource-Policy': 'same-origin',
   });
   res.end(data);
 }
 
 /**
- * Anexo de entrega. Páginas e SVG vêm numa sandbox sem scripts (CSP), para não rodarem com o login do escritório;
- * PDF e imagens podem abrir dentro do modal (mesma origem).
+ * Delivery attachment. HTML and SVG are sandboxed without scripts (CSP) to prevent execution within office context;
+ * PDF and images can open inside modal (same origin).
  */
 function sendFile(res: ServerResponse, data: Buffer, type: string, name: string): void {
   const active = /^text\/html|^image\/svg/.test(type);
@@ -182,7 +181,7 @@ function sendFile(res: ServerResponse, data: Buffer, type: string, name: string)
   res.end(data);
 }
 
-/** Lê o corpo JSON. Exige `Content-Type: application/json` (barreira contra CSRF; ver http/guard.ts). */
+/** Reads JSON body. Requires `Content-Type: application/json` (CSRF barrier; see http/guard.ts). */
 export function readJson(req: IncomingMessage, max = MAX_BODY): Promise<unknown> {
   if (!isJsonContentType(req.headers['content-type'])) {
     req.resume();
@@ -193,7 +192,7 @@ export function readJson(req: IncomingMessage, max = MAX_BODY): Promise<unknown>
     let size = 0;
     req.on('data', (c: Buffer) => {
       size += c.length;
-      // Grande demais: continua drenando (sem guardar) para conseguir responder 413.
+      // Too large: continue draining (without buffering) to send 413 response.
       if (size > max) return void fail(new HttpError(413, tr('corpo grande demais')));
       chunks.push(c);
     });
@@ -211,20 +210,20 @@ export function readJson(req: IncomingMessage, max = MAX_BODY): Promise<unknown>
   });
 }
 
-/** Resumo da verificação de versão nova para o /api/health. */
+/** Updates summary for /api/health endpoint. */
 function updatesSummary(s: UpdateStatus | undefined): { state: UpdateStatus['state']; latest?: string; available: boolean } {
   return s ? { state: s.state, latest: s.latest, available: s.available } : { state: 'off', available: false };
 }
 
-/** Subagentes aninhados mais fundo que isto não existem na prática; o limite só evita laço num parentId torto. */
+/** Subagents nested deeper than this do not exist in practice; limit prevents cycles in corrupted parentId. */
 const MAX_PARENT_HOPS = 16;
 
 /**
- * Resumo para o mod do Claude Code (GET /api/mod/summary, ver ModSummary). `isReal` diz quem é agente de
- * verdade: os do demo vivem só no snapshot (não no Office), então `office.has(id)` os separa sem depender
- * do prefixo "demo:". A própria sessão sai quando vem `session` (e, se vier, `account` também precisa
- * bater): o principal tem o sessionId atual da sessão (troca no /clear) e os subagentes guardam o da
- * sessão que os disparou; por garantia, um subagente também sai quando algum ancestral (parentId) é dela.
+ * Summary for Claude Code mod (GET /api/mod/summary, see ModSummary). `isReal` identifies real agents:
+ * demo agents exist only in snapshot (not in Office), so `office.has(id)` distinguishes them without depending
+ * on "demo:" prefix. The calling session is excluded when `session` is provided (matching `account` if passed):
+ * primary agent has active sessionId (updated on /clear) and subagents store initiating sessionId;
+ * subagents are also excluded if any ancestor (parentId) matches.
  */
 export function modSummary(
   snap: OfficeSnapshot,
@@ -259,15 +258,15 @@ export function modSummary(
   return { version, agents: present.length, working: present.filter((a) => a.status === 'working').length, waiting };
 }
 
-/** Devolve um handler que trata /api/* e responde false para o resto. */
+/** Returns a handler for /api/* routes, returning false for other paths. */
 export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: ServerResponse, url: URL) => boolean {
   const { office, hub, accounts } = deps;
   const terminals = deps.terminal ? deps.terminals : undefined;
 
   const isRemote = (req: IncomingMessage): boolean => !!deps.remote?.is(req);
   /**
-   * A trava "pelo próprio computador": na porta local, o Host precisa ser loopback (como antes); na porta remota, só o
-   * que HABBLAUD_REMOTE_ALLOW liberar (`feature` ausente = nunca pela porta remota).
+   * Local access lock: on local port, Host header must be loopback; on remote port, only
+   * permissions granted by HABBLAUD_REMOTE_ALLOW (`feature` missing = never allowed on remote port).
    */
   const trusted = (req: IncomingMessage, feature?: RemoteFeature): boolean =>
     isRemote(req) ? !!feature && !!deps.remote?.allows(feature) : isLoopbackHost(req.headers.host);
@@ -306,8 +305,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
   };
 
   /**
-   * Rodada do auxiliar do host: com `?wait=1`, a resposta espera trabalho (até HOST_WAIT_MS). Devolve undefined se a
-   * conexão caiu enquanto esperava (nada sai da fila).
+   * Host helper polling round: with `?wait=1`, response waits for work (up to HOST_WAIT_MS). Returns undefined
+   * if connection closed while waiting (nothing dequeued).
    */
   const hostWait = async <T>(res: ServerResponse, url: URL, poll: (ms: number, signal: AbortSignal) => Promise<T[]>): Promise<T[] | undefined> => {
     const ac = new AbortController();
@@ -339,8 +338,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/world' || path.startsWith('/api/world/')) {
-      // A conta do Habblaud World age em seu nome: só o próprio computador, como o terminal. O Host local sozinho não
-      // basta (o Tailscale chega pelo loopback e o Host se imita): a porta remota nunca passa, nem com login.
+      // Habblaud World account acts on user's behalf: strictly local computer, like terminal. Local Host header alone is
+      // not enough (Tailscale reaches loopback and Host can be forged): remote port is never allowed, even with login.
       if (!deps.world) {
         req.resume();
         sendJson(res, 404, { error: tr('rota desconhecida') });
@@ -372,7 +371,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           remote,
           terminal: !!terminals && (!remote || trusted(req, 'terminal')),
           permissions: !!deps.permissions && (!remote || trusted(req, 'permissions')),
-          // O terminal interativo (pty) nunca vale pela porta remota.
+          // Interactive terminal (pty) is never permitted via remote port.
           pty: !!deps.pty && !remote,
           messages: !!deps.messages && (!remote || trusted(req, 'messages')),
           codexEvents: !!deps.codexLive,
@@ -405,7 +404,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/mod/summary') {
-      // Lido a cada 5 s por sessão com o mod: só contagens e quem espera (nada que o snapshot já não mostre).
+      // Polled every 5 s per mod session: counts and waiting agents only (nothing beyond snapshot).
       if (!isRead) methodNotAllowed(res, 'GET');
       else {
         const own = { account: url.searchParams.get('account') || undefined, session: url.searchParams.get('session') || undefined };
@@ -441,7 +440,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/permissions' || path.startsWith('/api/permissions/')) {
-      // Responder pelo escritório age sobre as sessões: a mesma trava do terminal (bind local + Host local).
+      // Answering via office acts on sessions: same lock as terminal (local bind + local Host).
       if (!deps.permissions) {
         sendJson(res, 403, { error: tr('responder pelo escritório desligado: só funciona com o Habblaud acessível apenas pelo próprio computador') });
       } else if (!trusted(req, 'permissions')) {
@@ -452,8 +451,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/pty' || path.startsWith('/api/pty/') || AGENT_ACTION_ROUTE.test(path)) {
-      // Executa comandos na máquina: nunca pela porta remota, nem com login (o Host e o endereço de quem conecta não
-      // bastam: o Tailscale chega pelo loopback e o Host se imita).
+      // Executes commands on machine: never allowed via remote port, even with login (Host header and peer
+      // address are insufficient: Tailscale arrives via loopback and Host can be spoofed).
       if (isRemote(req)) sendJson(res, 403, { error: tr('o terminal interativo só pode ser usado no próprio computador') });
       else if (!deps.pty) sendJson(res, 403, { error: tr('terminal interativo desligado (veja o log do servidor)') });
       else deps.pty(req, res, path);
@@ -461,7 +460,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     }
     const characterMatch = CHARACTER_ROUTE.exec(path);
     if (characterMatch) {
-      // Mudar o personagem age sobre o escritório: a mesma trava do terminal (bind local + Host local).
+      // Changing character modifies office: same lock as terminal (local bind + local Host).
       if (method !== 'PUT' && method !== 'DELETE') methodNotAllowed(res, 'PUT, DELETE');
       else if (!deps.terminal) {
         sendJson(res, 403, { error: tr('editar o personagem desligado: só funciona com o Habblaud acessível apenas pelo próprio computador') });
@@ -480,9 +479,9 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/codex/events') {
-      // Eventos dos hooks do Codex: só observam, mas só valem vindos do próprio computador. Fora do Docker o hook
-      // sempre conecta pelo loopback (o Host sozinho um cliente da rede consegue imitar); no Docker ele chega pela porta
-      // publicada, com o endereço do gateway.
+      // Codex hook events: observer-only, but strictly accepted from local machine. Outside Docker, hook
+      // always connects via loopback (network clients can spoof Host header); in Docker, arrives via published
+      // port with gateway address.
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
         sendJson(res, 403, { error: denied(req, tr('eventos do Codex só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
@@ -490,7 +489,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {
-      // Abre uma sessão nova no app do Claude: roda código no computador, então a mesma trava das mensagens.
+      // Spawns new session in Claude app: executes code on computer, so requires same lock as messages.
       const spawn = deps.spawn;
       if (!spawn) sendJson(res, 403, { error: tr('novo agente pelo escritório desligado') });
       else if (!trusted(req, 'spawn')) sendJson(res, 403, { error: denied(req, tr('agentes novos só são abertos pelo próprio computador (http://localhost)')) });
@@ -529,8 +528,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/dictation' || path.startsWith('/api/dictation/')) {
-      // Ditado do "Novo agente" e da caixa de mensagem: vale com qualquer uma das duas travas (o texto vira um pedido
-      // ou uma mensagem, que continuam com a trava delas ao serem enviados).
+      // Dictation for "New agent" and message box: allowed with either lock (transcribed text becomes a spawn
+      // request or message, which enforce their respective locks upon dispatch).
       const dictation = deps.dictation;
       if (!dictation) sendJson(res, 403, { error: tr('ditado desligado') });
       else if (!trusted(req, 'spawn') && !trusted(req, 'messages')) {
@@ -553,7 +552,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/deliveries' || path.startsWith('/api/deliveries/')) {
-      // Entregas mostram a resposta inteira e arquivos do agente: a mesma trava do terminal.
+      // Deliveries display full response and agent files: same lock as terminal.
       const deliveries = deps.deliveries;
       if (!deliveries) sendJson(res, 403, { error: tr('entregas desligadas (precisam do terminal: acesso local)') });
       else if (!isRead) methodNotAllowed(res, 'GET');
@@ -573,7 +572,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/host/files/poll' || path === '/api/host/files/ack') {
-      // Só o auxiliar do host, pela porta local (nunca pela remota); fora do Docker, só pelo loopback.
+      // Strictly host helper via local port (never remote); outside Docker, loopback only.
       const files = deps.files;
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!files) sendJson(res, 403, { error: tr('arquivos desligados') });
@@ -593,7 +592,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/host/dictation/poll' || path === '/api/host/dictation/ack') {
-      // Só o auxiliar do host, pela porta local (nunca pela remota); fora do Docker, só pelo loopback.
+      // Strictly host helper via local port (never remote); outside Docker, loopback only.
       const dictation = deps.dictation;
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!dictation) sendJson(res, 403, { error: tr('ditado desligado') });
@@ -613,7 +612,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/host/spawn/poll' || path === '/api/host/spawn/ack') {
-      // Só o auxiliar do host, pela porta local (nunca pela remota); fora do Docker, só pelo loopback.
+      // Strictly host helper via local port (never remote); outside Docker, loopback only.
       const spawn = deps.spawn;
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!spawn) sendJson(res, 403, { error: tr('novo agente pelo escritório desligado') });
@@ -633,7 +632,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (isMessagesPath(path)) {
-      // As mensagens entram na sessão como se você as tivesse digitado: a mesma trava (recurso ligado + Host local).
+      // Messages enter session as if typed by user: same lock (feature enabled + local Host).
       if (!deps.messages) {
         sendJson(res, 403, {
           error: tr('mensagens pelo escritório desligadas: só funcionam com o Habblaud acessível apenas pelo próprio computador (e sem HABBLAUD_MENSAGENS=0)'),
@@ -663,7 +662,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/rooms/rename') {
-      // Como o personagem: a mesma trava do terminal (bind local + Host local).
+      // Like character editing: same lock as terminal (local bind + local Host).
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!deps.terminal) sendJson(res, 403, { error: tr('renomear salas desligado: só funciona com o Habblaud acessível apenas pelo próprio computador') });
       else if (!trusted(req)) sendJson(res, 403, { error: denied(req, tr('renomear salas só pelo próprio computador (http://localhost)')) });
@@ -684,7 +683,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/demo') {
-      // Liga o modo demonstração para todo mundo: só pelo computador (o celular com login só vê o que foi liberado).
+      // Enables demo mode globally: local computer only (authenticated remote client only sees allowed features).
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (isRemote(req)) sendJson(res, 403, { error: tr('não liberado no acesso remoto (veja HABBLAUD_REMOTE_ALLOW)') });
       else handleDemo(req, res).catch((err) => fail(res, err));
@@ -696,7 +695,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/updates/check') {
-      // "Verificar agora": consulta o GitHub (no máximo uma vez a cada 30 s) e devolve o status novo.
+      // "Check now": queries GitHub (at most once every 30 s) and returns updated status.
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else {
         req.resume();

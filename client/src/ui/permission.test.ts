@@ -61,7 +61,7 @@ describe('responder pelo escritório (peças puras)', () => {
       note: CODEX_PERMISSION_NOTE,
     });
     expect(CODEX_PERMISSION_NOTE).toBe('No Codex, a aprovação só aparece no terminal depois que você responder aqui ou o prazo acabar.');
-    // Claude Code: como antes.
+    // Claude Code: as before.
     expect(permissionOptions({ suggestions }, { kind: 'main' })).toEqual({ always: true, interrupt: true, reasonRequired: false, seconds: false, note: '' });
     expect(permissionOptions({}, { kind: 'main' }).always).toBe(false);
     expect(permissionOptions({}, { kind: 'sub', background: true }).note).toMatch(/^Este subagente roda em segundo plano/);
@@ -92,7 +92,7 @@ describe('responder pelo escritório (peças puras)', () => {
 });
 
 describe('cartão de pergunta (AskUserQuestion)', () => {
-  // Posições do original: a opção 1 da primeira pergunta e a pergunta 1 foram puladas.
+  // Original indices: option 1 of first question and question 1 were skipped.
   const single: AskQuestion = { index: 0, header: 'Banco', question: 'Qual banco usar?', options: [{ index: 0, label: 'Postgres' }, { index: 2, label: 'SQLite' }] };
   const multi: AskQuestion = { index: 2, question: 'Quais testes rodar?', multiSelect: true, options: [{ index: 0, label: 'Unidade' }, { index: 1, label: 'E2E' }] };
   const choice = (options: number[], otherOn = false, otherText = ''): AskChoice => ({ options, otherOn, otherText });
@@ -102,7 +102,7 @@ describe('cartão de pergunta (AskUserQuestion)', () => {
     expect(isQuestionRequest({ tool: 'AskUserQuestion', questions: [] })).toBe(false);
     expect(isQuestionRequest({ tool: 'Bash' })).toBe(false);
     expect(isQuestionRequest(undefined)).toBe(false);
-    // O Codex não pergunta pelo escritório: nunca vira cartão de pergunta.
+    // Codex does not prompt via office: never renders question card.
     expect(isQuestionRequest({ tool: 'AskUserQuestion', questions: [single], provider: 'codex' })).toBe(false);
   });
 
@@ -115,7 +115,7 @@ describe('cartão de pergunta (AskUserQuestion)', () => {
     expect(answerFor(multi, choice([1, 0], true, 'lint'))).toEqual({ question: 2, options: [1, 0], other: 'lint' });
     expect(answerFor(multi, choice([0], false, 'ignorado'))).toEqual({ question: 2, options: [0] });
     expect(answerFor(multi, choice([0], true, ''))).toBeUndefined();
-    // Posição que a pergunta não mostra: fica de fora.
+    // Index omitted from question list.
     expect(answerFor(multi, choice([7]))).toBeUndefined();
     expect(answerFor(single, choice([], true, 'x'.repeat(2_500)))!.other).toHaveLength(2_000);
   });

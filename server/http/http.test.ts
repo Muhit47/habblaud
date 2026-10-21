@@ -77,7 +77,7 @@ async function snapshotOf(base: string): Promise<OfficeSnapshot> {
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
-/** Requisição crua (o fetch não deixa trocar o cabeçalho Host). */
+/** Raw request (fetch does not allow overriding Host header). */
 function raw(base: string, path: string, opts: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<{ status: number; body: string }> {
   const u = new URL(base);
   return new Promise((ok, fail) => {
@@ -208,7 +208,7 @@ describe('API HTTP', () => {
 
   it('CSRF: POST exige JSON e origem local', async () => {
     const demoOn = JSON.stringify({ enabled: true });
-    // Formulário/fetch "simples" de outro site: text/plain, sem preflight.
+    // "Simple" form/fetch from another origin: text/plain, without preflight.
     const plain = await fetch(`${env.base}/api/demo`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: demoOn });
     expect(plain.status).toBe(415);
     const form = await raw(env.base, '/api/demo', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'enabled=true' });
@@ -245,7 +245,7 @@ describe('API HTTP', () => {
     const bundle = await fetch(`${env.base}/bundle/main-abc12345.js`);
     expect(bundle.headers.get('cache-control')).toBe(IMMUTABLE);
     expect(bundle.headers.get('content-type')).toMatch(/javascript/);
-    // client/public: nome fixo, pode mudar a cada build.
+    // client/public: static name, may vary per build.
     for (const path of ['/assets/brand/logo-mark.png', '/assets/manifest.json']) {
       const res = await fetch(`${env.base}${path}`);
       expect(res.status).toBe(200);
@@ -262,7 +262,7 @@ describe('API HTTP', () => {
     }
     expect((await fetch(`${env.base}/assets/nao-existe.js`)).status).toBe(404);
     expect((await fetch(`${env.base}/bundle/nao-existe.js`)).status).toBe(404);
-    // Tentativa de sair da pasta cai no index.html, nunca em arquivos de fora.
+    // Directory traversal attempts fall back to index.html, never external files.
     const escape = await fetch(`${env.base}/..%2F..%2Fetc%2Fpasswd`);
     expect(await escape.text()).toContain('<title>Habblaud</title>');
   });
@@ -347,10 +347,10 @@ describe('GET /api/mod/summary (mod do Claude Code)', () => {
     perms.clear();
     env = await start({}, { permissions: () => perms });
     const now = Date.now();
-    // .claude:1 (sessão s1, /p/loja, trabalhando) vem do start(); um subagente dela espera em segundo plano.
+    // .claude:1 (session s1, /p/shop, working) originates from start(); its subagent waits in background.
     env.office.addSub({ id: 's1:a1', parentId: '.claude:1', sessionId: 's1', role: 'Explore', background: true, startedAt: now });
     env.office.setStatus('s1:a1', 'waiting', 'aprovar uma permissão');
-    // Outra sessão da mesma conta, esperando há mais tempo, e uma da outra conta com o mesmo id de sessão.
+    // Another session for same account, waiting longer, and one from another account with same session ID.
     env.office.addMain({ id: '.claude:2', account: '.claude', sessionId: 's2', cwd: '/p/app', role: 'Agente principal', startedAt: now, status: 'waiting', waitingFor: 'responder no terminal' });
     env.office.addMain({ id: '.claude-conta2:3', account: '.claude-conta2', sessionId: 's1', cwd: '/p/site', role: 'Agente principal', startedAt: now, status: 'idle' });
   });
@@ -373,7 +373,7 @@ describe('GET /api/mod/summary (mod do Claude Code)', () => {
     const s = await summary('?account=.claude&session=s1');
     expect(s).toMatchObject({ agents: 2, working: 0 });
     expect(s.waiting.map((w) => w.id)).toEqual(['.claude:2']);
-    // Só a sessão (sem conta) também basta; só a conta não exclui nada.
+    // Session alone (without account) is sufficient; account alone does not exclude anything.
     expect((await summary('?session=s1')).agents).toBe(1);
     expect((await summary('?account=.claude')).agents).toBe(4);
   });

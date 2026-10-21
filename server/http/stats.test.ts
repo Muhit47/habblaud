@@ -23,7 +23,7 @@ describe('parseStatsQuery', () => {
     expect(q('')).toEqual({ ok: true, day: '2026-10-08', tz: 'UTC' });
     expect(q('?day=2026-10-01&tz=America/Sao_Paulo&source=real')).toEqual({ ok: true, day: '2026-10-01', tz: 'America/Sao_Paulo', source: 'real' });
     expect(q('?source=demo')).toMatchObject({ ok: true, source: 'demo' });
-    // O fuso volta no nome canônico (variações de caixa não viram fusos diferentes).
+    // Timezone returned in canonical format (case variations do not become distinct timezones).
     expect(q('?tz=america/sao_PAULO')).toMatchObject({ ok: true, tz: 'America/Sao_Paulo' });
   });
 

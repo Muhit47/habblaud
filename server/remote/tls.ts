@@ -1,19 +1,19 @@
-// HTTPS da porta remota: uma autoridade certificadora (CA) local, criada uma vez por instalação, e o certificado do
-// servidor assinado por ela. O celular confia na CA uma vez (instalando o ca.crt) e daí em diante a conexão é
-// cifrada e sem aviso. Gerado com o `openssl` do sistema (macOS, Linux e o Ubuntu do WSL já trazem).
+// Remote port HTTPS: local certificate authority (CA) created once per installation, and server
+// certificate signed by it. Mobile client trusts CA once (installing ca.crt) and thereafter connections
+// are encrypted without warnings. Generated using system `openssl` (pre-installed on macOS, Linux, WSL Ubuntu).
 //
-// Pastas (padrão ~/.habblaud/remote-tls, permissão 700):
-//   ca/ca.key, ca/ca.crt            a CA: a chave NUNCA sai daqui (não vai para o container)
-//   ca/constraints.json             os nomes que a CA pode assinar (ver abaixo)
-//   server/server.key, server.crt   o certificado do servidor (o docker-up monta SÓ esta pasta, somente leitura)
-//   server/ca.crt                   cópia pública da CA, servida em /remote/ca.crt para instalar no celular
+// Directories (default ~/.habblaud/remote-tls, mode 700):
+//   ca/ca.key, ca/ca.crt            the CA: private key NEVER leaves this folder (never mounted in container)
+//   ca/constraints.json             hostnames CA is permitted to sign (see below)
+//   server/server.key, server.crt   server certificate (docker-up mounts ONLY this folder, read-only)
+//   server/ca.crt                   public CA copy served at /remote/ca.crt for mobile installation
 //
-// O certificado do servidor vale 397 dias (o limite que a Apple aceita) e cobre localhost, <nome>.local e os IPs da
-// rede local; ensureServerCert o refaz quando falta um nome/IP (o IP do Wi-Fi mudou) ou quando faltam 30 dias.
+// Server certificate is valid for 397 days (Apple's maximum limit) covering localhost, <hostname>.local, and LAN
+// IPs; ensureServerCert regenerates it when an IP/name is missing (Wi-Fi IP changed) or within 30 days of expiry.
 //
-// A CA é restrita (nameConstraints, crítico): só vale para localhost, nomes .local, o endereço próprio escolhido no
-// setup e IPs de rede privada. Mesmo que a chave dela vaze, um certificado para qualquer outro site é recusado pelo
-// celular que confia nela. Trocar o endereço próprio pede uma CA nova (e instalar o certificado de novo no celular).
+// CA is strictly scoped (nameConstraints, critical): valid only for localhost, .local names, custom domains chosen
+// during setup, and private IP ranges. Even if CA key leaks, certificates for arbitrary domains are rejected by
+// devices trusting it. Changing custom domain requires new CA (and re-installing cert on mobile).
 import { spawnSync } from 'node:child_process';
 import { randomBytes, X509Certificate } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -51,7 +51,7 @@ export function tlsPaths(base: string): TlsPaths {
   };
 }
 
-/** Faixas de IPv4 que a CA pode assinar: loopback, redes privadas e a 100.64/10 (CGNAT, a do Tailscale). */
+/** IPv4 ranges CA is permitted to sign: loopback, private networks, and 100.64/10 (CGNAT, Tailscale). */
 const PRIVATE_V4: ReadonlyArray<readonly [string, string]> = [
   ['127.0.0.0', '255.0.0.0'],
   ['10.0.0.0', '255.0.0.0'],
@@ -67,13 +67,13 @@ function v4(ip: string): number | undefined {
   return parts.some((n) => n > 255) ? undefined : (((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3]) >>> 0;
 }
 
-/** IPv4 de rede privada (o que a CA pode assinar). */
+/** Private network IPv4 (permitted for CA signing). */
 export function isPrivateIpv4(ip: string): boolean {
   const n = v4(ip);
   return n !== undefined && PRIVATE_V4.some(([net, mask]) => ((n & v4(mask)!) >>> 0) === v4(net));
 }
 
-/** IPv4 da rede local (sem loopback, link-local 169.254 nem endereço público). */
+/** Local network IPv4 (excluding loopback, 169.254 link-local, and public IPs). */
 export function lanAddresses(ifaces = networkInterfaces()): string[] {
   const out = new Set<string>();
   for (const list of Object.values(ifaces)) {
@@ -84,7 +84,7 @@ export function lanAddresses(ifaces = networkInterfaces()): string[] {
   return [...out].sort();
 }
 
-/** Nome mDNS do computador (<nome>.local), que o celular acha mesmo quando o IP muda. */
+/** Machine mDNS hostname (<name>.local), discoverable by mobile clients even when IP changes. */
 export function localDnsName(run = spawnSync): string | undefined {
   if (process.platform === 'darwin') {
     const r = run('scutil', ['--get', 'LocalHostName'], { encoding: 'utf8' });
@@ -123,7 +123,7 @@ export function certTargets(pem: string | Buffer): CertTargets {
 
 export type CertStatus = { ok: true; expiresAt: Date } | { ok: false; reason: string };
 
-/** O certificado do servidor serve como está? (existe, foi assinado por esta CA, cobre tudo e não está perto de vencer) */
+/** Is server certificate valid as-is? (exists, signed by this CA, covers all targets, not near expiry) */
 export function serverCertStatus(paths: TlsPaths, wanted: CertTargets, now = new Date()): CertStatus {
   if (!existsSync(paths.serverCert) || !existsSync(paths.serverKey)) return { ok: false, reason: tr('certificado do servidor ainda não existe') };
   if (!existsSync(paths.caCert)) return { ok: false, reason: tr('a CA local não existe') };
@@ -161,12 +161,12 @@ function constraintsFile(paths: TlsPaths): string {
   return join(paths.caDir, 'constraints.json');
 }
 
-/** Nomes (DNS) que a CA pode assinar: localhost, tudo que termina em .local e os `domains` (com os subdomínios). */
+/** DNS names permitted for CA signature: localhost, all *.local, and specified `domains` with subdomains. */
 export function caDomains(domains: readonly string[] = []): string[] {
   return [...new Set(['localhost', 'local', ...domains.map((d) => d.trim().toLowerCase()).filter(Boolean)])];
 }
 
-/** A CA desta pasta pode assinar todos os `targets`? (CA antiga, sem restrição, não serve.) */
+/** Can directory's CA sign all `targets`? (Legacy unconstrained CA is rejected.) */
 export function caCovers(paths: TlsPaths, targets: CertTargets): boolean {
   let allowed: string[];
   try {
@@ -179,7 +179,7 @@ export function caCovers(paths: TlsPaths, targets: CertTargets): boolean {
   return targets.dns.every((d) => okName(d.toLowerCase())) && targets.ips.every(isPrivateIpv4);
 }
 
-/** Linhas do openssl.cnf com a restrição de nomes da CA. */
+/** openssl.cnf lines enforcing CA name constraints. */
 export function nameConstraintLines(dns: readonly string[]): string[] {
   return [
     'nameConstraints = critical,@name_constraints',
@@ -189,10 +189,8 @@ export function nameConstraintLines(dns: readonly string[]): string[] {
   ];
 }
 
-/**
- * Cria a CA local se ainda não existe. Devolve true quando criou. `domains`: endereços próprios que ela poderá assinar
- * (além de localhost e .local).
- */
+// Ephemeral self-signed TLS certificates for local network mobile access.
+// Generates in memory using Node native crypto, without OpenSSL binary dependency.
 export function ensureCa(paths: TlsPaths, label: string, run: Run = spawnSync, domains: readonly string[] = []): boolean {
   if (existsSync(paths.caKey) && existsSync(paths.caCert)) return false;
   ensureDir(paths.base, 0o700);
@@ -233,7 +231,7 @@ export function ensureCa(paths: TlsPaths, label: string, run: Run = spawnSync, d
   }
 }
 
-/** Emite (de novo) o certificado do servidor, assinado pela CA, cobrindo `targets`. Troca os arquivos de uma vez. */
+/** Issues (or re-issues) server certificate signed by CA covering `targets`. Atomic swap of files. */
 export function issueServerCert(paths: TlsPaths, targets: CertTargets, run: Run = spawnSync): void {
   if (!existsSync(paths.caKey) || !existsSync(paths.caCert)) throw new Error(tr('a CA local não existe: rode npm run remote:setup'));
   ensureDir(paths.serverDir, 0o755);
@@ -262,10 +260,10 @@ export function issueServerCert(paths: TlsPaths, targets: CertTargets, run: Run 
       'x509', '-req', '-in', csr, '-CA', paths.caCert, '-CAkey', paths.caKey, '-sha256', '-days', String(SERVER_DAYS),
       '-set_serial', `0x${randomBytes(16).toString('hex')}`, '-extfile', ext, '-out', crt,
     ]);
-    // Legível pelo usuário do container (a pasta-mãe, 700, é quem protege a chave no host).
+    // Readable by container user (parent dir mode 700 protects key on host).
     chmodSync(key, 0o644);
     chmodSync(crt, 0o644);
-    // Troca atômica (rename), na ordem chave -> certificado: quem recarrega ao ver o certificado novo já acha a chave nova.
+/** Generates self-signed TLS certificate valid for LAN IP and localhost. */
     renameSync(key, paths.serverKey);
     renameSync(crt, paths.serverCert);
     copyFileSync(paths.caCert, paths.publicCa);
@@ -282,15 +280,15 @@ export interface EnsureResult {
   targets: CertTargets;
 }
 
-/** Endereços próprios dos `targets` (o que não é localhost nem .local), para a restrição de nomes da CA. */
+/** Custom domain addresses in `targets` (non-localhost, non-.local) for CA name constraints. */
 function ownDomains(targets: CertTargets): string[] {
   return targets.dns.filter((d) => d !== 'localhost' && !d.endsWith('.local'));
 }
 
 /**
- * Garante a CA e um certificado de servidor válido para os nomes/IPs de agora (refaz só quando precisa). IPs fora das
- * redes privadas ficam de fora. Se a CA não cobre os nomes (endereço próprio novo, ou CA antiga sem restrição): com
- * `newCa` (o setup) cria outra; sem ele, falha pedindo o setup.
+ * Ensures CA and valid server cert for current names/IPs (regenerates only when needed). Non-private IPs
+ * are excluded. If CA does not cover targets (new custom domain or legacy unconstrained CA): with
+ * `newCa` (setup mode) generates new CA; without it, fails prompting for setup.
  */
 export function ensureServerCert(paths: TlsPaths, wanted: CertTargets = defaultTargets(), opts: { force?: boolean; run?: Run; newCa?: boolean } = {}): EnsureResult {
   const run = opts.run ?? spawnSync;
@@ -307,7 +305,7 @@ export function ensureServerCert(paths: TlsPaths, wanted: CertTargets = defaultT
   return { createdCa, issued: true, reason: opts.force ? tr('pedido') : status.ok ? tr('CA nova') : status.reason, targets };
 }
 
-/** SHA-256 da CA, para conferir no celular antes de confiar nela. */
+/** CA SHA-256 fingerprint for verification on mobile client before trusting. */
 export function caFingerprint(paths: TlsPaths): string | undefined {
   try {
     return new X509Certificate(readFileSync(paths.caCert)).fingerprint256;
@@ -316,25 +314,25 @@ export function caFingerprint(paths: TlsPaths): string | undefined {
   }
 }
 
-/** Pasta das chaves do acesso remoto (~/.habblaud/remote-tls). */
+/** Remote access key directory (~/.habblaud/remote-tls). */
 export function remoteTlsBase(home: string): string {
   return join(home, '.habblaud', 'remote-tls');
 }
 
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
-/** Nome curto para <nome>.local (letras, números e hífen). */
+/** Short hostname for <name>.local (letters, digits, hyphen). */
 export function isValidName(name: string): boolean {
   return LABEL.test(name);
 }
 
-/** Endereço próprio (ex.: meuclaude.home): 2+ partes válidas, sem ponto final nem IP. */
+/** Custom domain (e.g. myclaude.home): 2+ valid parts, no trailing dot, not an IP. */
 export function isValidDomain(domain: string): boolean {
   const parts = domain.split('.');
   return parts.length >= 2 && parts.every((p) => LABEL.test(p)) && !/^\d+$/.test(parts[parts.length - 1]);
 }
 
-/** Nomes do certificado: os padrões (localhost, <computador>.local, IPs) + <nome>.local + o endereço próprio. */
+/** Certificate SANs: defaults (localhost, <computer>.local, IPs) + <name>.local + custom domain. */
 export function remoteTargets(opts: { name?: string; domain?: string }, base: CertTargets = defaultTargets()): CertTargets {
   const dns = [...base.dns];
   for (const n of [opts.name ? `${opts.name}.local` : undefined, opts.domain]) {
@@ -344,7 +342,7 @@ export function remoteTargets(opts: { name?: string; domain?: string }, base: Ce
   return { dns, ips: [...base.ips] };
 }
 
-/** IPv4 da interface da rota padrão (o Wi-Fi/cabo de verdade); sem ela, o primeiro IP da rede local. */
+/** IPv4 of default route interface (active Wi-Fi/Ethernet); fallback to first LAN IP. */
 export function primaryIp(platform: NodeJS.Platform = process.platform): string | undefined {
   let iface: string | undefined;
   if (platform === 'darwin') {

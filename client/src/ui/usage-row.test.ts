@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { usageRowFits, type UsageRowInput } from './usage-row';
 
-// Medidas reais da barra no demo (5 contas, cartões com no mínimo 128 px): marca 265, contadores 179, botões 249.
+// Real demo top bar measurements (5 accounts, min 128 px cards): brand 265, counters 179, buttons 249.
 const bar = (over: Partial<UsageRowInput> = {}): UsageRowInput => ({
   barWidth: 1182,
   others: [265, 179, 249],
@@ -25,7 +25,7 @@ describe('usageRowFits', () => {
   });
 
   it('o limite é exato: cabendo justo ainda cabe', () => {
-    // usado = 265 + 179 + 249 + 3 x 12 = 729; cartões = 5 x 128 + 4 x 8 = 672 -> largura mínima 1401.
+    // used = 265 + 179 + 249 + 3 x 12 = 729; cards = 5 x 128 + 4 x 8 = 672 -> minimum width 1401.
     expect(usageRowFits(bar({ barWidth: 1401 }))).toBe(true);
     expect(usageRowFits(bar({ barWidth: 1400 }))).toBe(false);
   });
@@ -36,7 +36,7 @@ describe('usageRowFits', () => {
   });
 
   it('um único cartão não paga espaço entre cartões', () => {
-    // 249 + 265 + 179 + 36 = 729 usados; 453 livres: um cartão de 453 cabe, de 454 não.
+    // 249 + 265 + 179 + 36 = 729 used; 453 free: single 453 px card fits, 454 px does not.
     expect(usageRowFits(bar({ barWidth: 1182, cards: [453] }))).toBe(true);
     expect(usageRowFits(bar({ barWidth: 1182, cards: [454] }))).toBe(false);
   });

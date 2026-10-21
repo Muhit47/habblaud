@@ -1,4 +1,4 @@
-// Gerador do timelapse fictício (scripts/demo-timeline.ts): importar o módulo não roda nada.
+// Synthetic timelapse generator (scripts/demo-timeline.ts): importing module does not run code.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -51,8 +51,8 @@ describe('demo-timeline', () => {
     const recs = parseTimeline(readFileSync(file, 'utf8'));
     expect(recs[0]).toMatchObject({ t: 'k', at: r.from, boot: true });
     expect(recs.at(-1)).toEqual({ t: 'end', at: r.to });
-    expect(recs.filter((x) => x.t === 'k').length).toBeGreaterThanOrEqual(3 * 12); // keyframe a cada 5 min
-    // Reconstrói o dia inteiro: houve gente, sub-agentes e todos marcados como demonstração.
+    expect(recs.filter((x) => x.t === 'k').length).toBeGreaterThanOrEqual(3 * 12); // keyframe every 5 min
+    // Reconstructs entire day: active users, subagents, and all flagged as demo.
     const frame = frameOf(recs[0] as TimelineKeyframe);
     let maxAgents = 0;
     let subs = 0;
@@ -72,10 +72,10 @@ describe('demo-timeline', () => {
     }
     expect(maxAgents).toBeGreaterThanOrEqual(3);
     expect(subs).toBeGreaterThan(0);
-    // Mesma semente, mesmo dia; sem --force não sobrescreve.
+    // Same seed, same day; does not overwrite without --force.
     expect(() => generateDemoTimeline(opts)).toThrow(/já existe/);
     const again = generateDemoTimeline({ ...opts, force: true });
     expect(readFileSync(again.files[0], 'utf8')).toBe(readFileSync(file, 'utf8'));
-    // Duas gravações de 3 h simuladas, uma linha por vez: no Windows passa dos 5 s padrão.
+    // Two simulated 3 h recordings line-by-line: on Windows exceeds default 5 s timeout.
   }, 30_000);
 });

@@ -1,7 +1,7 @@
-// Lê os arquivos das entregas para o escritório. No modo Node o próprio servidor lê; no Docker, o que está numa pasta
-// montada (as pastas das contas, ex.: capturas em projects/) é lido aqui, e o resto o auxiliar do host busca:
-// POST /api/host/files/poll entrega os caminhos pedidos e /api/host/files/ack devolve o conteúdo (base64). Toda leitura
-// passa por checkFile (deliveries/files.ts), aqui e no auxiliar. Os arquivos lidos ficam num cache pequeno em memória.
+// Reads delivery files for office. In Node mode, server reads directly; in Docker, mounted directory
+// contents (account dirs, e.g. artifacts in projects/) are read locally, while remaining paths are fetched by host helper:
+// POST /api/host/files/poll provides requested paths and /api/host/files/ack returns contents (base64). All reads
+// validated through checkFile (deliveries/files.ts), both here and in helper. Read files cached in bounded memory store.
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { tr } from '../../shared/i18n';
@@ -24,9 +24,9 @@ interface Pending {
 }
 
 export interface FileFetcherOptions {
-  /** Modo Node: lê direto do disco. */
+  /** Node mode: reads directly from disk. */
   direct?: boolean;
-  /** Docker: o caminho do host dentro do container, quando a pasta está montada (undefined = não está). */
+  /** Docker: host path inside container when directory is mounted (undefined = not mounted). */
   mapHostPath?: (path: string) => string | undefined;
   read?: (path: string) => Buffer;
   check?: typeof checkFile;
@@ -76,7 +76,7 @@ export class FileFetcher {
     return r;
   }
 
-  /** Rodada do auxiliar: marca presença e entrega os caminhos pedidos. */
+  /** Host helper poll: marks presence and yields requested paths. */
   poll(): Array<{ id: string; path: string }> {
     this.host.seen();
     const out: Array<{ id: string; path: string }> = [];
@@ -88,7 +88,7 @@ export class FileFetcher {
     return out;
   }
 
-  /** Rodada com espera (?wait=1): sem nada pedido, fica parada até chegar um pedido ou passar `ms`. */
+  /** Long-polling (?wait=1): when nothing requested, pauses until request arrives or `ms` elapses. */
   pollWait(ms: number, signal?: AbortSignal): Promise<Array<{ id: string; path: string }>> {
     return pollWithWait(this.host, () => this.poll(), ms, signal);
   }

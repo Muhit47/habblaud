@@ -1,5 +1,5 @@
-// Instalador do hook de permissão (scripts/hooks-install.ts): planos puros e o comando de verdade sobre
-// settings.json em pastas temporárias (HOME e contas FALSOS: nunca toca em ~/.claude*).
+// Permission hook installer (scripts/hooks-install.ts): pure plan generation and real execution over
+// settings.json in temporary folders (mock HOME and accounts: never touches ~/.claude*).
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -52,7 +52,7 @@ describe('hooks-install.ts (funções puras)', () => {
     const next = p.action === 'install' ? p.settings : {};
     expect(next).toEqual({ model: 'opus', hooks: { PreToolUse: settings.hooks.PreToolUse, PermissionRequest: [other, { matcher: '*', hooks: [entry] }] } });
     expect(planInstall(next, entry)).toEqual({ action: 'none', message: 'já instalado' });
-    // Outro caminho (pasta movida) ou outras opções: atualiza sem duplicar.
+    // Different path (relocated folder) or alternative options: updates idempotently without duplicates.
     const moved = hookEntry(hookCommand('node', '/novo/scripts/permission-hook.mjs', OPTS), OPTS);
     const upd = planInstall(next, moved);
     expect(upd.action).toBe('install');
@@ -63,7 +63,7 @@ describe('hooks-install.ts (funções puras)', () => {
   it('o script mora no plugin habblaud-permissoes; o caminho antigo (scripts/, até a 0.2) e o novo são "nossos"', () => {
     expect(HOOK_SCRIPT.endsWith(join('mod', 'habblaud-permissoes', 'hooks', 'permission-hook.mjs'))).toBe(true);
     expect(existsSync(HOOK_SCRIPT)).toBe(true);
-    // O caminho antigo virou um atalho para o novo (instalações de antes da 0.3 seguem funcionando).
+    // Legacy path converted to shortcut pointing to new location (pre-0.3 installations continue working).
     expect(existsSync(LEGACY_HOOK_SCRIPT)).toBe(true);
     const legacy = hookEntry(hookCommand('node', '/repo/habblaud/scripts/permission-hook.mjs', OPTS), OPTS);
     expect(isOurHook(legacy)).toBe(true);
@@ -72,7 +72,7 @@ describe('hooks-install.ts (funções puras)', () => {
     expect(isOurHook({ type: 'command', command: 'meu-hook' })).toBe(false);
     expect(scriptPathOf(String(legacy.command))).toBe('/repo/habblaud/scripts/permission-hook.mjs');
     expect(scriptPathOf(String(entry.command))).toBe('/repo/habblaud/mod/habblaud-permissoes/hooks/permission-hook.mjs');
-    // Instalação antiga: install troca pelo caminho novo (sem duplicar) e uninstall tira.
+    // Legacy installation: install migrates to new path (without duplicates) and uninstall removes.
     const old = { hooks: { PermissionRequest: [{ matcher: '*', hooks: [legacy] }] } };
     const upd = planInstall(old, entry);
     expect(upd.action === 'install' && upd.settings).toEqual({ hooks: { PermissionRequest: [{ matcher: '*', hooks: [entry] }] } });
@@ -157,7 +157,7 @@ describe('hooks-install.ts (arquivos, HOME falso)', () => {
     expect(c).toEqual({ ...original, hooks: { ...original.hooks, PermissionRequest: [{ matcher: '*', hooks: [expected] }] } });
     if (HAS_POSIX_MODES) expect(statSync(join(home, '.claude', 'settings.json')).mode & 0o777).toBe(0o644);
     expect(JSON.parse(readFileSync(join(home, '.claude', 'settings.json.habblaud-backup-20261008-093000'), 'utf8'))).toEqual(original);
-    // Conta sem settings.json: cria um só com o hook (sem backup, não havia nada).
+    // Account without settings.json: creates file with hook only (no backup created since none existed).
     expect(read('.claude-conta2')).toEqual({ hooks: { PermissionRequest: [{ matcher: '*', hooks: [expected] }] } });
     expect(readdirSync(join(home, '.claude-conta2')).some((f) => f.includes('backup'))).toBe(false);
     expect(out.join('\n')).toContain('Pronto.');
@@ -173,7 +173,7 @@ describe('hooks-install.ts (arquivos, HOME falso)', () => {
     out = [];
     await exec('status', { port: 4851 }, { permissions: true });
     const text = out.join('\n');
-    // Caminho entre aspas simples quando tem `\` (Windows): ver quotePath.
+    // Single-quoted path when containing `\` (Windows): see quotePath.
     expect(text).toMatch(/\.claude \(.*\): instalado \(.*permission-hook\.mjs["'] --port 4851; tempo limite 330 s\)/);
     expect(text).toContain('Habblaud em http://127.0.0.1:4851: respondendo pedidos de permissão');
     out = [];

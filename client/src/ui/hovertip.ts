@@ -1,4 +1,4 @@
-// Dica flutuante do personagem sob o cursor: acompanha o personagem quadro a quadro.
+// Floating tooltip for character under cursor: tracks character frame-by-frame.
 import type { UiComponent, UiContext } from './context';
 import { h, setHidden, setText, setVariant } from './dom';
 import { formatDuration } from './format';
@@ -64,7 +64,7 @@ export class HoverTip implements UiComponent {
     }
   }
 
-  /** Reposiciona a cada quadro enquanto houver alguém sob o cursor. */
+  /** Repositions every animation frame while cursor remains over a character. */
   private follow = (): void => {
     if (!this.id) return;
     const p = this.ctx.world.screenPositionOf(this.id);
@@ -92,14 +92,14 @@ export class HoverTip implements UiComponent {
     setText(this.name, a.name);
     updateAccountChip(this.chip, this.ctx.account(a.account), a.account, a.provider);
     updateProviderTag(this.prov, providerOf(a));
-    // Esperando um shell: o que ele espera (com o tempo correndo) e o que anda fazendo enquanto isso.
+    // Waiting for shell: what it's waiting for (running clock) and what it does in the meantime.
     const now = this.ctx.now();
     const wait = shellWaitIn(a, this.ctx.store.snapshot?.agents ?? [], now);
     const status = wait ? 'shell' : a.status;
     updateStatusDot(this.dot, status);
     setText(this.status, a.status === 'waiting' && a.waitingFor ? `${statusLabel(a.status)}: ${a.waitingFor}` : `${statusLabel(status)}${a.kind === 'sub' ? ` · ${a.role}` : ''}`);
     setVariant(this.el, 'is-', status);
-    // Do que se trata a sessão (título) e há quanto tempo está nesse estado (ex.: ociosa há 12 min).
+    // Session topic (title) and duration in this state (e.g. idle for 12m).
     const title = a.title?.trim();
     setHidden(this.task, !title);
     if (title) setText(this.task, title);

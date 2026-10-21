@@ -1,6 +1,6 @@
-// Rodas (atividades em grupo dos ociosos): tipos e regras PURAS — escolha da atividade pela
-// personalidade, apostas, jokenpô e quem vence uma partida. O roteiro de cada roda (quem fala,
-// comemora, paga) fica em social.ts.
+// Gatherings (idle group activities): PURE types and rules — activity selection by
+// personality, betting, rock-paper-scissors, and match winners. Gathering timelines (speeches,
+// celebrations, settlements) live in social.ts.
 import type { Dir, HeldItem, Pose } from '../../art/api';
 import { hasTrait, type Bond, type Persona, type TraitId } from './persona';
 import { tr } from '../../../../shared/i18n';
@@ -14,16 +14,16 @@ export type Gesture = 'rock' | 'paper' | 'scissors';
 export const PROGRAM_SEED: Readonly<Record<Program, number>> = { futebol: 0, novela: 1, desenho: 2 };
 
 export interface KindInfo {
-  /** "Vendo TV" — para a interface ("Vendo TV com Rafaela"). */
+  /** "Watching TV" — for UI ("Watching TV with Rafaela"). */
   label: string;
   emoji: string;
-  /** Mínimo de participantes para a roda acontecer. */
+  /** Minimum participants required for gathering to take place. */
   min: number;
-  /** Máximo (jogadores + torcida). */
+  /** Maximum participants (players + spectators). */
   max: number;
-  /** Sozinho também vale (só para quem está ocioso; quem espera shell só entra em grupo). */
+  /** Solo also allowed (idle agents only; shell-waiting agents join groups only). */
   solo?: boolean;
-  /** Jogo com vencedor (pode ter aposta). */
+  /** Game with winner (may involve bet). */
   match?: boolean;
 }
 
@@ -41,22 +41,22 @@ export const KINDS: Readonly<Record<GatherKind, KindInfo>> = {
 export interface Member {
   id: string;
   role: Role;
-  /** Spot reservado pela roda (assento, ponto de uso, ponto da torcida) ou null (em pé num tile). */
+  /** Spot reserved by gathering (seat, usage spot, spectator spot) or null (standing in a tile). */
   spot: string | null;
-  /** Em pé sem spot (torcida do jokenpô). */
+  /** Standing without designated spot (rock-paper-scissors spectators). */
   tile?: { x: number; y: number; dir: Dir };
   arrived: boolean;
   left: boolean;
-  /** Entrou com a roda já formada (ou se formando): ninguém espera por ele para começar. */
+  /** Joined after gathering formed (or while forming): no one waits for them to start. */
   late?: boolean;
   /** Pose de base enquanto participa. */
   pose: Pose;
   held: HeldItem;
-  /** Ação curta por cima da pose de base (comemorar, rir, gesto...). */
+  /** Short action layered over base pose (cheer, laugh, gesture...). */
   actPose: Pose | null;
   actHeld: HeldItem;
   actUntil: number;
-  /** O que segura ao voltar para a mesa (o café da copa). */
+  /** Item carried when returning to desk (coffee from breakroom). */
   carry: 'none' | 'coffee' | 'water';
 }
 
@@ -65,20 +65,20 @@ export interface Gathering {
   kind: GatherKind;
   host: string;
   members: Member[];
-  /** gather: indo para os lugares; run: rolando; final: comemoração/despedida; ended: acabou. */
+  /** gather: moving to positions; run: active; final: celebration/wrap-up; ended: finished. */
   phase: 'gather' | 'run' | 'final' | 'ended';
   createdAt: number;
   startAt: number;
   /** Fim previsto (atividades sem placar). */
   until: number;
-  /** Próxima batida do roteiro. */
+  /** Next script tick. */
   nextAt: number;
   /** Contador de batidas (uso livre por roteiro). */
   step: number;
   seed: number;
   rng: () => number;
   program: Program | null;
-  /** Moedinhas em jogo (0 = só pela honra). */
+  /** Coins at stake (0 = honor only). */
   bet: number;
   /** Placar [jogador 0, jogador 1]. */
   score: [number, number];
@@ -87,11 +87,11 @@ export interface Gathering {
   rematches: number;
   winner: string | null;
   loser: string | null;
-  /** Spots reservados pela roda (dono `g:<id>`), devolvidos quando ela acaba. */
+  /** Spots reserved by gathering (owner `g:<id>`), released upon completion. */
   pool: string[];
   lastLine: string | null;
   lastSpeaker: string | null;
-  /** Falas agendadas (ex.: o "bora!" de quem foi convidado, um pouco depois do convite). */
+  /** Scheduled utterances (e.g. "let's go!" from invitee shortly after invitation). */
   pending: { id: string; at: number; text: string }[];
 }
 
@@ -120,7 +120,7 @@ const BASE: Readonly<Record<GatherKind, number>> = {
   mirror: 2,
 };
 
-/** Quanto cada traço multiplica a vontade de cada roda. */
+/** Gathering preference multiplier per trait. */
 const TRAIT_K: Partial<Record<TraitId, Partial<Record<GatherKind, number>>>> = {
   series: { tv: 3 },
   games: { videogame: 3, arcade: 2.5 },
@@ -144,7 +144,7 @@ export function kindWeight(kind: GatherKind, p: Persona): number {
   return w;
 }
 
-/** Sorteio ponderado entre as rodas possíveis agora (`avail[k]` true). */
+/** Weighted selection among currently available gatherings (`avail[k]` true). */
 export function pickKind(rng: () => number, p: Persona, avail: Partial<Record<GatherKind, boolean>>): GatherKind | null {
   const kinds = (Object.keys(BASE) as GatherKind[]).filter((k) => avail[k]);
   let total = 0;
@@ -159,8 +159,8 @@ export function pickKind(rng: () => number, p: Persona, avail: Partial<Record<Ga
 }
 
 /**
- * Nota de um colega como parceiro numa roda: afinidade com a atividade, vínculo (amizade puxa
- * para qualquer roda; rivalidade para os jogos) e um pouco de acaso.
+ * Score of a colleague as gathering partner: activity affinity, relationship (friendship favors
+ * any gathering; rivalry favors games), and a touch of chance.
  */
 export function partnerScore(kind: GatherKind, p: Persona, bond: Bond | null, rng: () => number): number {
   let s = kindWeight(kind, p) / BASE[kind] + p.sociability;
@@ -169,7 +169,7 @@ export function partnerScore(kind: GatherKind, p: Persona, bond: Bond | null, rn
   return s + rng() * 1.2;
 }
 
-/** Programa da TV, pelo gosto de quem liga. */
+/** TV channel, determined by viewer who turned it on. */
 export function pickProgram(rng: () => number, p: Persona): Program {
   if (hasTrait(p, 'esporte') && rng() < 0.7) return 'futebol';
   if (hasTrait(p, 'series') && rng() < 0.6) return 'novela';
@@ -179,12 +179,12 @@ export function pickProgram(rng: () => number, p: Persona): Program {
 
 // ---------------------------------------------------------------- apostas e partidas
 
-/** Teto de uma aposta. */
+/** Maximum bet amount. */
 export const MAX_BET = 50;
 
 /**
- * Valor em jogo (0 = só pela honra). Jokenpô sempre vale algo quando os dois têm moedinhas;
- * nas partidas, só entre rivais ou com alguém de "apostas" na roda.
+ * Value at stake (0 = honor only). Rock-paper-scissors always has stakes when both possess coins;
+ * in matches, only between rivals or with a "gambler" in the gathering.
  */
 export function betFor(kind: GatherKind, a: Persona, b: Persona, coinsA: number, coinsB: number, bond: Bond | null, rng: () => number): number {
   const cap = Math.min(coinsA, coinsB, MAX_BET);
@@ -204,7 +204,7 @@ export function betFor(kind: GatherKind, a: Persona, b: Persona, coinsA: number,
   return Math.max(1, Math.min(cap, v));
 }
 
-/** Quem ganha no jokenpô: 0 empate, 1 o primeiro, 2 o segundo. */
+/** Rock-paper-scissors winner: 0 tie, 1 first player, 2 second player. */
 export function rpsResult(a: Gesture, b: Gesture): 0 | 1 | 2 {
   if (a === b) return 0;
   const beats: Record<Gesture, Gesture> = { rock: 'scissors', scissors: 'paper', paper: 'rock' };
@@ -213,20 +213,20 @@ export function rpsResult(a: Gesture, b: Gesture): 0 | 1 | 2 {
 
 export const GESTURES: readonly Gesture[] = ['rock', 'paper', 'scissors'];
 
-/** Gesto escolhido (quem é de "competição" tem uma quedinha pela pedra). */
+/** Chosen gesture ("competitive" agents lean slightly toward rock). */
 export function pickGesture(rng: () => number, p: Persona): Gesture {
   if (hasTrait(p, 'competicao') && rng() < 0.2) return 'rock';
   return GESTURES[Math.floor(rng() * 3) % 3];
 }
 
-/** Probabilidade de A vencer um ponto/rodada contra B, pela habilidade (0,15–0,85). */
+/** Probability of A winning round against B based on skill (0.15–0.85). */
 export function winChance(skillA: number, skillB: number): number {
   return Math.max(0.15, Math.min(0.85, 0.5 + (skillA - skillB) * 0.6));
 }
 
-/** Pontos para vencer cada jogo. */
+/** Points required to win each game. */
 export const TARGET: Readonly<Partial<Record<GatherKind, number>>> = { pingpong: 5, videogame: 2, arcade: 1 };
 
-/** Ícone de cada gesto acima da cabeça (contrato da arte). */
+/** Icon for each gesture above character head (art contract). */
 export const GESTURE_ICON = { rock: 'hand_rock', paper: 'hand_paper', scissors: 'hand_scissors' } as const;
 export const GESTURE_EMOJI: Readonly<Record<Gesture, string>> = { rock: '✊', paper: '✋', scissors: '✌️' };

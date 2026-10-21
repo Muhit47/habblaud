@@ -1,4 +1,4 @@
-// Estado de um personagem: posição, pose, animação, fila de passos e marcadores visuais.
+// Character state: position, pose, animation, step queue, and visual markers.
 import type { AgentInfo } from '../../../../shared/types';
 import type { Appearance, Dir, HeldItem, IconName, Pose } from '../../art/api';
 import { mulberry32 } from '../../../../shared/hash';
@@ -14,7 +14,7 @@ export class Character {
   appearance: Appearance;
   readonly rng: () => number;
 
-  // posição (px de mundo; pés) e tile lógico (sempre caminhável quando parado)
+  // position (world px; feet) and logical tile (always walkable when stopped)
   x = 0;
   y = 0;
   tx = 0;
@@ -25,9 +25,9 @@ export class Character {
   seated = false;
   alpha = 1;
   visible = true;
-  /** Profundidade forçada (assentos). null = usa y. */
+  /** Forced depth (seats). null = uses y. */
   sortY: number | null = null;
-  /** Tempo (ms) na pose atual, para escolher o frame da animação. */
+  /** Elapsed time (ms) in current pose, to select animation frame. */
   animT = 0;
 
   // comportamento
@@ -36,44 +36,44 @@ export class Character {
   step: Step | null = null;
   stepT = 0;
   stepStarted = false;
-  /** Replanejar assim que o passo atual (não interrompível) terminar. */
+  /** Replan as soon as current non-interruptible step finishes. */
   replan = false;
-  /** Spot da mesa/banqueta/ponto de trabalho (reservado enquanto o personagem existir). */
+  /** Desk/stool/workstation spot (reserved while character exists). */
   homeSpot: string | null = null;
-  /** Spot onde está agora (assento/máquina), além do home. */
+  /** Spot currently occupied (seat/machine), in addition to home spot. */
   atSpot: string | null = null;
-  /** Spots temporários reservados durante um passeio. */
+  /** Temporary spots reserved during roaming excursion. */
   tempSpots: string[] = [];
   roomId: string;
   leaving = false;
   gone = false;
   arriving = false;
   missingSince: number | null = null;
-  /** Próximo passeio do ocioso (ms epoch). */
+  /** Next roaming departure for idle agent (epoch ms). */
   nextOutingAt = 0;
-  /** Roda de que participa (ou a caminho dela). */
+  /** Gathering group participating in (or en route to). */
   gathering: Gathering | null = null;
-  /** Quem espera um shell: próxima tentativa de entrar numa roda (ms epoch; 0 = agendar). */
+  /** Shell-waiting agent: next attempt to join a gathering (epoch ms; 0 = schedule). */
   nextSocialAt = 0;
-  /** Desenha só depois deste instante (fila no elevador). */
+  /** Render only after this instant (elevator arrival queue). */
   hiddenUntil = 0;
-  /** Escondido (dentro de cabine ou elevador fechado). */
+  /** Hidden (inside booth or closed elevator). */
   inside = false;
-  /** Próxima vez que o planejador pode rodar (evita replanejar a cada frame sem necessidade). */
+  /** Next time planner may run (avoids unnecessary per-frame replanning). */
   thinkAt = 0;
-  /** Subagente já entregou o resultado ao pai. */
+  /** Subagent has delivered results to parent. */
   delivered = false;
   /** Fim do uso da cabine (ms epoch). */
   stallUntil = 0;
-  /** Origem do encaixe/saída de um assento (interpolação curta). */
+  /** Origin for seating snap/unsnap (short interpolation). */
   enterFrom: { x: number; y: number } | null = null;
-  /** Sala lotada: tile em que trabalha em pé (sem lugar reservado). */
+  /** Crowded room: tile where character works standing (no reserved seat). */
   standTile: { x: number; y: number } | null = null;
-  /** Ritmo próprio da caminhada (±8%), para quem sai junto não andar em fila perfeita. */
+  /** Individual walking cadence (±8%), preventing synchronized single-file walking. */
   readonly speedK: number;
-  /** Faixa lateral (px) ao andar: dois personagens no mesmo caminho não se sobrepõem. */
+  /** Lateral path offset (px): prevents characters sharing path from overlapping. */
   readonly lane: number;
-  /** Deslocamento visual atual (px), suavizado em direção à faixa enquanto anda. */
+  /** Current visual offset (px), smoothed toward lateral lane while walking. */
   offX = 0;
   offY = 0;
 
@@ -85,37 +85,37 @@ export class Character {
   bubbleIcon = '';
   bubbleAt = 0;
   bubbleUntil = 0;
-  /** Mini-balão de conversa (emoji). */
+  /** Mini conversation speech bubble (emoji). */
   chatEmoji = '';
   chatUntil = 0;
-  /** Fala curta (balãozinho com texto) das rodas: convites, papo, torcida, apostas. */
+  /** Short speech bubble with text from gatherings: invites, banter, cheers, bets. */
   sayText = '';
   sayAt = 0;
   sayUntil = 0;
   lastActivityId: string | null = null;
   activityChangedAt = 0;
 
-  // espera de shell (modo 'shell'; regras em sim/shell.ts)
-  /** Início (epoch ms) da espera atual: o shell mais antigo. 0 = não está esperando. */
+  // shell wait ('shell' mode; logic in sim/shell.ts)
+  /** Start (epoch ms) of current wait: oldest shell job. 0 = not waiting. */
   shellSince = 0;
-  /** Quantos shells espera (o "×N" da ampulheta). */
+  /** Number of pending shells ("×N" in hourglass indicator). */
   shellCount = 0;
   shellLabel = '';
-  /** Estágio da gag (recalculado a cada frame pela idade da espera). */
+  /** Gag visual stage (recalculated each frame from wait duration). */
   shellStage: ShellStage | null = null;
-  /** Quando entrou no modo 'shell' (relógio do mundo): ritmo do balão no modo 'important'. */
+  /** When entered 'shell' mode (world clock): speech bubble cadence in 'important' mode. */
   shellEnteredAt = 0;
-  /** Texto do balão em cache: refeito só quando o tempo exibido muda (sem string nova por frame). */
+  /** Cached bubble text: updated only when displayed duration changes (no per-frame string allocations). */
   shellText = '';
   shellTextKey = -1;
   /**
-   * Reação ao fim de um shell (comemoração/lamento) em andamento até este instante: uma mudança de
-   * modo não a interrompe (a fila termina de volta na mesa e o planejador segue o status atual).
+   * Reaction to shell completion (cheer/lament) active until this instant: mode change
+   * does not interrupt it (step queue returns to desk, then planner follows current status).
    */
   reactUntil = 0;
-  /** `at` da última Activity 'ShellDone' já tratada (as anteriores à chegada não comemoram). */
+  /** `at` of last handled 'ShellDone' Activity (events prior to arrival are not celebrated). */
   shellDoneAt = 0;
-  /** Render: próxima pipoca que pula do balde (epoch ms). */
+  /** Render: next popcorn kernel popping from bucket (epoch ms). */
   popcornAt = 0;
 
   constructor(info: AgentInfo, appearance: Appearance) {
@@ -124,7 +124,7 @@ export class Character {
     this.appearance = appearance;
     this.roomId = info.roomId;
     this.rng = mulberry32((info.seed ^ 0x9e3779b9) >>> 0);
-    // derivados de outro gerador para não alterar a sequência de sorteios do comportamento
+    // derived from dedicated generator so behavior RNG sequence remains unaffected
     const r = mulberry32((info.seed ^ 0x51ed27a3) >>> 0);
     this.speedK = 0.92 + r() * 0.16;
     this.lane = Math.round((r() * 2 - 1) * 3.5);
@@ -143,7 +143,7 @@ export class Character {
     if (Math.abs(this.offY) < 0.05) this.offY = 0;
   }
 
-  /** Coloca os pés no ponto padrão de um tile. */
+  /** Places feet at default tile baseline point. */
   placeAtTile(tx: number, ty: number): void {
     this.tx = tx;
     this.ty = ty;
@@ -177,14 +177,14 @@ export class Character {
   }
 }
 
-/** Direção dominante de um deslocamento. */
+/** Dominant direction of displacement vector. */
 export function dirOf(dx: number, dy: number, fallback: Dir): Dir {
   if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return fallback;
   if (Math.abs(dx) >= Math.abs(dy)) return dx > 0 ? 'right' : 'left';
   return dy > 0 ? 'down' : 'up';
 }
 
-/** Direção de A olhando para B. */
+/** Direction from A facing toward B. */
 export function facing(ax: number, ay: number, bx: number, by: number): Dir {
   return dirOf(bx - ax, by - ay, 'down');
 }

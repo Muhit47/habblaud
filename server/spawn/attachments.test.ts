@@ -52,10 +52,10 @@ describe('anexos do Novo agente', () => {
       { name: '../nota.txt', type: 'text/plain', data: Buffer.from('3') },
     ];
     const paths = writeAttachments(root, 'abcdef12-3456', files, new Date(2026, 9, 12, 13, 5, 9));
-    expect(paths.map((p) => p.split('/').slice(-2).join('/'))).toEqual(['20261012-130509-abcdef12/foto.jpg', '20261012-130509-abcdef12/foto-2.jpg', '20261012-130509-abcdef12/nota.txt']);
+    expect(paths.map((p) => p.replace(/\\/g, '/').split('/').slice(-2).join('/'))).toEqual(['20261012-130509-abcdef12/foto.jpg', '20261012-130509-abcdef12/foto-2.jpg', '20261012-130509-abcdef12/nota.txt']);
     const dir = join(root, '20261012-130509-abcdef12');
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
-    expect(statSync(paths[0]).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(dir).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') expect(statSync(paths[0]).mode & 0o777).toBe(0o600);
     expect(readFileSync(paths[1], 'utf8')).toBe('2');
     expect(readdirSync(dir)).toHaveLength(3);
     expect(writeAttachments(root, 'x', [])).toEqual([]);
@@ -76,7 +76,7 @@ describe('anexos do Novo agente', () => {
     expect(store.put(file(6))).toEqual({ id: 'a1' });
     const taken = store.take(['a1']);
     expect(Array.isArray(taken) && taken.length).toBe(1);
-    // Os 6 bytes saíram do depósito, mas seguem na memória (pedido na fila): 6 + 6 passa do teto.
+    // 6 bytes claimed from store, but retained in memory (pending queue): 6 + 6 exceeds limit.
     expect(store.put(file(6))).toHaveProperty('error');
     store.release(6);
     expect(store.put(file(6))).toEqual({ id: 'a2' });

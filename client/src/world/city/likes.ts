@@ -1,32 +1,32 @@
-// Like, carimbo e "bater na porta" na cidade (Fase 5): a porta mais perto que dá para tocar (like a até 4 tiles da
-// porta; bater e carimbar a até 2; nunca no próprio prédio), os limites do lado de cá (like 10 por minuto; bater 1 por
-// minuto por prédio) e o coração que voa até a placa. Puro (testado); o desenho fica em social.ts.
+// Like, stamp and "knock on door" in city (Phase 5): closest reachable door (like within 4 tiles of
+// door; knock and stamp within 2; never on own building), client rate limits (like 10/min; knock 1/min
+// per building) and heart flying to nameplate. Pure (tested); rendering is in social.ts.
 import { lotDoor, type CityPoint } from '../../../../shared/world/city';
 import type { WorldBuildingPublic } from '../../../../shared/world/protocol';
 import { nearestDoor } from './layout';
 
-/** Distâncias (tiles) até `lotDoor(lot).front`, as mesmas do servidor do mundo. */
+/** Distances (tiles) to `lotDoor(lot).front`, matching world server logic. */
 export const LIKE_DISTANCE = 4;
 export const KNOCK_DISTANCE = 2;
 export const STAMP_DISTANCE = 2;
 /**
- * Bater na porta: uma vez por minuto por prédio (o servidor recusa antes disso). Do lado de cá, com folga: os comandos
- * saem em lotes a cada 200 ms e podem chegar mais juntos do que saíram.
+ * Knock on door: once per minute per building (server rejects earlier attempts). Client-side margin: commands
+ * are batched every 200 ms and may arrive closer together than dispatched.
  */
 export const KNOCK_EVERY_MS = 62_000;
-/** Tempo do coração voando até a placa. */
+/** Flying time of heart to nameplate. */
 export const HEART_MS = 900;
 
 export interface DoorTarget {
   building: WorldBuildingPublic;
   front: CityPoint;
-  /** Distância (tiles) até a frente da porta. */
+  /** Distance (tiles) to door front. */
   dist: number;
 }
 
 /**
- * A porta mais perto (até `max` tiles) de um prédio que está na cidade e não é o meu. `buildingAt` diz o prédio de
- * cada lote (o estado da cena).
+ * Nearest door (within `max` tiles) of a city building that is not mine. `buildingAt` returns building for
+ * each lot (scene state).
  */
 export function doorTarget(
   me: { x: number; y: number },
@@ -44,13 +44,13 @@ export function doorTarget(
   return { building, front: d.front, dist: Math.hypot(d.front.x - me.x, d.front.y - me.y) };
 }
 
-/** Distância (tiles) de mim até a porta de um prédio. */
+/** Distance (tiles) from me to building door. */
 export function doorDistance(me: { x: number; y: number }, b: Pick<WorldBuildingPublic, 'lot'>): number {
   const f = lotDoor(b.lot).front;
   return Math.hypot(f.x - me.x, f.y - me.y);
 }
 
-/** O que os botões de um prédio mostram agora: curtir (perto), bater (perto e o dono aceita) e por que não. */
+/** What building buttons show now: like (nearby), knock (nearby and owner accepts) and rejection reason. */
 export interface DoorActions {
   canLike: boolean;
   canKnock: boolean;
@@ -69,11 +69,11 @@ export function doorActions(b: WorldBuildingPublic, me: { x: number; y: number }
   };
 }
 
-/** Bater na porta: quando cada prédio foi batido por último (só do lado de cá). */
+/** Knock on door: timestamp when each building was last knocked on (client side only). */
 export class KnockBook {
   private readonly at = new Map<string, number>();
 
-  /** Quanto falta (ms) para bater de novo neste prédio. */
+  /** Remaining wait time (ms) to knock again on this building. */
   wait(buildingId: string, now: number): number {
     const t = this.at.get(buildingId);
     return t === undefined ? 0 : Math.max(0, t + KNOCK_EVERY_MS - now);
@@ -86,21 +86,21 @@ export class KnockBook {
   }
 }
 
-/** Um coração voando de `from` até `to` (px de mundo), num arco. */
+/** Heart flying from `from` to `to` (world px), along an arc. */
 export interface HeartFlight {
   from: { x: number; y: number };
   to: { x: number; y: number };
   start: number;
-  /** Desfazer o like: o coração cai da placa, partido. */
+  /** Undo like: heart falls from nameplate, broken. */
   broken?: boolean;
 }
 
-/** Onde está o coração (px de mundo), a escala e a opacidade; null quando já chegou. */
+/** Heart position (world px), scale and opacity; null once arrived. */
 export function heartAt(f: HeartFlight, now: number): { x: number; y: number; scale: number; alpha: number } | null {
   const t = (now - f.start) / HEART_MS;
   if (t < 0 || t >= 1) return null;
   if (f.broken) {
-    // cai da placa, balançando
+    // falls from sign, wobbling
     return { x: f.to.x + Math.sin(t * 9) * 3, y: f.to.y + t * t * 26, scale: 1, alpha: 1 - t };
   }
   const e = 1 - (1 - t) * (1 - t);
@@ -111,5 +111,5 @@ export function heartAt(f: HeartFlight, now: number): { x: number; y: number; sc
   return { x, y, scale, alpha: t > 0.9 ? (1 - t) * 10 : 1 };
 }
 
-/** Coração em pixel art (7×6), 1 = cor, 2 = brilho. */
+/** Pixel art heart (7×6), 1 = color, 2 = highlight. */
 export const HEART_PIXELS: readonly string[] = ['.11.11.', '1211111', '1111111', '.11111.', '..111..', '...1...'];

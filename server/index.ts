@@ -1,7 +1,7 @@
-// Servidor do Habblaud: observa as sessões abertas do Claude Code (todas as contas),
-// mantém o modelo do escritório e transmite via SSE. Sem dependências de runtime.
-//   npm run dev    -> tsx server/index.ts --dev (Vite em middleware mode, HMR no mesmo servidor)
-//   npm start      -> node dist/server/index.js (serve dist/client)
+// Habblaud Server: watches active Claude Code sessions (all accounts),
+// maintains office model, and broadcasts via SSE. No runtime dependencies.
+//   npm run dev    -> tsx server/index.ts --dev (Vite in middleware mode, HMR on same server)
+//   npm start      -> node dist/server/index.js (serves dist/client)
 import http from 'node:http';
 import { join } from 'node:path';
 import { codexDirsRefused, isDefaultDir } from './accounts/detect';
@@ -64,8 +64,8 @@ import { WorldViewer } from './world/viewer';
 const config = loadConfig();
 const startedAt = Date.now();
 
-// Nome antigo (CodeTown, até a 0.3.2): leva ~/.codetown para ~/.habblaud antes de ler qualquer estado e avisa
-// das variáveis CODETOWN_* que não valem mais. No Docker, quem migra é o docker:up.
+// Legacy name (CodeTown, up to 0.3.2): migrates ~/.codetown to ~/.habblaud before reading any state and warns
+// about CODETOWN_* variables that are no longer valid. In Docker, docker:up handles migration.
 if (!config.inDocker) {
   const r = migrateLegacyStateDir(config.home);
   const msg = describeStateMigration(r);
@@ -76,13 +76,13 @@ if (legacyEnv) log.warn(legacyEnv);
 
 const names = new NameStore(join(config.dataDir, 'names.json'));
 names.load();
-// Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
+// User-assigned room names (right-click > Rename).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
 
-// Office, contas e fontes de agentes se referenciam (avisos de mudança / fontes): ligação tardia.
+// Office, accounts, and agent sources reference each other (change notifications / sources): late binding.
 const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string } = {};
-// Versão nova: consulta a release mais recente no GitHub a cada 6 h (HABBLAUD_UPDATE_CHECK=0 desliga).
+// New version: queries latest GitHub release every 6 hours (HABBLAUD_UPDATE_CHECK=0 disables).
 const updates = new UpdateChecker({
   current: config.version,
   repo: config.repo,
@@ -91,12 +91,12 @@ const updates = new UpdateChecker({
   onChange: () => late.office?.markDirty(),
 });
 updates.load();
-// Habblaud World (server/world/): a conta e o personagem neste computador. Ligado por padrão (server.habblaud.com, ou
-// HABBLAUD_WORLD_URL); nada sai do computador antes de a pessoa criar a conta e entrar. HABBLAUD_WORLD=0 esconde tudo
-// (rotas 404 e nada na interface); uma HABBLAUD_WORLD_URL recusada deixa o recurso desligado.
+// Habblaud World (server/world/): account and character on this machine. Enabled by default (server.habblaud.com, or
+// HABBLAUD_WORLD_URL); nothing leaves machine until account is created and signed in. HABBLAUD_WORLD=0 hides everything
+// (404 routes and hidden in UI); rejected HABBLAUD_WORLD_URL leaves feature disabled.
 const worldStore = new WorldSettingsStore(join(config.dataDir, 'world.json'));
 if (config.world.enabled && config.world.url) worldStore.load();
-// O social leve do dono (world/social.ts): likes do dia, "enquanto você estava fora", batidas na porta e bloqueados.
+// Owner lightweight social (world/social.ts): daily likes, "while you were away", knocks, and blocked users.
 const worldSocial = config.world.enabled ? new OwnerSocial({ session: () => worldStore.get()?.deviceId, onChange: () => late.office?.markDirty() }) : undefined;
 const world = config.world.enabled
   ? new WorldService({
@@ -119,7 +119,7 @@ const office = new Office({
   names,
   roomAlias: (path) => roomAliases.get(path),
   version: config.version,
-  // No modo dev o Vite serve o cliente direto do código-fonte: não há build para comparar.
+  // In dev mode Vite serves client directly from source: no build to compare.
   build: config.dev ? undefined : createBuildReader(config.rootDir),
   startedAt,
   accounts: (sessions) => accounts.list(sessions),
@@ -132,9 +132,9 @@ const office = new Office({
   updates: () => updates.status(),
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
 });
-// Fontes de agentes, uma por ferramenta (sources/source.ts): a do Claude Code e, depois dela, a do Codex (quando há
-// pastas do Codex; HABBLAUD_CODEX=0 desliga), com o histórico dela no HistorySet abaixo e as contas registradas por
-// ela mesma (accounts.setProviderAccounts). `codex` também recebe os eventos dos hooks do Codex (CodexLive).
+// Agent sources, one per tool (sources/source.ts): Claude Code source followed by Codex (when Codex
+// folders exist; HABBLAUD_CODEX=0 disables), with history in HistorySet below and self-registered accounts
+// (accounts.setProviderAccounts). `codex` also receives Codex hook events (CodexLive).
 const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker });
 const agents = new SourceSet([claude]);
 
@@ -151,20 +151,20 @@ if (config.kilo) {
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
 if (codex) agents.add(codex);
-// Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
-// (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
+// Codex hook events (POST /api/codex/events, mod/habblaud-codex/hook.mjs): forwarded to Codex live source
+// (CodexLive); without it (no Codex folders or HABBLAUD_CODEX=0) route returns {ok: false}.
 const codexLive: CodexLive | undefined = codex;
 late.office = office;
 late.agents = agents;
-// Página que pode responder pelo escritório: Host local na porta local; na remota, só com permissions liberado.
+// Origin allowed to act on behalf of office: local Host on local port; on remote, only with allowed permissions.
 const hub = new Hub(office, {
   canAnswer: (req) => (isRemoteRequest(req) ? !!config.remote?.allow.has('permissions') : isLoopbackHost(req.headers.host)),
 });
-// "Meu dia": amostra o escritório a cada segundo e persiste em <dataDir>/stats/ (ver history/daystats.ts).
+// "My Day": samples office every second and persists to <dataDir>/stats/ (see history/daystats.ts).
 const stats = new DayStatsService({ dir: join(config.dataDir, 'stats'), snapshot: () => hub.current() });
 stats.load();
-// O prédio no Habblaud World (world/uplink.ts): só com o servidor do mundo aceito. Conecta sozinho com a conta aprovada, o
-// personagem criado, a trava do terminal e sem pausa; o pacote sai só da projeção (shared/world/projection.ts).
+// Building in Habblaud World (world/uplink.ts): only with accepted world server. Automatically connects with approved
+// account, created character, terminal lock, and unpaused; packet generated strictly from projection (shared/world/projection.ts).
 const worldTokens = new BuildingTokens({ stats });
 const worldUplink =
   world && config.world.url
@@ -189,7 +189,7 @@ const worldUplink =
       })
     : undefined;
 if (world && worldUplink) world.attachUplink(worldUplink);
-// A cena Mundo (world/viewer.ts): a cidade pela mesma conexão do prédio, só com a cena aberta no navegador.
+// World scene (world/viewer.ts): city through building connection, active only while scene is open in browser.
 const worldViewer = worldUplink ? new WorldViewer() : undefined;
 if (worldUplink && worldViewer) {
   worldViewer.attach(worldUplink);
@@ -199,18 +199,18 @@ if (worldUplink && worldSocial) {
   worldSocial.attach(worldUplink);
   worldUplink.attachOwner(worldSocial);
 }
-// Terminal: só existe com bind local (ver terminalOffReason em config.ts).
-// Cada agente com o parser da ferramenta dele (o do Claude Code por padrão).
+// Terminal: available only with local bind (see terminalOffReason in config.ts).
+// Each agent with tool-specific parser (Claude Code parser by default).
 const terminals = config.terminal
   ? new TerminalStreams({ office, transcriptPathOf: (id) => agents.transcriptPathOf(id), parserFor: (id) => agents.parserFor(id) })
   : undefined;
-// Histórico do terminal (sessões recentes, abertas ou encerradas, de todas as ferramentas): mesma trava.
+// Terminal history (recent sessions, open or closed, across all tools): same security lock.
 const history = config.terminal
   ? new HistorySet([new SessionHistory({ accounts: () => accounts.entries(), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) })])
   : undefined;
 if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.entriesOf('codex'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
-// Entregas: o fim de cada pedido, lido dos transcripts do histórico (mesma trava do terminal). Os arquivos entregues
-// são lidos aqui (Node, ou pasta de conta montada no Docker) ou pelo auxiliar do host.
+// Deliveries: task completion markers parsed from history transcripts (same terminal lock). Delivered files
+// are read locally (Node, or account directory mounted in Docker) or via host helper.
 const deliveries = history
   ? new DeliveryIndex({
       sessions: () => history.list(),
@@ -237,43 +237,43 @@ const deliveryFiles = deliveries
       },
     })
   : undefined;
-// Linha do tempo do timelapse: grava cada snapshot novo (com throttle) em <dataDir>/timeline.
+// Timelapse timeline: records each new snapshot (throttled) to <dataDir>/timeline.
 const timelineDir = join(config.dataDir, TIMELINE_DIR);
 const timeline = config.timeline ? new TimelineRecorder({ dir: timelineDir }) : undefined;
 if (timeline) hub.onSnapshot((snap) => timeline.ingest(snap));
-// Responder pelo escritório (hook PermissionRequest): age sobre as sessões, então segue a mesma trava.
+// Office response actions (PermissionRequest hook): acts on sessions, adhering to terminal lock.
 const permissions = config.terminal
   ? new PermissionRegistry({
       office,
       viewers: () => hub.localSize,
       answerLater: () => !!config.remote?.allow.has('permissions'),
-      // Só o Claude Code: a busca da resposta dada no terminal lê o formato do transcript dele.
+      // Claude Code only: reading reply given in terminal parses its transcript format.
       transcriptPathOf: (id) => claude.transcriptPathOf(id),
-      // Pedidos do hook do Codex: a conta pela pasta CODEX_HOME que ele manda.
+      // Codex hook requests: account determined by CODEX_HOME directory provided.
       codexAccount: (account, codexHome) => codexAccountOf(accounts.entriesOf('codex'), account, codexHome),
       demoDecide: (id, d) => office.decideDemoPermission(id, d),
       demoDetail: (id) => office.demoPermission(id),
     })
   : undefined;
 late.permissions = permissions;
-// Mensagens pelo escritório (plugin habblaud-mensagens): entram na sessão como se você as tivesse digitado, então
-// seguem a mesma trava (e HABBLAUD_MENSAGENS=0 desliga só elas). Ao Codex vão por `codex queue` (messages/codex.ts):
-// fora do Docker o próprio servidor roda o comando (HABBLAUD_CODEX_BIN ou `codex` do PATH); no Docker, o auxiliar do
-// host (npm run codex:bridge).
+// Office messaging (habblaud-mensagens plugin): enters session as if typed directly, adhering
+// to same lock (HABBLAUD_MENSAGENS=0 disables messaging only). Sent to Codex via `codex queue` (messages/codex.ts):
+// outside Docker server executes command directly (HABBLAUD_CODEX_BIN or `codex` from PATH); in Docker, host helper
+// handles it (npm run codex:bridge).
 const codexBin = config.messages && !config.inDocker ? findCodexBin(process.env) : undefined;
-// Terminal interativo e Novo agente: os dois rodam o Claude Code neste computador, então pedem a mesma liberação,
-// HABBLAUD_PTY=1 (aceita os mesmos valores do HABBLAUD_TERMINAL).
+// Interactive terminal and New Agent: both execute Claude Code locally, requiring same authorization:
+// HABBLAUD_PTY=1 (accepts same values as HABBLAUD_TERMINAL).
 const ptyFlag = process.env.HABBLAUD_PTY?.trim();
 const ptyOptIn = isTruthy(ptyFlag);
-// Novo agente pelo escritório (sessão do Claude Code em segundo plano, ou a tela do app do Claude preenchida): a
-// liberação acima mais a trava das mensagens. No Docker, quem roda é o auxiliar do host (npm run codex:bridge).
+// New Agent via office (background Claude Code session, or pre-filled Claude desktop app): requires
+// authorization above plus messaging lock. In Docker, executed by host helper (npm run codex:bridge).
 const spawnOn = config.messages && ptyOptIn;
 const attachments = spawnOn ? new AttachmentStore() : undefined;
 const spawnBin = config.inDocker ? undefined : runnableClaudeBin(process.env);
 const spawn = spawnOn
   ? new SpawnService(config.inDocker ? { attachments } : { opener: createOpener(), cli: spawnBin ? createCliRunner(spawnBin) : undefined, attachments })
   : undefined;
-// Ditado: no Docker quem transcreve é o auxiliar do host; no Node, o servidor, se achar o Whisper local.
+// Dictation: in Docker transcribed by host helper; in Node, by server if local Whisper found.
 const whisper = config.messages && !config.inDocker ? findWhisper() : undefined;
 const dictation = config.messages
   ? new DictationService(whisper && !('missing' in whisper) ? { transcriber: createWhisperTranscriber(whisper) } : {})
@@ -291,8 +291,8 @@ const messages = config.messages
   : undefined;
 late.messages = messages;
 
-// Terminal interativo (abrir/assumir sessões e encerrar agentes): opt-in com HABBLAUD_PTY=1, só com bind local, fora
-// do Docker, com node-pty e o executável do claude no PATH.
+// Interactive terminal (open/attach sessions and terminate agents): opt-in with HABBLAUD_PTY=1, local bind only,
+// outside Docker, with node-pty and claude executable in PATH.
 const claudeBinSetting = process.env.HABBLAUD_CLAUDE_BIN?.trim();
 const claudeBin = claudeBinFrom();
 let spawnPty: SpawnPty | null = null;
@@ -330,7 +330,7 @@ late.ptys = ptys;
 late.ptyOff = ptyOff;
 
 if (config.demo) office.setDemo(true);
-// As fontes síncronas (a do Claude Code) terminam o boot aqui, antes de o hub começar a transmitir.
+// Synchronous sources (Claude Code) complete boot here before hub begins broadcasting.
 void agents.start();
 accounts.start();
 hub.start();
@@ -402,10 +402,10 @@ function parseUrl(req: http.IncomingMessage): URL {
   }
 }
 
-/** Quem atende o que não é /api: o Vite (dev) ou os arquivos de dist/client (produção). */
+/** Handles non-API requests: Vite (dev) or dist/client static files (production). */
 let fallback: (req: http.IncomingMessage, res: http.ServerResponse, url: URL) => void;
 if (config.dev) {
-  // Import dinâmico: o bundle de produção nunca carrega o Vite.
+  // Dynamic import: production bundle never loads Vite.
   const { createServer } = await import('vite');
   const vite = await createServer({
     configFile: join(config.rootDir, 'vite.config.ts'),
@@ -419,7 +419,7 @@ if (config.dev) {
   fallback = (req, res, url) => serveStatic(req, res, url.pathname);
 }
 
-// Host/Origin/Content-Type: barra DNS rebinding e CSRF antes de qualquer rota (inclusive o Vite).
+// Host/Origin/Content-Type: guards against DNS rebinding and CSRF before any route (including Vite).
 const guard = createRequestGuard({ allowedHosts: config.allowedHosts });
 
 server.on('request', (req, res) => {
@@ -441,8 +441,8 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 });
 
 /**
- * Porta remota (celular na rede local): o mesmo app, mas toda requisição passa pelo login (http/remote.ts) antes da
- * API. A porta principal segue só local; quem separa as duas é a porta em que a conexão chegou.
+ * Remote port (mobile on local network): identical app, but all requests require authentication (http/remote.ts)
+ * prior to API. Primary port remains strictly local; distinction determined by incoming socket port.
  */
 let remoteListener: RemoteListener | undefined;
 if (config.remote) {

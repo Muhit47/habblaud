@@ -1,14 +1,13 @@
-// Terminal interativo: o Habblaud abre o Claude Code num pseudo-terminal (node-pty) e o navegador mostra e
-// controla esse terminal (xterm.js). Saída via SSE em GET /api/pty/:id/stream; entrada, redimensionamento e
-// encerramento via POST (rotas em http/pty.ts).
+// Interactive terminal: Habblaud opens Claude Code inside pseudo-terminal (node-pty) and browser renders
+// and controls terminal (xterm.js). Output streamed via SSE on GET /api/pty/:id/stream; input, resize, and
+// termination via POST (routes in http/pty.ts).
 //
-// Três usos: sessão nova numa pasta; "assumir" uma sessão aberta noutro terminal (o processo de lá é
-// encerrado e a mesma conversa continua aqui com `claude --resume`); e encerrar um agente, esteja ele aqui
-// ou noutro terminal (só processos que o registro de sessões do Claude Code confirma como sessão e cujo início
-// e executável batem com o registro: pty/procinfo.ts).
+// Three use cases: new session in folder; "take over" session open in another terminal (remote process is
+// terminated and same conversation continues here via `claude --resume`); and stop agent whether here or in
+// another terminal (strictly processes verified by Claude Code session registry matching start time and executable: pty/procinfo.ts).
 //
-// Segurança: quem controla um terminal destes executa comandos na máquina. O recurso é opt-in (HABBLAUD_PTY=1),
-// as rotas só aceitam conexões do próprio computador (ver http/pty.ts) e ele fica desligado no Docker.
+// Security: controlling this terminal executes arbitrary commands on host. Feature is opt-in (HABBLAUD_PTY=1),
+// routes accept local connections only (see http/pty.ts), and remains disabled in Docker.
 import { chmodSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
@@ -38,12 +37,12 @@ export type SpawnPty = (file: string, args: string[], opts: { cwd: string; cols:
 
 export interface PtyAccount {
   id: string;
-  /** Pasta de configuração da conta (vira CLAUDE_CONFIG_DIR, exceto a padrão). */
+  /** Account config directory (becomes CLAUDE_CONFIG_DIR, except default). */
   dir: string;
   isDefault: boolean;
 }
 
-/** O que o gerenciador precisa saber de um agente principal para encerrá-lo ou assumi-lo. */
+/** What manager requires from primary agent to stop or take it over. */
 export interface PtyAgentRef {
   id: string;
   kind: 'main' | 'sub';
@@ -53,9 +52,9 @@ export interface PtyAgentRef {
 }
 
 /**
- * Tela de um terminal no servidor: recebe a saída e devolve, para quem conecta depois (ou troca de aba), uma
- * sequência que reconstrói a tela atual com os modos que o programa ligou (colagem entre colchetes, teclas de
- * aplicação, tela alternativa). `write` pode processar depois: o callback avisa quando aquele trecho entrou.
+ * Server-side terminal screen: consumes output and returns ANSI sequence reconstructing rendered screen with active
+ * modes (bracketed paste, application keys, alt screen) for late connections or tab changes.
+ * `write` may process asynchronously: callback notifies when slice was processed.
  */
 export interface PtyScreen {
   write(data: string, done?: () => void): void;
@@ -68,7 +67,7 @@ export type ScreenFactory = (cols: number, rows: number) => PtyScreen;
 
 export interface PtyManagerOptions {
   spawn: SpawnPty | null;
-  /** Por que o recurso está desligado (quando `spawn` é null). */
+  /** Why feature is disabled (when `spawn` is null). */
   disabledReason?: string;
   claudeBin: string;
   accounts: () => PtyAccount[];
@@ -77,38 +76,38 @@ export interface PtyManagerOptions {
   env?: NodeJS.ProcessEnv;
   now?: () => number;
   /**
-   * Encerra um processo de fora (testes). Padrão: no Windows, encerra e limpa os modos do terminal dele
-   * (pty/winkill.ts, que confere de novo o início exato); nos outros, SIGTERM (o Claude Code sai e limpa sozinho).
+   * Terminates external process (tests). Default: on Windows, terminates and cleans up terminal modes
+   * (pty/winkill.ts, which re-verifies exact start time); elsewhere, SIGTERM (Claude Code exits cleanly).
    */
   killPid?: (pid: number, proc: ProcInfo) => void | Promise<void>;
-  /** Encerra à força quando o processo não sai a tempo ao assumir (padrão: SIGKILL; no Windows, TerminateProcess). */
+  /** Forceful termination when process does not exit in time during takeover (default: SIGKILL; on Windows, TerminateProcess). */
   forceKill?: (pid: number) => void;
-  /** Início e executável de um processo vivo (padrão: pty/procinfo.ts). */
+  /** Start time and executable of living process (default: pty/procinfo.ts). */
   procInfo?: (pid: number) => Promise<ProcInfo | undefined>;
-  /** Lê `<conta>/sessions/<pid>.json` (testes). */
+  /** Reads `<account>/sessions/<pid>.json` (tests). */
   readSession?: (accountDir: string, pid: number) => unknown;
-  /** Tela de cada terminal, reproduzida para quem conecta (padrão: só a saída bruta; ver pty/screen.ts). */
+  /** Screen instance per terminal rendered for connecting clients (default: raw output; see pty/screen.ts). */
   createScreen?: ScreenFactory;
   isAlive?: (pid: number) => boolean;
   sleep?: (ms: number) => Promise<void>;
 }
 
-/** Saída bruta guardada por terminal quando não há o @xterm/headless (ver rawScreen). */
+/** Buffered raw output per terminal when @xterm/headless unavailable (see rawScreen). */
 const MAX_SCROLLBACK = 512 * 1024;
-/** Terminais encerrados continuam na lista por um tempo, para a tela final ainda poder ser vista. */
+/** Closed terminals retained in list briefly so final screen remains visible. */
 const EXITED_KEEP_MS = 10 * 60_000;
 export const MAX_PTYS = 12;
-/** Quanto esperar o processo de fora sair antes de retomar a sessão aqui (depois, encerra à força). */
+/** Grace period waiting for external process to exit before resuming locally (forcefully killed afterwards). */
 const TAKEOVER_WAIT_MS = 5_000;
-/** Depois de encerrar à força: quanto mais esperar. */
+/** Additional wait time after forceful kill. */
 const FORCE_WAIT_MS = 3_000;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** Id de agente principal: "<conta>:<pid>". */
+/** Main agent ID: "<account>:<pid>". */
 const MAIN_ID = /^(.+):(\d+)$/;
 
 /**
- * Variáveis que o Claude Code põe no ambiente das próprias ferramentas. Se o Habblaud foi iniciado de dentro
- * de uma sessão, o Claude aberto aqui se acharia uma sessão-filha (e desligaria o transcript).
+ * Environment variables injected by Claude Code into its tool sub-processes. If Habblaud was started from
+ * within a session, Claude spawned here would misidentify as nested session (disabling transcript).
  */
 const INHERITED_SESSION_VARS = [
   'CLAUDECODE',
@@ -126,8 +125,8 @@ const INHERITED_SESSION_VARS = [
 ];
 
 /**
- * Sem o @xterm/headless: guarda a saída bruta, cortada no começo de uma linha (nunca no meio de uma sequência
- * de escape). Os modos ligados lá no começo podem se perder ao reproduzir.
+ * Without @xterm/headless: buffers raw output, sliced at line boundary (never mid-escape sequence).
+ * Modes initialized during startup may be dropped on replay.
  */
 export function rawScreen(): PtyScreen {
   let buffer = '';
@@ -153,17 +152,17 @@ interface Pty {
   proc: PtyProcess;
   screen: PtyScreen;
   clients: Set<ServerResponse>;
-  /** Conectando: guardam a saída nova numa fila até a tela guardada ficar pronta. */
+  /** Connecting: queues incoming output until saved screen buffer is ready. */
   pending: Map<ServerResponse, string[]>;
 }
 
-/** Sessão aberta noutro terminal, conferida: o PID e o que o sistema diz dele. */
+/** Session verified open in another terminal: PID and system process info. */
 interface ExternalProc {
   pid: number;
   proc: ProcInfo;
 }
 
-/** O que uma sessão nova precisa, já validado (pasta, conta e tamanho). */
+/** Validated payload for new session (directory, account, and dimensions). */
 interface SpawnPlan {
   cwd: string;
   account: PtyAccount;
@@ -183,7 +182,7 @@ export class PtyError extends Error {
 export class PtyManager {
   private ptys = new Map<string, Pty>();
   private seq = 0;
-  /** "Assumir" em andamento por agente: um duplo clique (ou duas abas) recebe o mesmo resultado. */
+  /** Takeover in progress per agent: double-click (or two tabs) shares single result. */
   private takeovers = new Map<string, Promise<PtyInfo>>();
   private readonly now: () => number;
   private readonly killPid: (pid: number, proc: ProcInfo) => void | Promise<void>;
@@ -221,15 +220,15 @@ export class PtyManager {
     return [...this.ptys.values()].map((t) => ({ ...t.info }));
   }
 
-  /** Abre uma sessão nova do Claude Code na pasta (`cwd` absoluto), na conta pedida (ou na padrão). */
+  /** Opens new Claude Code session in directory (absolute `cwd`), with requested or default account. */
   create(p: { cwd: unknown; account?: unknown; cols?: unknown; rows?: unknown }): PtyInfo {
     return this.spawn(this.plan(p, this.takeovers.size));
   }
 
   /**
-   * Encerra um agente principal. Aberto aqui: fecha o pty. Aberto noutro terminal: encerra o processo, mas só
-   * se o registro de sessões da conta confirmar que aquele PID é aquela sessão do Claude Code (e o processo vivo
-   * com esse PID começou quando o registro diz e é o Claude Code).
+   * Terminates primary agent. Spawned here: closes pty. Spawned in another terminal: terminates process, but only
+   * if account session registry verifies PID belongs to that Claude Code session (and running process
+   * with this PID started when registry recorded and matches Claude Code).
    */
   async stop(agentId: string): Promise<void> {
     const own = this.byAgent(agentId);
@@ -247,9 +246,9 @@ export class PtyManager {
   }
 
   /**
-   * Assume uma sessão aberta noutro terminal: encerra o processo de lá, espera ele sair e continua a mesma
-   * conversa aqui (`claude --resume <sessão>`, na pasta e na conta originais). O que pode impedir a sessão nova
-   * (pasta, conta, limite) é conferido antes de encerrar a de lá; pedidos repetidos esperam o primeiro.
+   * Takes over session open in another terminal: terminates external process, waits for exit, and continues same
+   * conversation here (`claude --resume <session>`, in original directory and account). Blocking checks
+   * (folder, account, limit) verified before killing remote process; repeated requests wait for first.
    */
   takeover(agentId: string, size: { cols?: unknown; rows?: unknown } = {}): Promise<PtyInfo> {
     const pending = this.takeovers.get(agentId);
@@ -260,7 +259,7 @@ export class PtyManager {
   }
 
   private async doTakeover(agentId: string, size: { cols?: unknown; rows?: unknown }): Promise<PtyInfo> {
-    // Um tique: o pedido já está em this.takeovers (conta no limite abaixo como "esta" tomada).
+    // One tick: request already registered in this.takeovers (counted in limit below as "this" takeover).
     await Promise.resolve();
     if (!this.opts.spawn) throw new PtyError(503, tr('terminal desligado: {0}', [this.opts.disabledReason ?? tr('indisponível')]));
     const own = this.byAgent(agentId);
@@ -268,7 +267,7 @@ export class PtyManager {
     const agent = this.mainAgent(agentId);
     if (!SESSION_ID.test(agent.sessionId)) throw new PtyError(409, tr('sessão sem id válido para retomar'));
     if (!agent.cwd) throw new PtyError(409, tr('não sei a pasta desta sessão'));
-    // As outras tomadas em andamento já têm uma vaga prometida.
+    // Other pending takeovers already have reserved capacity.
     const plan = this.plan({ cwd: agent.cwd, account: agent.account, cols: size.cols, rows: size.rows }, this.takeovers.size - 1);
     const ext = await this.external(agentId);
     try {
@@ -277,7 +276,7 @@ export class PtyManager {
       throw new PtyError(500, tr('não consegui encerrar a sessão no outro terminal: {0}', [errMsg(err)]));
     }
     if (!(await this.waitExit(ext.pid, TAKEOVER_WAIT_MS))) {
-      // Não saiu a tempo: encerra à força (se ainda for o mesmo processo) e espera mais um pouco.
+      // Did not exit in time: forcefully terminate (if still same process) and wait briefly.
       log.warn(tr('Agente {0} não encerrou em {1} s: encerrando à força.', [agentId, TAKEOVER_WAIT_MS / 1000]));
       try {
         if (await this.stillSame(ext.pid, ext.proc)) this.forceKill(ext.pid);
@@ -292,14 +291,14 @@ export class PtyManager {
     try {
       info = this.spawn(plan, { resume: agent.sessionId, from: agentId });
     } catch (err) {
-      // A sessão de lá já foi encerrada: dizer como continuar a conversa.
+      // Existing session terminated: instructions on how to continue conversation.
       throw new PtyError(500, tr('a sessão foi encerrada no outro terminal, mas não abriu aqui ({0}); para continuar: claude --resume {1}', [errMsg(err), agent.sessionId]));
     }
     log.info(tr('Agente {0} assumido pelo escritório (sessão {1}).', [agentId, agent.sessionId]));
     return info;
   }
 
-  /** Conecta um cliente SSE: a tela atual primeiro, depois a saída ao vivo. */
+  /** Connects SSE client: streams current screen buffer first, then live output. */
   attach(id: string, req: IncomingMessage, res: ServerResponse): void {
     const pty = this.get(id);
     req.socket.setTimeout(0);
@@ -311,7 +310,7 @@ export class PtyManager {
       'X-Accel-Buffering': 'no',
     });
     res.write('retry: 2000\n\n');
-    // A saída que chega enquanto a tela termina de processar o que veio antes vai para a fila deste cliente.
+    // Output arriving while screen finishes processing buffered data queues for this client.
     const queue: string[] = [];
     pty.pending.set(res, queue);
     const drop = () => {
@@ -343,7 +342,7 @@ export class PtyManager {
     pty.screen.resize(c, r);
   }
 
-  /** Encerra o processo (ainda rodando) ou tira da lista (já encerrado). */
+  /** Terminates process (if active) or unregisters (if exited). */
   close(id: string): void {
     const pty = this.get(id);
     if (pty.info.exitedAt === undefined) this.kill(pty);
@@ -362,17 +361,17 @@ export class PtyManager {
         try {
           t.proc.kill();
         } catch {
-          // encerrando o servidor: nada a fazer
+          // shutting down server: nothing to do
         }
       }
     }
     this.ptys.clear();
   }
 
-  /** Valida o pedido de uma sessão nova (`reserved`: vagas já prometidas a tomadas em andamento). */
+  /** Validates new session request (`reserved`: slots promised to active takeovers). */
   private plan(p: { cwd: unknown; account?: unknown; cols?: unknown; rows?: unknown }, reserved = 0): SpawnPlan {
     if (!this.opts.spawn) throw new PtyError(503, tr('terminal desligado: {0}', [this.opts.disabledReason ?? tr('indisponível')]));
-    // Antes de tudo (o "assumir" encerra a sessão de lá depois daqui): um claude que não roda abriria um terminal que
+    // Preflight check (takeover terminates remote session after this): non-executable claude would open terminal that
     // sai na hora.
     if (!isExecutableFile(this.opts.claudeBin)) throw new PtyError(503, tr('o executável do Claude Code não roda: {0} (confira o HABBLAUD_CLAUDE_BIN)', [this.opts.claudeBin]));
     if (typeof p.cwd !== 'string' || !isAbsolute(p.cwd)) throw new PtyError(400, tr('informe a pasta do projeto (caminho absoluto)'));
@@ -443,8 +442,8 @@ export class PtyManager {
   }
 
   /**
-   * Agente principal aberto fora do Habblaud, confirmado pelo registro de sessões da conta (mesma sessão) e pelo
-   * sistema (o processo com esse PID começou quando o registro diz e é o Claude Code).
+   * Primary agent opened outside Habblaud, verified by account session registry (same session) and
+   * system (process with this PID started when registry recorded and matches Claude Code).
    */
   private async external(agentId: string): Promise<ExternalProc> {
     const agent = this.mainAgent(agentId);
@@ -472,7 +471,7 @@ export class PtyManager {
     return { pid, proc };
   }
 
-  /** O processo `pid` ainda é o mesmo de `proc` (vivo, mesmo executável e mesmo início)? */
+  /** Is process `pid` still matching `proc` (alive, same executable, same start time)? */
   private async stillSame(pid: number, proc: ProcInfo): Promise<boolean> {
     if (!this.isAlive(pid)) return false;
     const now = await this.procInfo(pid);
@@ -480,7 +479,7 @@ export class PtyManager {
     return proc.fileTime && now.fileTime ? now.fileTime === proc.fileTime : Math.abs(now.startMs - proc.startMs) < 1_000;
   }
 
-  /** Espera `pid` sair (true) ou o tempo acabar (false). */
+  /** Waits for `pid` to exit (true) or timeout to expire (false). */
   private async waitExit(pid: number, ms: number): Promise<boolean> {
     for (let waited = 0; this.isAlive(pid) && waited < ms; waited += 100) await this.sleep(100);
     return !this.isAlive(pid);
@@ -527,8 +526,8 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
 }
 
 /**
- * Carrega o node-pty (dependência opcional) e confere que ele abre um terminal. Devolve null + motivo se não der:
- * sem isso, "Assumir" encerraria a sessão de lá e só depois descobriria que não consegue abrir a de cá.
+ * Loads node-pty (optional dependency) and verifies it can spawn a terminal. Returns null + reason on failure:
+ * prevents takeover from killing remote session before discovering local node-pty cannot spawn.
  */
 export async function loadPty(): Promise<{ spawn: SpawnPty | null; reason?: string }> {
   let ptySpawn: ((file: string, args: string[], o: Record<string, unknown>) => PtyProcess) | undefined;
@@ -544,7 +543,7 @@ export async function loadPty(): Promise<{ spawn: SpawnPty | null; reason?: stri
   if (!ptySpawn) return { spawn: null, reason: tr('node-pty sem spawn()') };
   const nativeSpawn = ptySpawn;
   const spawn: SpawnPty = (file, args, o) => nativeSpawn(file, args, { name: 'xterm-256color', cwd: o.cwd, cols: o.cols, rows: o.rows, env: o.env });
-  // No Windows não há spawn-helper; o teste de spawn foi pensado para o macOS e o Linux.
+  // On Windows there is no spawn-helper; spawn probe is designed for macOS and Linux.
   if (process.platform === 'win32') return { spawn };
   const dir = nodePtyDir();
   if (dir) fixSpawnHelper(dir);
@@ -552,7 +551,7 @@ export async function loadPty(): Promise<{ spawn: SpawnPty | null; reason?: stri
   return problem ? { spawn: null, reason: problem } : { spawn };
 }
 
-/** Pasta do pacote node-pty (undefined se não der para achar). */
+/** Path to node-pty package directory (undefined if not found). */
 function nodePtyDir(): string | undefined {
   try {
     return dirname(createRequire(import.meta.url).resolve('node-pty/package.json'));
@@ -562,9 +561,9 @@ function nodePtyDir(): string | undefined {
 }
 
 /**
- * O node-pty 1.1.0 publica o `spawn-helper` do macOS (prebuilds/darwin-*) sem permissão de execução, e nenhum script
- * de instalação a devolve: sem ela, todo terminal falha com "posix_spawnp failed". Devolve a permissão nas pastas em
- * que o node-pty procura o binário nativo (o spawn-helper usado é o que fica ao lado dele).
+ * node-pty 1.1.0 ships macOS `spawn-helper` (prebuilds/darwin-*) without executable permissions, and no install script
+ * restores it: without it, terminals fail with "posix_spawnp failed". Restores permission across directories
+ * where node-pty searches for native binary (active spawn-helper is co-located with it).
  */
 export function fixSpawnHelper(ptyDir: string, platform: NodeJS.Platform = process.platform, arch: string = process.arch): void {
   for (const sub of ['build/Release', 'build/Debug', `prebuilds/${platform}-${arch}`]) {
@@ -573,12 +572,12 @@ export function fixSpawnHelper(ptyDir: string, platform: NodeJS.Platform = proce
       const mode = statSync(file).mode;
       if (!(mode & 0o100)) chmodSync(file, (mode & 0o777) | 0o111);
     } catch {
-      // não existe (ou não deu para mudar): o teste de spawn diz se o terminal abre
+      // does not exist (or chmod failed): spawn probe determines if terminal opens
     }
   }
 }
 
-/** Abre um terminal de teste (o próprio Node, que sai na hora): null se deu certo, senão o motivo. */
+/** Spawns test terminal (Node process that exits immediately): null on success, otherwise failure reason. */
 export function spawnProblem(spawn: SpawnPty, timeoutMs = 5_000): Promise<string | null> {
   let proc: PtyProcess;
   try {
@@ -587,12 +586,12 @@ export function spawnProblem(spawn: SpawnPty, timeoutMs = 5_000): Promise<string
     return Promise.resolve(tr('node-pty não consegue abrir terminais ({0})', [errMsg(err)]));
   }
   return new Promise((ok) => {
-    // Abriu e não saiu a tempo: o spawn funciona, que é o que interessa aqui.
+    // Spawned and did not exit immediately: spawn works, which is what matters here.
     const timer = setTimeout(() => {
       try {
         proc.kill();
       } catch {
-        // já saiu
+        // already exited
       }
       ok(null);
     }, timeoutMs);

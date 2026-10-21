@@ -1,6 +1,6 @@
-// Botões do topo da janela de terminal: "Assumir daqui" (sessão aberta noutro terminal: encerra lá e continua a
-// mesma conversa aqui, interativa) e "Encerrar". Os dois pedem um segundo clique.
-// Só para agentes principais reais (os do demo não têm processo) e com o terminal interativo ligado.
+// Terminal window header buttons: "Take over here" (session running in another terminal: terminates there and
+// continues the same conversation interactively here) and "Stop". Both require a second confirmation click.
+// Only for real primary agents (demo agents lack processes) and when interactive terminal is enabled.
 import type { AgentInfo } from '../../../shared/types';
 import type { UiContext } from './context';
 import { h, setHidden, setText, setTitle } from './dom';
@@ -25,9 +25,9 @@ export class TermActions {
   constructor(
     private ctx: UiContext,
     private pty: PtyControl,
-    /** Mostrar "Assumir daqui" (sessão aberta noutro terminal). */
+    /** Show "Take over here" (session opened in another terminal). */
     public withTakeover: boolean,
-    /** Encerrar este agente (padrão: pela API; no interativo, fecha o pty). */
+    /** Stop this agent (default: via API; in interactive mode, closes pty). */
     private onStop?: (agent: AgentInfo) => Promise<void>,
   ) {
     this.takeBtn = h('button', { class: 'ui-btn ui-btn--sm ui-btn--accent', type: 'button', on: { click: () => this.run('takeover') } });
@@ -38,7 +38,7 @@ export class TermActions {
     this.el = h('span', { class: 'ui-termact', hidden: true }, this.msg, this.takeBtn, this.stopBtn);
   }
 
-  /** `agent` = agente presente na janela (null = sessão do histórico, saiu ou nenhum). */
+  /** `agent` = agent currently in window (null = history session, exited, or none). */
   render(agent: AgentInfo | null): void {
     if (agent?.id !== this.agent?.id) {
       this.resetConfirm();

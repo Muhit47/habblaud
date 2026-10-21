@@ -1,19 +1,19 @@
-// Rotas do terminal interativo (PtyManager, server/pty/manager.ts):
-//   GET  /api/pty                      estado do recurso e terminais abertos
-//   POST /api/pty                      {cwd, account?, cols?, rows?}: sessão nova do Claude Code
-//   GET  /api/pty/:id/stream           SSE: reset (tela guardada) | data | exit
+// Interactive terminal routes (PtyManager, server/pty/manager.ts):
+//   GET  /api/pty                      feature status and active terminals
+//   POST /api/pty                      {cwd, account?, cols?, rows?}: new Claude Code session
+//   GET  /api/pty/:id/stream           SSE: reset (stored screen) | data | exit
 //   POST /api/pty/:id/input|resize|close
-//   POST /api/agents/:id/stop          encerra o agente (aqui ou noutro terminal)
-//   POST /api/agents/:id/takeover      assume a sessão: encerra lá e retoma aqui
-// Quem controla um terminal destes executa comandos na máquina: só conexões do próprio computador, com Host
-// local e (quando o navegador manda) Origin da mesma origem. A borda (http/guard.ts) já exige JSON nos POST.
+//   POST /api/agents/:id/stop          terminates agent (here or in another terminal)
+//   POST /api/agents/:id/takeover      takes over session: terminates there and resumes here
+// Anyone controlling these terminals executes commands on the machine: strictly local connections with local
+// Host and (when browser sends it) same-origin Origin. Edge guard (http/guard.ts) already requires JSON on POST.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { PtyError, type PtyManager } from '../pty/manager';
 import { HttpError, readJson, sendJson } from './app';
 import { isLoopbackHost } from './guard';
 import { tr } from '../../shared/i18n';
 
-/** /api/agents/:id/(stop|takeover) (ids nunca contêm '/'). */
+/** /api/agents/:id/(stop|takeover) (ids never contain '/'). */
 const AGENT_ACTION_ROUTE = /^\/api\/agents\/([^/]+)\/(stop|takeover)$/;
 
 function isLoopbackAddress(addr: string | undefined): boolean {
@@ -22,7 +22,7 @@ function isLoopbackAddress(addr: string | undefined): boolean {
   return a === '::1' || a.startsWith('127.');
 }
 
-/** Motivo da recusa, ou null. */
+/** Rejection reason, or null. */
 export function ptyRequestProblem(req: IncomingMessage): string | null {
   if (!isLoopbackAddress(req.socket.remoteAddress)) return tr('o terminal interativo só pode ser usado no próprio computador');
   const host = req.headers.host;
@@ -37,7 +37,7 @@ export function ptyRequestProblem(req: IncomingMessage): string | null {
     }
     if (!same) return tr('origem não permitida para o terminal interativo');
   }
-  // Navegadores marcam pedidos de outro site (ou de outra porta do localhost = "same-site").
+  // Browsers flag requests from other sites (or other localhost ports = "same-site").
   const site = req.headers['sec-fetch-site'];
   if (site === 'cross-site' || site === 'same-site') return tr('origem não permitida para o terminal interativo');
   return null;

@@ -1,7 +1,7 @@
-// O stream da cena Mundo no navegador (world-stream.ts): o SSE de mentira (o Node não tem EventSource), os lotes de
-// comandos a cada 200 ms com só o último move, a espera do 429, a reconexão; e a cidade falsa do modo demonstração,
-// determinística (o mesmo relógio dá a mesma cidade), com todo mundo em lugar caminhável, o meu prédio no lote (3,1),
-// alguém sentado num banco da praça, `?perf=N` e o `afk` depois de 60 s sem andar.
+// World scene stream in browser (world-stream.ts): mock SSE (Node lacks EventSource), command batches
+// every 200 ms with latest move only, 429 backoff, reconnection; and deterministic demo city
+// (same clock yields identical city), with entities on walkable tiles, own building on lot (3,1),
+// occupant seated on park bench, `?perf=N`, and `afk` after 60s idle.
 import { describe, expect, it } from 'vitest';
 import type { WorldSceneCommand } from '../../../shared/world/api';
 import { blockAt, chunkId, chunkOf, chunksAround, isWalkable, lotDoor, lotSpiral } from '../../../shared/world/city';
@@ -43,7 +43,7 @@ class FakeES implements EventSourceLike {
   }
 }
 
-/** Relógio e timers à mão. */
+/** Manual clock and timers. */
 function clock() {
   let t = 1_000;
   let seq = 0;
@@ -178,7 +178,7 @@ describe('HttpWorldStream', () => {
     sources[1]!.fire('world.snapshot', snap('s2'));
     await c.advance(0);
     expect(posts[0]?.body.stream).toBe('s2');
-    // Ainda conectando (o próprio navegador tenta): só o status muda.
+    // Still connecting (browser retries): status only updates.
     sources[1]!.fire('error');
     expect(events.at(-1)).toEqual({ type: 'status', status: 'connecting' });
     ws.close();
@@ -206,14 +206,14 @@ describe('FakeWorldStream (modo demonstração)', () => {
     const to = { x: door.x + 2, y: door.y };
     expect(isWalkable(to.x, to.y, () => true)).toBe(true);
     a.send([{ t: 'view' }, { t: 'move', x: to.x, y: to.y, dir: 'e', moving: false }]);
-    // o mesmo stream: view.off e view de novo
+    // same stream: view.off and view again
     a.send([{ t: 'view.off' }, { t: 'view' }]);
     expect(a.snapshot().pos).toEqual({ x: to.x, y: to.y, dir: 'e', moving: false });
-    // fechou a cena (o stream fecha) e abriu de novo: um stream novo, com a mesma memória
+    // scene closed (stream terminates) and reopened: new stream with matching state memory
     a.close();
     const b = new FakeWorldStream({ autoplay: false, now: () => 0, memory });
     expect(b.snapshot().pos).toEqual({ x: to.x, y: to.y, dir: 'e', moving: false });
-    // sem a memória (outra página, os testes), nasce na porta, como sempre
+    // without state memory (another tab, test harness), spawns at entrance as default
     expect(new FakeWorldStream({ autoplay: false, now: () => 0 }).snapshot().pos).toEqual({ x: door.x, y: door.y, dir: 's', moving: false });
   });
 
@@ -237,12 +237,12 @@ describe('FakeWorldStream (modo demonstração)', () => {
     expect(s.pos).toEqual({ x: door.x, y: door.y, dir: 's', moving: false });
     expect(s.players).toHaveLength(6);
     for (const p of s.players) expect(isWalkable(p.pos.x, p.pos.y, () => true), p.id).toBe(true);
-    // quem tem prédio na cidade falsa: o id do jogador é o do prédio, com o mesmo nome
+    // entities with buildings in mock city: player ID matches building ID, sharing name
     for (const p of s.players.filter((x) => x.buildingId)) expect(b.find((x) => x.id === p.buildingId)?.owner.name).toBe(p.name);
     expect(s.minimap?.reduce((n, m) => n + m.lit, 0)).toBe(b.filter((x) => x.state === 'online').length);
-    // Os nomes do modo demonstração são apelidos de mentira, nunca o de quem usa.
+    // Demo mode names are mock handles, never user identity.
     expect(b.every((x) => / /.test(x.owner.name))).toBe(true);
-    // a cena lê o snapshot como vem
+    // scene consumes snapshot as received
     const st = new CityState();
     st.applySnapshot(s, 0);
     expect(st.buildings.size).toBe(20);
@@ -325,11 +325,11 @@ describe('FakeWorldStream (modo demonstração)', () => {
     }
     expect(resyncs).toBe(0);
     expect(state!.player('p_1')?.pos).toEqual(f.snapshot().players[0]?.pos);
-    // A cada 3 s um prédio muda (area.patch com rev + 1), e o estado aplicado bate com o do falso.
+    // Every 3s a building updates (area.patch with rev + 1), and applied state matches mock.
     const fromFake = f.snapshot().chunks.map((c) => [c.chunk, c.rev]);
     expect(fromFake.map(([c]) => [c, state!.chunkRev(c as string)])).toEqual(fromFake);
     expect(fromFake.some(([, rev]) => (rev as number) > 1)).toBe(true);
-    // Dá a volta: depois de 80 s ninguém dos 5 está onde começou.
+    // Stroll completes: after 80s none of the 5 occupants are at starting spot.
     const start = new FakeWorldStream({ autoplay: false, now: () => 0 }).snapshot().players;
     for (const [i, p] of f.snapshot().players.slice(0, 5).entries()) expect(p.pos).not.toEqual(start[i]?.pos);
   });
@@ -349,8 +349,8 @@ describe('FakeWorldStream (modo demonstração)', () => {
     f.on((e) => e.type === 'message' && msgs.push(e.msg));
     await Promise.resolve();
     f.send([{ t: 'move', x: door.x + 1, y: door.y, dir: 'e', moving: true }]);
-    f.send([{ t: 'move', x: 60, y: 5, dir: 'e', moving: true }]); // dentro de um lote
-    f.send([{ t: 'move', x: 21, y: 15, dir: 'e', moving: true }]); // longe demais (a praça)
+    f.send([{ t: 'move', x: 60, y: 5, dir: 'e', moving: true }]); // inside batch
+    f.send([{ t: 'move', x: 21, y: 15, dir: 'e', moving: true }]); // out of reach (plaza)
     f.send([{ t: 'profile', playerId: 'p_2' }, { t: 'profile', playerId: 'ninguem' }, { t: 'like', buildingId: 'b_000' }, { t: 'resync', chunk: 'centro:0,0' }]);
     expect(msgs).toEqual([]);
     t += 200;
@@ -360,7 +360,7 @@ describe('FakeWorldStream (modo demonstração)', () => {
     expect(msgs[0]).toEqual({ t: 'pos', x: door.x + 1, y: door.y });
     expect(msgs[2].player.id).toBe('p_2');
     expect(msgs[3]).toEqual({ t: 'notice', level: 'info', text: 'not_found' });
-    // like longe da porta (o b_000 fica do outro lado do quarteirão): como o servidor, recusa
+    // like too far from door (b_000 is across the block): rejects matching server
     expect(msgs[4]).toEqual({ t: 'notice', level: 'warn', text: 'too_far' });
     expect(msgs[5].chunk).toBe('centro:0,0');
   });
@@ -370,7 +370,7 @@ describe('FakeWorldStream (modo demonstração)', () => {
     const msgs: any[] = [];
     f.on((e) => e.type === 'message' && msgs.push(e.msg));
     await Promise.resolve();
-    // eu na calçada oeste do quarteirão (1,0), rente ao lote (3,0): x = 51 − 0,004
+    // player on west sidewalk of block (1,0), adjacent to lot (3,0): x = 51 − 0.004
     f.send([{ t: 'move', x: door.x - 5, y: door.y, dir: 'w', moving: true }]);
     f.send([{ t: 'move', x: 52, y: door.y, dir: 'w', moving: true }]);
     f.send([{ t: 'move', x: 50.5, y: 24, dir: 'n', moving: true }]);
@@ -395,13 +395,13 @@ describe('FakeWorldStream (modo demonstração)', () => {
     f.send([{ t: 'enter', buildingId: 'nao_existe' }]);
     f.tick();
     expect(msgs.filter((m) => m.t === 'notice').map((m) => m.text)).toEqual(['too_far', 'not_found']);
-    // fechado, mesmo na porta
+    // closed, even at doorway
     const door = lotDoor(closed.lot).front;
     (f as unknown as { me: object }).me = { x: door.x, y: door.y, dir: 'n', moving: false };
     f.send([{ t: 'enter', buildingId: closed.id }]);
     f.tick();
     expect(msgs.filter((m) => m.t === 'notice').at(-1)).toMatchObject({ t: 'notice', text: 'closed' });
-    // o meu prédio, de qualquer lugar ("ver como os outros veem"); o dono não conta como visitante
+    // own building from any position ("inspect visitor view"); owner does not count as visitor
     msgs.length = 0;
     f.send([{ t: 'enter', buildingId: FAKE_ME.id }]);
     f.tick();
@@ -409,12 +409,12 @@ describe('FakeWorldStream (modo demonstração)', () => {
     expect(msgs[0].detail.floors).toHaveLength(3);
     expect(f.snapshot().inside).toMatchObject({ id: FAKE_ME.id, rev: 1 });
     expect(f.snapshot().players).toEqual([]);
-    // 3 s: um patch com o rev seguinte (e nada de players, area ou minimap)
+    // 3s: patch with subsequent rev (excluding players, area, or minimap)
     msgs.length = 0;
     for (let i = 0; i < 30; i++) f.tick();
     expect(msgs.map((m) => m.t)).toEqual(['building.patch', 'building.patch']);
     expect(msgs.map((m) => m.rev)).toEqual([2, 3]);
-    // leave: pos na porta e as áreas de novo
+    // leave: pos at doorway and fresh area state
     msgs.length = 0;
     f.send([{ t: 'leave' }]);
     f.tick();
@@ -467,7 +467,7 @@ describe('FakeWorldStream (modo demonstração)', () => {
       return { f, msgs, t };
     };
     const doorOf = (id: string) => lotDoor(fakeCityBuildings().find((b) => b.id === id)!.lot).front;
-    /** Leva o "eu" do falso até a porta (passos curtos, como o MoveSender). */
+    /** Drives mock player to doorway (incremental steps, like MoveSender). */
     const walkTo = (f: FakeWorldStream, to: { x: number; y: number }) => {
       let { x, y } = f.snapshot().pos!;
       while (Math.hypot(to.x - x, to.y - y) > 0.01) {
@@ -500,7 +500,7 @@ describe('FakeWorldStream (modo demonstração)', () => {
       expect(out).toEqual([
         { t: 'notice', level: 'warn', text: 'invalid' },
         { t: 'like.update', buildingId: 'b_004', likes: expect.any(Number), likedByMe: true },
-        // como o servidor: o carimbo que valeu responde `stamped`; o segundo do dia, `already_done`
+        // matching server: accepted stamp responds `stamped`; second of day returns `already_done`
         { t: 'notice', level: 'info', text: 'stamped' },
         { t: 'notice', level: 'info', text: 'already_done' },
         { t: 'notice', level: 'warn', text: 'too_far' },
@@ -570,12 +570,12 @@ describe('FakeWorldStream (modo demonstração)', () => {
       expect(msgs.find((m) => m.t === 'pos')).toEqual({ t: 'pos', x: front.x, y: front.y });
       expect(msgs.some((m) => m.t === 'area')).toBe(true);
       expect(msgs.filter((m) => m.t === 'notice')).toEqual([{ t: 'notice', level: 'info', text: 'not_found' }]);
-      // o próximo passo, perto da porta nova, é aceito (sem `pos` de correção)
+      // subsequent step near new door accepted (without corrective `pos`)
       const n = msgs.length;
       f.send([{ t: 'move', x: front.x + 1, y: front.y, dir: 'e', moving: true }]);
       f.tick();
       expect(msgs.slice(n).filter((m) => m.t === 'pos')).toEqual([]);
-      // aleatório: um prédio aceso que não é o meu
+      // random: illuminated building not belonging to self
       f.send([{ t: 'teleport' }]);
       f.tick();
       const last = msgs.filter((m) => m.t === 'pos').pop();

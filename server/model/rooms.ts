@@ -1,4 +1,4 @@
-// Salas do escritório: identidade (cwd normalizado), nome exibido e posição (slot) no prédio.
+// Office rooms: identity (normalized cwd), display name, and slot position in building.
 
 /** cwd normalizado: sem barras repetidas nem barra final. */
 export function normalizeCwd(cwd: string): string {
@@ -11,8 +11,8 @@ function segments(path: string): string[] {
 }
 
 /**
- * Nome de cada sala: o basename do caminho; salas com o mesmo basename ganham o(s) diretório(s)
- * pai até ficarem distintas (ex.: "applications/app" e "outro/app").
+ * Room name: directory basename; rooms sharing same basename include minimal parent
+ * directories until unique (e.g. "applications/app" and "other/app").
  */
 export function roomDisplayNames(rooms: ReadonlyMap<string, string>): Map<string, string> {
   const segs = new Map([...rooms].map(([id, path]) => [id, segments(path)]));
@@ -43,8 +43,8 @@ export function roomDisplayNames(rooms: ReadonlyMap<string, string>): Map<string
 }
 
 /**
- * Distribui slots: a sala nova pega o menor slot livre que não esteja em espera.
- * Um slot liberado só volta a ser usado após `cooldownMs` (tempo da animação de saída).
+ * Allocates slots: new room claims lowest free slot not in cooldown.
+ * A released slot is reused only after `cooldownMs` (exit animation duration).
  */
 export class SlotAllocator {
   private slots = new Map<string, number>();
@@ -52,7 +52,7 @@ export class SlotAllocator {
 
   constructor(private readonly cooldownMs = 30_000) {}
 
-  /** Ajusta as alocações ao conjunto atual de salas. Devolve true se algo mudou. */
+  /** Updates allocations to current active set of rooms. Returns true if changed. */
   sync(ids: Iterable<string>, now: number): boolean {
     const live = new Set(ids);
     let changed = false;

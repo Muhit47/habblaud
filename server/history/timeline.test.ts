@@ -72,23 +72,23 @@ describe('gravador da linha do tempo', () => {
 
     now += 200;
     rec.ingest(snap([agent('.claude:1', { status: 'idle', statusSince: now })]));
-    expect(read()).toHaveLength(1); // dentro do throttle
+    expect(read()).toHaveLength(1); // within throttle window
     now += 300;
     rec.ingest(snap([agent('.claude:1', { status: 'waiting', statusSince: now, waitingFor: 'responder' })]));
     expect(read()).toHaveLength(1);
-    now += 600; // 1,1 s depois do keyframe: o relógio interno grava o estado mais recente
+    now += 600; // 1.1s after keyframe: internal clock writes most recent state
     rec.tick();
     recs = read();
     expect(recs).toHaveLength(2);
     expect(recs[1]).toEqual({ t: 'd', at: now, agents: [['.claude:1', { status: 'waiting', statusSince: T0 + 500, waitingFor: 'responder' }]] });
 
-    // Mudança só no que o player não desenha (números, rev): nada.
+    // Changes only in what player does not draw (numbers, rev): no-op.
     now += 5_000;
     rec.ingest({ ...snap([agent('.claude:1', { status: 'waiting', statusSince: T0 + 500, waitingFor: 'responder', stats: { toolCalls: 9, tokensIn: 1, tokensOut: 1, subagents: 0 } })]), rev: 99 });
     rec.tick();
     expect(read()).toHaveLength(2);
 
-    // Agente novo e o antigo saindo, no mesmo delta.
+    // New agent arriving and former one exiting in the same delta.
     now += 1_000;
     rec.ingest(snap([agent('.claude:2', { name: 'Caio' })]));
     const d = read()[2] as TimelineDelta;
@@ -137,7 +137,7 @@ describe('gravador da linha do tempo', () => {
     now += 10;
     rec.stop();
     expect(read().at(-1)).toEqual({ t: 'end', at: T0 + 300_010 });
-    // Reinício no mesmo dia: continua o mesmo arquivo, com um keyframe de boot.
+    // Same-day restart: continues same file with a boot keyframe.
     const again = recorder();
     now += 60_000;
     again.ingest(snap([]));
@@ -167,7 +167,7 @@ describe('gravador da linha do tempo', () => {
     writeFileSync(join(dir, '2026-02-30.jsonl'), 'x');
     recorder().ingest(snap([]));
     expect(readdirSync(dir).sort()).toEqual(['2026-02-30.jsonl', ...keep.map((d) => `${d}.jsonl`), '2026-10-07.jsonl', 'anotacoes.txt'].sort());
-    // retentionDays 0 = nunca apaga (gerador do timelapse fictício)
+    // retentionDays 0 = never delete (generator for synthetic timelapse)
     writeFileSync(join(dir, '2020-01-01.jsonl'), '{}\n');
     now = new Date(2026, 9, 8, 9).getTime();
     recorder({ retentionDays: 0 }).ingest(snap([]));
@@ -186,10 +186,10 @@ describe('gravador da linha do tempo', () => {
     const before = read().length;
     step(1_000);
     step(1_000);
-    expect(read()).toHaveLength(before); // agora só a cada 10 s
+    expect(read()).toHaveLength(before); // now only every 10s
     step(8_000);
     expect(read()).toHaveLength(before + 1);
-    // O keyframe seguinte já anuncia o intervalo longo.
+    // Subsequent keyframe announces long interval.
     now += 600_000;
     rec.tick();
     expect(read().at(-1)).toMatchObject({ t: 'k', every: 600_000 });
@@ -200,7 +200,7 @@ describe('gravador da linha do tempo', () => {
     now += 3_600_000;
     rec.tick();
     expect(read()).toHaveLength(recs.length);
-    // Dia seguinte: grava de novo.
+    // Next day: records again.
     now = new Date(2026, 9, 8, 8).getTime();
     rec.tick();
     expect(read('2026-10-08')[0]).toMatchObject({ t: 'k' });
@@ -215,7 +215,7 @@ describe('gravador da linha do tempo', () => {
     rmSync(blocked);
     now += 30_000;
     rec.ingest(snap([agent('.claude:1', { status: 'idle' })]));
-    expect(existsSync(join(blocked, 'timeline'))).toBe(false); // ainda esperando
+    expect(existsSync(join(blocked, 'timeline'))).toBe(false); // still waiting
     now += 30_000;
     rec.tick();
     const recs = parseTimeline(readFileSync(join(blocked, 'timeline', '2026-10-07.jsonl'), 'utf8'));
@@ -231,7 +231,7 @@ describe('dias disponíveis', () => {
     mkdirSync(dir, { recursive: true });
     const a = join(dir, '2026-10-06.jsonl');
     writeFileSync(a, `${JSON.stringify({ t: 'k', at: 100, v: 1, every: 1, rooms: [], agents: [], accounts: [] })}\n${JSON.stringify({ t: 'd', at: 250, agents: [['x', { activity: { at: 999 } }]] })}\n`);
-    // Última linha incompleta (ainda sendo gravada): fica de fora.
+    // Trailing incomplete line (still being written): excluded.
     appendFileSync(a, '{"t":"d","at":300,"agents":[[');
     writeFileSync(join(dir, '2026-10-07.jsonl'), `${JSON.stringify({ t: 'k', at: 500, v: 1, every: 1, rooms: [], agents: [], accounts: [] })}\n`);
     writeFileSync(join(dir, '2026-10-05.jsonl'), '');

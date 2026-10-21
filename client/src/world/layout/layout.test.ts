@@ -22,7 +22,7 @@ function roomsFor(slots: number[]): AreaLayout[] {
 }
 
 describe('mapeamento de slots', () => {
-  it('coluna = núcleo + floor(slot/2); par = norte, ímpar = sul', () => {
+  it('column = core + floor(slot/2); even = north, odd = south', () => {
     expect(slotColumn(0)).toBe(3);
     expect(slotColumn(1)).toBe(3);
     expect(slotColumn(2)).toBe(4);
@@ -34,7 +34,7 @@ describe('mapeamento de slots', () => {
     expect(slotAt(slotColumn(9), slotSide(9))).toBe(9);
   });
 
-  it('retângulos das salas não se sobrepõem e respeitam o corredor', () => {
+  it('room rectangles do not overlap and respect corridor', () => {
     const a = slotRect(0);
     const b = slotRect(1);
     expect(a).toEqual({ x: 3 * COL_W, y: 0, w: COL_W, h: 12 });
@@ -43,7 +43,7 @@ describe('mapeamento de slots', () => {
     expect(b.y + b.h).toBe(BUILDING_H);
   });
 
-  it('largura do prédio: núcleo + maior coluna usada + 1 (mínimo 1 coluna de projeto)', () => {
+  it('building width: core + highest column used + 1 (minimum 1 project column)', () => {
     expect(columnsFor([])).toBe(4);
     expect(columnsFor([0, 1])).toBe(4);
     expect(columnsFor([5])).toBe(6);
@@ -51,7 +51,7 @@ describe('mapeamento de slots', () => {
   });
 });
 
-describe('layout do prédio', () => {
+describe('building layout', () => {
   const slots = [0, 1, 2, 3, 4, 7];
   const rooms = roomsFor(slots);
   const cols = columnsFor(slots);
@@ -61,13 +61,13 @@ describe('layout do prédio', () => {
   const reach = b.grid.reachableFrom(elevator.tx, elevator.ty);
   const reachable = (x: number, y: number) => reach[y * b.grid.w + x] === 1;
 
-  it('há dois elevadores com tiles de aproximação caminháveis', () => {
+  it('two elevators exist with walkable approach tiles', () => {
     const elevators = reception.spots.filter((s) => s.kind === 'elevator');
     expect(elevators).toHaveLength(2);
     for (const e of elevators) expect(b.grid.walkable(e.tx, e.ty)).toBe(true);
   });
 
-  it('todos os spots são alcançáveis a partir dos elevadores', () => {
+  it('all spots are reachable from elevators', () => {
     const unreachable = b.spots.filter((s) => !reachable(s.tx, s.ty)).map((s) => s.id);
     expect(unreachable).toEqual([]);
   });
@@ -78,12 +78,12 @@ describe('layout do prédio', () => {
       expect(door).toBeDefined();
       for (let x = door.x; x < door.x + door.w; x++) {
         for (let y = door.y; y < door.y + door.h; y++) expect(b.grid.walkable(x, y)).toBe(true);
-        // tile do corredor imediatamente fora da porta
+        // hallway tile immediately outside door
         const outside = room.side === 'north' ? door.y + door.h : door.y - 1;
         expect(outside >= CORRIDOR_Y && outside < SOUTH_Y).toBe(true);
         expect(reachable(x, outside)).toBe(true);
       }
-      // o interior inteiro (fora móveis) é alcançável
+      // entire interior (excluding obstacles) is reachable
       const r = room.rect;
       for (let y = r.y + 2; y < r.y + 11; y++)
         for (let x = r.x + 1; x < r.x + 15; x++) if (b.grid.walkable(x, y)) expect(reachable(x, y)).toBe(true);
@@ -106,7 +106,7 @@ describe('layout do prédio', () => {
     }
   });
 
-  it('móveis bloqueantes não se sobrepõem e ficam dentro da área', () => {
+  it('blocking furniture does not overlap and stays within area', () => {
     for (const area of [...b.core, b.corridor, ...rooms]) {
       const used = new Map<string, string>();
       for (const f of area.furniture) {
@@ -127,12 +127,12 @@ describe('layout do prédio', () => {
     }
   });
 
-  it('spots têm ids únicos', () => {
+  it('spots have unique ids', () => {
     const ids = b.spots.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('pontos de conversa e ping-pong vêm em pares', () => {
+  it('conversation and ping-pong spots come in pairs', () => {
     const groups = new Map<string, number>();
     for (const s of b.spots) if (s.group && (s.kind === 'talk' || s.kind === 'pingpong')) groups.set(s.group, (groups.get(s.group) ?? 0) + 1);
     for (const [, n] of groups) expect(n).toBe(2);
@@ -147,7 +147,7 @@ describe('layout do prédio', () => {
     expect(plants.length).toBeLessThanOrEqual(cols * 2);
   });
 
-  it('a área externa e os pátios cobrem o prédio', () => {
+  it('exterior area and patios cover the building', () => {
     const ext = layoutExterior(cols);
     expect(ext.bounds.x).toBeLessThan(0);
     expect(ext.bounds.x + ext.bounds.w).toBeGreaterThan(cols * COL_W);
@@ -157,11 +157,11 @@ describe('layout do prédio', () => {
   });
 });
 
-/** Móveis de chão altos que escondem o que está pendurado na parede logo atrás. */
+/** Tall floor furniture that obscures items hanging on wall directly behind. */
 const TALL_FLOOR = new Set<FurnitureKind>(['plant_tall', 'bookshelf', 'binder_shelf', 'fridge', 'vending_machine', 'arcade', 'water_cooler', 'floor_lamp', 'toilet_stall']);
 const WALL_DECOR = new Set<FurnitureKind>(['painting', 'poster', 'window', 'tv', 'whiteboard', 'sign', 'clock', 'mirror', 'door_frame']);
 
-/** Itens de parede decorativos com algum móvel alto encostado na frente (ids). */
+/** Decorative wall items with tall furniture obstructing them in front (ids). */
 function hiddenWallItems(area: AreaLayout): string[] {
   const out: string[] = [];
   for (const w of area.wallItems) {
@@ -172,16 +172,16 @@ function hiddenWallItems(area: AreaLayout): string[] {
       if (!TALL_FLOOR.has(f.kind) || f.ty !== wy) continue;
       const fx0 = f.tx * TILE + (f.dx ?? 0);
       const fx1 = fx0 + FURNITURE[f.kind].footprint.w * TILE;
-      if (fx0 < w.cx + half && fx1 > w.cx - half) out.push(`${w.id} atrás de ${f.id}`);
+      if (fx0 < w.cx + half && fx1 > w.cx - half) out.push(`${w.id} behind ${f.id}`);
     }
   }
   return out;
 }
 
-describe('variações das salas de projeto', () => {
+describe('project room variations', () => {
   const seeds = Array.from({ length: 90 }, (_, i) => (i * 7919 + 13) >>> 0);
 
-  it('toda variação é válida: sem sobreposição, tudo alcançável, lugares suficientes', () => {
+  it('all variations are valid: no overlaps, fully reachable, sufficient seats', () => {
     for (const slot of [0, 1]) {
       for (const seed of seeds) {
         const room = layoutProjectRoom({ id: `/v/${seed}`, slot, seed }, theme);
@@ -199,26 +199,26 @@ describe('variações das salas de projeto', () => {
         }
         const door = room.door!;
         const reach = b.grid.reachableFrom(door.x, door.y);
-        for (const sp of room.spots) expect(reach[sp.ty * b.grid.w + sp.tx], `${sp.id} inalcançável (semente ${seed})`).toBe(1);
+        for (const sp of room.spots) expect(reach[sp.ty * b.grid.w + sp.tx], `${sp.id} unreachable (seed ${seed})`).toBe(1);
         const r = room.rect;
         for (let y = r.y + 2; y < r.y + 11; y++)
           for (let x = r.x + 1; x < r.x + 15; x++) if (b.grid.walkable(x, y)) expect(reach[y * b.grid.w + x], `tile ${x},${y} isolado (semente ${seed})`).toBe(1);
         expect(room.spots.filter((sp) => sp.kind === 'desk')).toHaveLength(6);
         expect(room.spots.filter((sp) => sp.kind === 'stool' || sp.kind === 'nook').length).toBeGreaterThanOrEqual(4);
-        // spots de uso não podem cair em cima de móvel que bloqueia
-        for (const sp of room.spots) expect(b.grid.walkable(sp.tx, sp.ty), `${sp.id} sobre móvel`).toBe(true);
+        // usable spots cannot lie on blocking furniture
+        for (const sp of room.spots) expect(b.grid.walkable(sp.tx, sp.ty), `${sp.id} on furniture`).toBe(true);
         expect(hiddenWallItems(room)).toEqual([]);
       }
     }
   });
 
-  it('as salas não são todas iguais: espelhamento, canto de reunião e cantos variam', () => {
+  it('rooms are varied: mirroring, meeting nook, and corners vary', () => {
     const vs = seeds.map(roomVariant);
     expect(new Set(vs.map((v) => v.mirror)).size).toBe(2);
     expect(new Set(vs.map((v) => v.meeting)).size).toBe(3);
     expect(new Set(vs.map((v) => v.left)).size).toBeGreaterThan(1);
     expect(new Set(vs.map((v) => v.right)).size).toBeGreaterThan(1);
-    // o piso é porcelanato (azulejo é do banheiro) com um leve tom da sala
+    // floor is porcelain tile (ceramic is for bathroom) with subtle room tint
     const room = layoutProjectRoom({ id: '/v/x', slot: 0, seed: 42 }, theme);
     expect(room.floors.every((f) => f.kind !== 'tile_white')).toBe(true);
     expect(room.floorTint).toBe(theme.carpet);
@@ -226,11 +226,11 @@ describe('variações das salas de projeto', () => {
 });
 
 describe('itens de parede', () => {
-  it('quadros, janelas, TV, placas e espelhos não ficam atrás de móveis altos', () => {
+  it('paintings, windows, TV, signs, and mirrors do not sit behind tall furniture', () => {
     for (const area of [...coreAreas(), ...roomsFor([0, 1, 2, 3, 4, 7])]) expect(hiddenWallItems(area), area.id).toEqual([]);
   });
 
-  it('passagens nas faces das paredes têm batente', () => {
+  it('wall face passages have door frames', () => {
     const restroom = coreAreas().find((a) => a.kind === 'restroom')!;
     expect(restroom.wallItems.some((w) => w.kind === 'door_frame')).toBe(true);
     for (const room of roomsFor([1, 3, 7])) expect(room.wallItems.some((w) => w.kind === 'door_frame'), room.id).toBe(true);

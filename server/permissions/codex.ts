@@ -1,19 +1,19 @@
-// Pedidos de aprovação do Codex (hook PermissionRequest de mod/habblaud-codex/hook.mjs): título, resumo e argumentos
-// pelos nomes de ferramenta que o Codex manda no hook (0.162):
-// - Bash: {command, description?}. O acesso à rede também chega como Bash, com description "network-access <alvo>";
-// - apply_patch: {command: <o patch>} ("*** Begin Patch", "*** Update File: <caminho>", linhas -/+): vai como diff;
+// Codex permission approvals (PermissionRequest hook from mod/habblaud-codex/hook.mjs): title, summary, and
+// arguments parsed from tool names sent by Codex hook (0.162):
+// - Bash: {command, description?}. Network access also arrives as Bash with description "network-access <target>";
+// - apply_patch: {command: <patch>} ("*** Begin Patch", "*** Update File: <path>", -/+ lines): rendered as diff;
 // - request_permissions: {reason, permissions};
-// - mcp__<servidor>__<ferramenta>: os argumentos da ferramenta MCP;
-// - write_stdin: {session_id, chars, ...}. Aqui `session_id` é o id de um PROCESSO (o terminal em que o agente
-//   digita), não o da sessão; `chars` pode ser uma senha digitada num prompt: o título só diz o tamanho e o texto
-//   (mascarado) fica no detalhe, que só sai por GET /api/permissions/:id.
-// Tudo mascarado (maskSecrets) e cortado como no terminal.
+// - mcp__<server>__<tool>: MCP tool invocation arguments;
+// - write_stdin: {session_id, chars, ...}. Here `session_id` is a PROCESS ID (terminal where agent
+//   types), not session ID; `chars` could be a password typed into a prompt: title only indicates length and text
+//   (masked) is placed in details, exposed only via GET /api/permissions/:id.
+// All masked (maskSecrets) and truncated matching terminal behavior.
 import { basename, describeTool, maskSecrets, truncate } from '../../shared/activity';
 import type { TerminalInputKind } from '../../shared/types';
 import { TITLE_ARG_MAX, toolView } from '../sources/terminal';
 import { tr } from '../../shared/i18n';
 
-/** Resumo de um pedido do Codex: o que vai em PermissionRequestInfo (title, text, icon, input, inputKind). */
+/** Codex permission request summary: payload for PermissionRequestInfo (title, text, icon, input, inputKind). */
 export interface CodexToolView {
   title: string;
   text: string;
@@ -24,9 +24,9 @@ export interface CodexToolView {
 
 type Rec = Record<string, unknown>;
 
-/** Tamanho do resumo (o mesmo das atividades). */
+/** Summary length limit (matching activity summaries). */
 const TEXT_MAX = 46;
-/** Prefixo da description do Bash num pedido de acesso à rede. */
+/** Prefix for Bash description in network access request. */
 const NETWORK = /^network-access\s+(\S[\s\S]*)$/;
 const PATCH_FILE = /^\*\*\* (Add|Update|Delete) File: (.+)$/gm;
 
@@ -34,12 +34,12 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() ? v : undefined;
 }
 
-/** Uma linha mascarada e cortada. */
+/** Single masked and truncated line. */
 function line(s: string, max: number): string {
   return truncate(maskSecrets(s.slice(0, max * 8)), max);
 }
 
-/** Texto mascarado e cortado como o terminal mostra os argumentos (o mesmo tratamento do comando do Bash). */
+/** Text masked and truncated matching terminal argument formatting (same as Bash command handling). */
 function shown(raw: string | undefined, inputKind: TerminalInputKind): Pick<CodexToolView, 'input' | 'inputKind'> {
   const input = raw?.trim() ? toolView('Bash', { command: raw }).input : undefined;
   return input ? { input, inputKind } : {};
@@ -51,18 +51,18 @@ function relPath(p: string, cwd: string | undefined): string {
   return base && p.startsWith(`${base}/`) ? p.slice(base.length + 1) : p;
 }
 
-/** Arquivos de um patch do apply_patch, na ordem. */
+/** Files in an apply_patch patch, in order. */
 export function patchFiles(patch: string | undefined): Array<{ op: 'Add' | 'Update' | 'Delete'; path: string }> {
   if (!patch) return [];
   return [...patch.slice(0, 200_000).matchAll(PATCH_FILE)].map((m) => ({ op: m[1] as 'Add' | 'Update' | 'Delete', path: m[2].trim() }));
 }
 
-/** Texto do write_stdin com os caracteres de controle visíveis ("y\n", "\u0003"). */
+/** write_stdin text with control characters rendered visible ("y\n", "\u0003"). */
 function escaped(chars: string): string {
   return JSON.stringify(chars.slice(0, 2_000)).slice(1, -1);
 }
 
-/** Título, resumo e argumentos de um pedido do Codex. */
+/** Title, summary, and arguments for a Codex request. */
 export function codexToolView(tool: string, input: Rec, cwd?: string): CodexToolView {
   switch (tool) {
     case 'Bash': {

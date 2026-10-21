@@ -1,8 +1,8 @@
-// Histórico do terminal do Codex (o HistoryProvider 'codex', ver sources/source.ts): as conversas recentes de cada
-// conta do Codex (abertas ou já encerradas), listadas a partir dos rollouts em sessions/AAAA/MM/DD/ e
-// archived_sessions/ modificados nos últimos 7 dias. De cada arquivo lê só o começo (session_meta: projeto; e a
-// primeira instrução: o título) e o fim (última atividade), com cache enquanto o mtime e o tamanho não mudam.
-// Subagentes e threads internos (guardian, revisão...) ficam de fora, como os subagentes do Claude Code.
+// Codex terminal history ('codex' HistoryProvider, see sources/source.ts): recent conversations for each
+// Codex account (open or closed), listed from rollouts in sessions/YYYY/MM/DD/ and
+// archived_sessions/ modified in last 7 days. Reads only head (session_meta: project; initial
+// instruction: title) and tail (last activity), cached while mtime and size remain unchanged.
+// Subagents and internal threads (guardian, review...) are excluded, matching Claude Code subagent rules.
 import { readdirSync, realpathSync, statSync } from 'node:fs';
 import { open, readdir, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
@@ -16,30 +16,30 @@ import { createCodexState, isThreadId, metaFromLine, parseRolloutLine, type Roll
 import { createCodexTerminalParser } from './terminal';
 import { tr } from '../../../shared/i18n';
 
-/** Começo lido de cada rollout (o session_meta costuma caber; senão lê mais, até META_MAX). */
+/** Head read from each rollout (session_meta usually fits; otherwise reads more up to META_MAX). */
 const HEAD_BYTES = 64 * 1024;
 const META_MAX = 1024 * 1024;
-/** Trecho depois do session_meta onde a primeira instrução é procurada. */
+/** Slice following session_meta where initial instruction is searched. */
 const PROMPT_BYTES = 128 * 1024;
 const TAIL_BYTES = 64 * 1024;
 const READ_CONCURRENCY = 8;
 
 export interface CodexHistoryAccount {
   id: string;
-  /** Pasta do Codex lida por este processo (no Docker, a montada). */
+  /** Codex directory read by this process (in Docker, mounted path). */
   dir: string;
 }
 
 export interface CodexHistoryOptions {
   accounts: () => readonly CodexHistoryAccount[];
-  /** Agente principal da sessão, se ela ainda estiver aberta no escritório. */
+  /** Main session agent, if still active in office. */
   openAgentOf: (account: string, sessionId: string) => string | undefined;
   now?: () => number;
   maxAgeMs?: number;
   limit?: number;
 }
 
-/** O que o começo e o fim do rollout dizem sobre a conversa. */
+/** What rollout head and tail indicate about conversation. */
 export interface RolloutSummary {
   meta?: RolloutMeta;
   title?: string;
@@ -86,7 +86,7 @@ export class CodexHistory implements HistoryProvider {
     const out: RecentSession[] = [];
     picked.forEach((c, i) => {
       const s = summaries[i];
-      // Subagentes e threads internos não são conversas suas.
+      // Subagents and internal threads are not user conversations.
       if (s.meta?.internal || s.meta?.parentThreadId) return;
       const agentId = this.opts.openAgentOf(c.account, c.threadId);
       if (!agentId && s.firstAt === undefined && s.lastAt === undefined) return;
@@ -110,8 +110,8 @@ export class CodexHistory implements HistoryProvider {
   }
 
   /**
-   * Rollout do thread `sessionId` da conta, validado: conta conhecida, id com formato de UUID e o arquivo (com links
-   * resolvidos) dentro da pasta da conta. Um rollout só compactado (.jsonl.zst) ainda não dá para ler: 404.
+   * Validated rollout for thread `sessionId` of account: known account, UUID format id, and resolved file
+   * located inside account directory. Compressed-only rollout (.jsonl.zst) cannot be read yet: 404.
    */
   resolve(account: string, sessionId: string): HistoryResolveResult {
     if (!isThreadId(sessionId)) return { status: 400, error: tr('id de sessão inválido') };
@@ -142,13 +142,13 @@ export class CodexHistory implements HistoryProvider {
         }
         try {
           const real = realpathSync(join(dir, name));
-          // Um link apontando para fora da pasta da conta não serve.
+          // Symlink pointing outside account directory is rejected.
           if (!real.startsWith(root + sep)) continue;
           const st = statSync(real);
           if (!st.isFile()) continue;
           if (!best || st.mtimeMs > best.mtimeMs) best = { path: real, mtimeMs: st.mtimeMs };
         } catch {
-          // sumiu entre a listagem e a leitura
+          // disappeared between listing and reading
         }
       }
     }
@@ -156,7 +156,7 @@ export class CodexHistory implements HistoryProvider {
     return { status: 404, error: compressed ? tr('sessão compactada pelo Codex (.zst): ainda não dá para ler') : tr('sessão não encontrada') };
   }
 
-  /** Rollouts (um por thread: o mais recente) modificados dentro da janela. */
+  /** Rollouts (one per thread: most recent) modified within window. */
   private async candidates(acc: CodexHistoryAccount, now: number): Promise<Candidate[]> {
     const byThread = new Map<string, Candidate>();
     for (const dir of rolloutDirs(acc.dir)) {
@@ -198,7 +198,7 @@ export class CodexHistory implements HistoryProvider {
   }
 }
 
-/** Lê o começo e o fim do rollout (de tamanho `size`): session_meta, primeira instrução e horários. */
+/** Reads head and tail of rollout (of size `size`): session_meta, initial prompt, and timestamps. */
 export async function readRolloutSummary(path: string, size: number): Promise<RolloutSummary> {
   const fh = await open(path, 'r');
   try {
@@ -209,7 +209,7 @@ export async function readRolloutSummary(path: string, size: number): Promise<Ro
     };
     let head = await read(0, HEAD_BYTES);
     let nl = head.indexOf(0x0a);
-    // session_meta grande (instruções base, ferramentas): lê mais, até META_MAX.
+    // Large session_meta (base instructions, tools): reads more up to META_MAX.
     while (nl === -1 && head.length < Math.min(size, META_MAX)) {
       const more = await read(head.length, HEAD_BYTES * 4);
       if (!more.length) break;
@@ -250,7 +250,7 @@ export async function readRolloutSummary(path: string, size: number): Promise<Ro
   }
 }
 
-/** map() assíncrono com no máximo `limit` tarefas ao mesmo tempo (mantém a ordem). */
+/** Async map() with at most `limit` concurrent tasks (preserves order). */
 async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out = new Array<R>(items.length);
   let next = 0;

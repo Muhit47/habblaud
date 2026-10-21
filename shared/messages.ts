@@ -1,18 +1,18 @@
-// Mensagens pelo escritório (POST /api/messages): o que o servidor, o demo e a página têm em comum.
-// Código puro: sem APIs de Node nem de DOM.
+// In-office messages (POST /api/messages): common between server, demo, and page.
+// Pure code: no Node or DOM APIs.
 import { maskSecrets, truncate, type ActivityDescription } from './activity';
 import { tr } from './i18n';
 
-/** Tamanho máximo de uma mensagem (caracteres). */
+/** Maximum message length (characters). */
 export const MESSAGE_MAX = 20_000;
-/** `Activity.tool` da atividade "Mensagem pelo Habblaud" (não é uma ferramenta do agente: é o seu texto entrando). */
+/** `Activity.tool` for "Message via Habblaud" activity (not an agent tool: it represents incoming text). */
 export const MESSAGE_TOOL = 'HabblaudMessage';
-/** Detalhe da atividade: o começo do texto, mascarado e cortado (o texto inteiro vai só para a sessão). */
+/** Activity detail: beginning of text, masked and truncated (full text only goes to session). */
 const DETAIL_MAX = 300;
 
 /**
- * Atividade "Mensagem pelo Habblaud" de uma mensagem entregue à sessão (entrou nela ou na fila dela: não quer dizer
- * que o agente já leu).
+ * "Message via Habblaud" activity for a message delivered to session (entered it or its queue: does not
+ * mean agent has read it yet).
  */
 export function describeMessage(text: string): ActivityDescription & { tool: string } {
   const detail = truncate(maskSecrets(text.slice(0, DETAIL_MAX * 4)), DETAIL_MAX);

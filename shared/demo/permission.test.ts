@@ -1,12 +1,12 @@
-// Pedidos de permissão fictícios do demo: aparecem na espera, respondem pelo escritório (aprovar, recusar,
-// responder a pergunta, devolver ao terminal) e somem quando a espera acaba sozinha.
+// Mock permission requests for demo: appear on waiting, answered via office (approve, deny,
+// answer question, return to terminal) and disappear when wait ends on its own.
 import { describe, expect, it } from 'vitest';
 import { mulberry32 } from '../hash';
 import { DEMO_CODEX_PERMISSION_MS, demoCodexPermission, demoPermission } from './permission';
 import { DemoSimulator } from './simulator';
 
 describe('demoPermission', () => {
-  it('monta pedidos completos (título, resumo, argumentos) com prazo', () => {
+  it('builds full requests (title, summary, arguments) with expiration', () => {
     const kinds = new Set<string>();
     for (let seed = 1; seed < 60; seed++) {
       const p = demoPermission(`p${seed}`, { files: ['src/app.ts'], commands: ['npm test'] }, mulberry32(seed), 1_000);
@@ -21,7 +21,7 @@ describe('demoPermission', () => {
     expect(kinds).toEqual(new Set(['Bash', 'Edit', 'WebFetch', 'AskUserQuestion']));
   });
 
-  it('pergunta (AskUserQuestion): uma de escolha única e uma de várias, com as posições para responder', () => {
+  it('question (AskUserQuestion): one single choice and one multiple choice, with positions to answer', () => {
     const p = demoPermission('q', { files: [], commands: [] }, mulberry32(3), 1_000, 'question');
     expect(p).toMatchObject({ tool: 'AskUserQuestion', icon: '❓', inputKind: 'text' });
     expect(p.suggestions).toBeUndefined();
@@ -38,10 +38,10 @@ describe('demoPermission', () => {
   });
 });
 
-describe('DemoSimulator: pedidos de permissão', () => {
+describe('DemoSimulator: permission requests', () => {
   const start = 10_000;
 
-  it('forcePermission: o agente espera com o pedido; aprovar retoma o trabalho e registra a atividade', () => {
+  it('forcePermission: agent waits with request; approving resumes work and logs activity', () => {
     const sim = new DemoSimulator({ seed: 4, idPrefix: 'demo:' }, start);
     const id = sim.forcePermission(start, 'permission')!;
     let a = sim.snapshot(start).agents.find((x) => x.id === id)!;
@@ -57,7 +57,7 @@ describe('DemoSimulator: pedidos de permissão', () => {
     expect(sim.decidePermission(p.id, { behavior: 'allow' }, start + 2)).toBe(false);
   });
 
-  it('recusar retoma com a atividade de recusa; terminal só tira o pedido (a espera continua um pouco)', () => {
+  it('denial resumes with rejection activity; terminal only removes request (wait continues briefly)', () => {
     const sim = new DemoSimulator({ seed: 5 }, start);
     const a1 = sim.forcePermission(start, 'permission')!;
     const p1 = sim.snapshot(start).agents.find((x) => x.id === a1)!.permission!;
@@ -78,7 +78,7 @@ describe('DemoSimulator: pedidos de permissão', () => {
     expect(sim2.snapshot(t).agents.find((x) => x.id === a2)?.status).toBe('working');
   });
 
-  it('pergunta: responder (answer) retoma com o resumo das escolhas; aprovar ou respostas incompletas não valem', () => {
+  it('question: answering resumes with choice summary; approving or incomplete answers are invalid', () => {
     const sim = new DemoSimulator({ seed: 7, idPrefix: 'demo:' }, start);
     const id = sim.forcePermission(start, 'question')!;
     const a = sim.snapshot(start).agents.find((x) => x.id === id)!;
@@ -87,7 +87,7 @@ describe('DemoSimulator: pedidos de permissão', () => {
     expect(p.tool).toBe('AskUserQuestion');
     const [single, multi] = p.questions!;
     expect(sim.decidePermission(p.id, { behavior: 'allow' }, start + 1)).toBe(false);
-    // Falta a segunda pergunta; escolha única com duas opções.
+    // Second question missing; single choice with two options.
     expect(sim.decidePermission(p.id, { behavior: 'answer', answers: [{ question: single!.index, options: [0] }] }, start + 1)).toBe(false);
     expect(
       sim.decidePermission(p.id, { behavior: 'answer', answers: [{ question: single!.index, options: [0, 1] }, { question: multi!.index, options: [0] }] }, start + 1),
@@ -103,7 +103,7 @@ describe('DemoSimulator: pedidos de permissão', () => {
     expect(act.detail).toBe(`${single!.header}: ${single!.options[1]!.label} · ${multi!.header}: ${multi!.options[0]!.label}, ${multi!.options[2]!.label}, “lint também”`);
   });
 
-  it('pergunta: recusar e "responder no terminal" também valem', () => {
+  it('question: deny and "respond in terminal" are also valid', () => {
     const sim = new DemoSimulator({ seed: 8 }, start);
     const id = sim.forcePermission(start, 'question')!;
     const p = sim.snapshot(start).agents.find((x) => x.id === id)!.permission!;
@@ -111,7 +111,7 @@ describe('DemoSimulator: pedidos de permissão', () => {
     expect(sim.snapshot(start + 1).agents.find((x) => x.id === id)!.recent.at(-1)).toMatchObject({ icon: '🚫', text: 'Recusado no Habblaud' });
   });
 
-  it('com o tempo, as esperas por permissão trazem pedido e ele some quando a espera acaba', () => {
+  it('over time, permission waits bring request and it disappears when wait ends', () => {
     const sim = new DemoSimulator({ seed: 2, speed: 10, sessions: 5 }, 0);
     let withPermission = 0;
     for (let t = 0; t < 600_000; t += 250) {
@@ -128,10 +128,10 @@ describe('DemoSimulator: pedidos de permissão', () => {
   });
 });
 
-describe('pedidos do Codex (demo)', () => {
+describe('Codex requests (demo)', () => {
   const start = 10_000;
 
-  it('demoCodexPermission: comando, apply_patch ou rede; sem sugestões nem perguntas; prazo de segundos', () => {
+  it('demoCodexPermission: command, apply_patch, or network; no suggestions or questions; seconds timeout', () => {
     const tools = new Set<string>();
     for (let seed = 1; seed < 80; seed++) {
       const p = demoCodexPermission(`c${seed}`, { files: ['src/app.ts'], commands: ['npm test'] }, mulberry32(seed), 1_000);
@@ -145,7 +145,7 @@ describe('pedidos do Codex (demo)', () => {
     expect(tools).toEqual(new Set(['Bash', 'apply_patch', 'rede']));
   });
 
-  it('forcePermission no Codex: espera "aprovar um comando"; recusa só com motivo; sem sempre permitir nem interromper', () => {
+  it('forcePermission in Codex: waits for "approving a command"; rejection requires reason; no always-allow or interrupt', () => {
     const sim = new DemoSimulator({ seed: 4, idPrefix: 'demo:' }, start);
     const id = sim.forcePermission(start, 'question', 'codex')!;
     const a = sim.snapshot(start).agents.find((x) => x.id === id)!;
@@ -162,7 +162,7 @@ describe('pedidos do Codex (demo)', () => {
     expect(sim.snapshot(start + 1).agents.find((x) => x.id === id)!.recent.at(-1)).toMatchObject({ text: 'Recusado no Habblaud' });
   });
 
-  it('o prazo do Codex acaba: o pedido sai do escritório e o agente segue esperando no terminal', () => {
+  it('Codex timeout expires: request leaves office and agent keeps waiting in terminal', () => {
     const sim = new DemoSimulator({ seed: 5 }, start);
     const id = sim.forcePermission(start, 'permission', 'codex')!;
     sim.tick(start + DEMO_CODEX_PERMISSION_MS - 1_000);
@@ -173,7 +173,7 @@ describe('pedidos do Codex (demo)', () => {
     expect(after.status).toBe('waiting');
   });
 
-  it('forcePermission sem ferramenta continua escolhendo um agente do Claude Code', () => {
+  it('forcePermission without tool continues selecting a Claude Code agent', () => {
     for (const seed of [4, 5, 6, 7, 8]) {
       const sim = new DemoSimulator({ seed }, start);
       const id = sim.forcePermission(start)!;

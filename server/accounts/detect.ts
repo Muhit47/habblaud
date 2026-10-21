@@ -1,12 +1,12 @@
-// Detecção das contas do Claude Code (um config dir por conta) e dos seus metadados.
-// Node puro e sem dependências: também é importado por scripts/docker-up.ts (via tsx) no host.
-// Uma pasta do Codex (CODEX_HOME, ex.: ~/.codex) também tem `sessions/` e fica de fora (isCodexHome): as contas
-// do Codex são descobertas pela fonte do Codex e entram no AccountsService com `provider: 'codex'`.
+// Claude Code account detection (one config dir per account) and account metadata.
+// Pure Node with zero dependencies: also imported by scripts/docker-up.ts (via tsx) on host.
+// Codex directories (CODEX_HOME, e.g. ~/.codex) also have `sessions/` and are excluded (isCodexHome):
+// Codex accounts are discovered via Codex source and registered in AccountsService with `provider: 'codex'`.
 //
-// Privacidade: do .claude.json lemos SOMENTE o e-mail e a organização do perfil da conta
-// (oauthAccount.{emailAddress, organizationName}) e o cache de uso (cachedUsageUtilization);
-// dos arquivos de shell, SOMENTE as linhas `alias X='... claude ...'` (e `alias X='... codex ...'`, para as
-// contas do Codex: ver sources/codex/accounts.ts). Credenciais nunca são lidas e nada disso vai para o log.
+// Privacy: from .claude.json we read ONLY the email and organization name of account profile
+// (oauthAccount.{emailAddress, organizationName}) and usage cache (cachedUsageUtilization);
+// from shell rc files, ONLY `alias X='... claude ...'` lines (and `alias X='... codex ...'` for
+// Codex accounts: see sources/codex/accounts.ts). Credentials are never read and never logged.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -15,7 +15,7 @@ import { tr } from '../../shared/i18n';
 
 export interface DetectedAccount {
   id: string;
-  /** Ferramenta da conta; ausente = 'claude' (detectAccounts só devolve contas do Claude Code). */
+  /** Account tool provider; omitted = 'claude' (detectAccounts returns Claude Code accounts only). */
   provider?: Provider;
   configDir: string;
   short: string;
@@ -27,15 +27,15 @@ export interface DetectedAccount {
   cachedUsage?: unknown;
 }
 
-/** Paleta fixa e bem distinta, atribuída na ordem estável das contas. */
+/** Fixed, distinct color palette assigned in deterministic account order. */
 export const ACCOUNT_COLORS = ['#f08a3c', '#4aa8e8', '#5cc97b', '#a77bf3', '#f06fa0'] as const;
 
 const RC_FILES = ['.zshrc', '.bashrc', '.zprofile', '.bash_profile'];
 
-/** Override vindo de HABBLAUD_ACCOUNTS (o host passa os metadados prontos para o container). */
+/** Override from HABBLAUD_ACCOUNTS (host passes prepared metadata to container). */
 export interface AccountOverride {
   id?: string;
-  /** Ferramenta da conta; ausente = 'claude'. As do Codex ficam fora da descoberta das contas do Claude Code. */
+  /** Account provider; omitted = 'claude'. Codex accounts are excluded from Claude Code account discovery. */
   provider?: Provider;
   configDir?: string;
   mountDir?: string;
@@ -49,11 +49,11 @@ export interface AccountOverride {
 }
 
 export interface ClaudeAlias {
-  /** Nome do alias, como digitado no shell (ex.: "d"). */
+  /** Alias name, as typed in shell (e.g. "d"). */
   name: string;
   /**
-   * Pasta absoluta da variável do alias (CLAUDE_CONFIG_DIR; no Codex, CODEX_HOME); ausente = conta padrão
-   * ($HOME/.claude; no Codex, a pasta padrão dele).
+   * Absolute directory for alias variable (CLAUDE_CONFIG_DIR; in Codex, CODEX_HOME); absent = default account
+   * ($HOME/.claude; in Codex, its default folder).
    */
   configDir?: string;
 }
@@ -91,18 +91,18 @@ function isFile(p: string): boolean {
   }
 }
 
-/** Pasta de ano (AAAA) dentro de sessions/: o Codex guarda os rollouts em sessions/AAAA/MM/DD/. */
+/** Year directory (YYYY) inside sessions/: Codex stores rollouts in sessions/YYYY/MM/DD/. */
 const YEAR_DIR = /^\d{4}$/;
 
 /**
- * A pasta é do Codex (um CODEX_HOME, ex.: ~/.codex)? Ela também tem `sessions/`; sem esta checagem viraria uma
- * conta do Claude Code vazia e o watcher leria `sessions/` como o registro de sessões. Só marcas que o Claude Code
- * nunca grava, conferidas pela EXISTÊNCIA (nada é aberto, nem `auth.json` nem `config.toml`):
- * - `sessions/AAAA/` (rollouts por data; o Claude Code guarda `sessions/<pid>.json` direto ali);
- * - `thread-writer-locks/` ou `archived_sessions/`;
- * - `config.toml` ou `auth.json`.
- * Com `projects/` (que o Codex não cria) é sempre do Claude Code: nenhuma conta que já funcionava deixa de valer.
- * Pasta inexistente ou vazia não é do Codex.
+ * Is this directory Codex (a CODEX_HOME, e.g. ~/.codex)? It also contains `sessions/`; without this check it would become an
+ * empty Claude Code account and the watcher would parse `sessions/` as a session registry. Strictly signatures that Claude Code
+ * never writes, verified by EXISTENCE (nothing is parsed, neither `auth.json` nor `config.toml`):
+ * - `sessions/YYYY/` (rollouts partitioned by date; Claude Code writes `sessions/<pid>.json` directly there);
+ * - `thread-writer-locks/` or `archived_sessions/`;
+ * - `config.toml` or `auth.json`.
+ * With `projects/` (which Codex never creates) it is always Claude Code: existing accounts remain valid.
+ * Non-existent or empty directory is not Codex.
  */
 export function isCodexHome(p: string): boolean {
   if (isDir(join(p, 'projects'))) return false;
@@ -115,12 +115,12 @@ export function isCodexHome(p: string): boolean {
   }
 }
 
-/** Tem a cara de um config dir do Claude Code (`projects/` ou `sessions/`), sem olhar se é do Codex. */
+/** Looks like a Claude Code config dir (`projects/` or `sessions/`), without checking if it is Codex. */
 function hasClaudeLayout(p: string): boolean {
   return isDir(join(p, 'projects')) || isDir(join(p, 'sessions'));
 }
 
-/** Config dir do Claude Code: `projects/` ou `sessions/`, e não é uma pasta do Codex. */
+/** Claude Code config dir: has `projects/` or `sessions/`, and is not a Codex folder. */
 export function isClaudeDir(p: string): boolean {
   return hasClaudeLayout(p) && !isCodexHome(p);
 }
@@ -140,25 +140,25 @@ export function parseAccountOverrides(raw: string | undefined): AccountOverride[
   }
 }
 
-/** Overrides das contas do Claude Code (sem `provider` ou com 'claude'); os do Codex ficam com a fonte dele. */
+/** Claude Code account overrides (without `provider` or with 'claude'); Codex overrides belong to its source. */
 function claudeOverrides(raw: string | undefined): AccountOverride[] {
   return parseAccountOverrides(raw).filter((o) => o.provider === undefined || o.provider === 'claude');
 }
 
 /**
- * Config dirs observados. HABBLAUD_CLAUDE_DIRS (lista separada por vírgula) substitui tudo;
- * senão: diretórios `$HOME/.claude*` com `projects/` ou `sessions/`, mais CLAUDE_CONFIG_DIR
- * (também aceita lista) e os `mountDir` de HABBLAUD_ACCOUNTS que existirem.
- * Em todos os caminhos, pastas do Codex ficam de fora (isCodexHome; ver codexDirsRefused).
- * Ordem estável: a conta padrão primeiro, depois alfabética.
+ * Watched config directories. HABBLAUD_CLAUDE_DIRS (comma-separated list) overrides everything;
+ * otherwise: `$HOME/.claude*` directories containing `projects/` or `sessions/`, plus CLAUDE_CONFIG_DIR
+ * (also accepts list) and existing `mountDir` from HABBLAUD_ACCOUNTS.
+ * In all paths, Codex directories are excluded (isCodexHome; see codexDirsRefused).
+ * Stable ordering: default account first, then alphabetical.
  */
 export function discoverClaudeDirs(env: NodeJS.ProcessEnv = process.env, home: string = env.HOME || homedir()): string[] {
   return scanClaudeDirs(env, home).dirs;
 }
 
 /**
- * Pastas que a descoberta das contas do Claude Code encontrou (ou recebeu de HABBLAUD_CLAUDE_DIRS,
- * CLAUDE_CONFIG_DIR ou HABBLAUD_ACCOUNTS) e recusou por serem do Codex: para avisar quem as listou.
+ * Directories found by Claude Code account discovery (or passed via HABBLAUD_CLAUDE_DIRS,
+ * CLAUDE_CONFIG_DIR, or HABBLAUD_ACCOUNTS) and rejected because they are Codex: logs notification to user.
  */
 export function codexDirsRefused(env: NodeJS.ProcessEnv = process.env, home: string = env.HOME || homedir()): string[] {
   return scanClaudeDirs(env, home).codex;
@@ -166,7 +166,7 @@ export function codexDirsRefused(env: NodeJS.ProcessEnv = process.env, home: str
 
 function scanClaudeDirs(env: NodeJS.ProcessEnv, home: string): { dirs: string[]; codex: string[] } {
   const codex: string[] = [];
-  /** Fora se for do Codex (anotado em `codex`). */
+  /** Excluded if from Codex (annotated in `codex`). */
   const notCodex = (p: string) => {
     if (!isCodexHome(p)) return true;
     codex.push(p);
@@ -189,7 +189,7 @@ function scanClaudeDirs(env: NodeJS.ProcessEnv, home: string): { dirs: string[];
       if (hasClaudeLayout(p) && notCodex(p)) found.push(p);
     }
   } catch {
-    // $HOME ilegível (ex.: container sem home): segue com as outras fontes
+    // $HOME unreadable (e.g. container without home): continue with other sources
   }
   for (const p of splitList(env.CLAUDE_CONFIG_DIR)) {
     const abs = expandHome(p, home);
@@ -221,8 +221,8 @@ const ALIAS_TOOLS: Partial<Record<Provider, { invokes: RegExp; dir: RegExp }>> =
 };
 
 /**
- * Extrai os aliases de shell que invocam a ferramenta (`claude` ou `codex`), com a pasta da conta (CLAUDE_CONFIG_DIR
- * ou CODEX_HOME). Considera SOMENTE linhas `alias NOME='...'` (ou com aspas duplas); qualquer outra linha é ignorada.
+ * Extracts shell aliases invoking the tool (`claude` or `codex`), with account directory (CLAUDE_CONFIG_DIR
+ * or CODEX_HOME). Only considers lines matching `alias NAME='...'` (or double quotes); any other line is ignored.
  */
 export function parseToolAliases(text: string, home: string, tool: Provider): ClaudeAlias[] {
   const target = ALIAS_TOOLS[tool];
@@ -246,22 +246,22 @@ export function parseClaudeAliases(text: string, home: string): ClaudeAlias[] {
   return parseToolAliases(text, home, 'claude');
 }
 
-/** Lê os aliases da ferramenta (padrão: o `claude`) dos arquivos de inicialização do shell do usuário. */
+/** Reads tool aliases (default: `claude`) from user's shell startup files. */
 export function readShellAliases(home: string, tool: Provider = 'claude'): ClaudeAlias[] {
   const out: ClaudeAlias[] = [];
   for (const f of RC_FILES) {
     try {
       out.push(...parseToolAliases(readFileSync(join(home, f), 'utf8'), home, tool));
     } catch {
-      // arquivo inexistente/ilegível
+      // non-existent/unreadable file
     }
   }
   return out;
 }
 
 /**
- * Escolhe o atalho de cada conta: o alias mais curto (até 3 caracteres); empate = o primeiro declarado. Alias sem
- * pasta é da conta padrão (`defaultDir`; padrão $HOME/.claude).
+ * Determines account badge: shortest alias (up to 3 characters); ties broken by first declared. Alias without
+ * folder belongs to default account (`defaultDir`; default $HOME/.claude).
  */
 export function shortcutsByDir(aliases: ClaudeAlias[], home: string, defaultDir: string = resolve(home, '.claude')): Map<string, string> {
   const best = new Map<string, string>();
@@ -285,8 +285,8 @@ function str(v: unknown): string | undefined {
 }
 
 /**
- * Nome de organização que vale exibir. Contas pessoais recebem um nome gerado automaticamente
- * ("<e-mail>'s Organization"), que não diz nada e ainda aparece em inglês: fica de fora.
+ * Organization name worthy of display. Personal accounts receive automatically generated names
+ * ("<email>'s Organization"), which are uninformative: excluded.
  */
 export function meaningfulOrganization(organization: string | undefined, email: string | undefined): string | undefined {
   if (!organization) return undefined;
@@ -296,8 +296,8 @@ export function meaningfulOrganization(organization: string | undefined, email: 
 }
 
 /**
- * Lê do config global do Claude Code ($HOME/.claude.json para a conta padrão, <dir>/.claude.json
- * para as demais) apenas a identificação da conta e o cache de uso.
+ * Reads from global Claude Code config ($HOME/.claude.json for default account, <dir>/.claude.json
+ * for others) only account identity and usage cache.
  */
 export function readGlobalConfig(dir: string, home: string): GlobalConfigInfo {
   const candidates = isDefaultDir(dir, home) ? [join(home, '.claude.json'), join(dir, '.claude.json')] : [join(dir, '.claude.json')];
@@ -317,7 +317,7 @@ export function readGlobalConfig(dir: string, home: string): GlobalConfigInfo {
       if (profile) return info;
       fallback ??= info;
     } catch {
-      // JSON inválido (sendo gravado?): tenta o próximo candidato
+      // invalid JSON (mid-write?): try next candidate
     }
   }
   return fallback ?? {};
@@ -332,7 +332,7 @@ function matchOverride(overrides: AccountOverride[], id: string, dir: string, ho
   );
 }
 
-/** Ids das contas (basename do dir), desambiguados se dois dirs tiverem o mesmo nome. */
+/** Account IDs (directory basename), disambiguated if two directories share the same name. */
 export function accountIds(dirs: string[]): string[] {
   const seen = new Map<string, number>();
   return dirs.map((d) => {
@@ -344,8 +344,8 @@ export function accountIds(dirs: string[]): string[] {
 }
 
 /**
- * Uma conta por config dir, NA MESMA ORDEM de `dirs`.
- * `configDir` é o caminho para exibição (no Docker, o do host, vindo de HABBLAUD_ACCOUNTS).
+ * One account per config dir, IN IDENTICAL ORDER as `dirs`.
+ * `configDir` is display path (in Docker, host path from HABBLAUD_ACCOUNTS).
  */
 export function detectAccounts(dirs: string[], opts: { home?: string; env?: NodeJS.ProcessEnv } = {}): DetectedAccount[] {
   const env = opts.env ?? process.env;
@@ -361,7 +361,7 @@ export function detectAccounts(dirs: string[], opts: { home?: string; env?: Node
     return { dir, id, ov, cfg, short: str(ov?.short)?.slice(0, 3) ?? shortcuts.get(resolve(dir)) };
   });
 
-  // Contas sem atalho detectado recebem A, B, C... (sem colidir com os atalhos já usados).
+  // Accounts without detected badge receive A, B, C... (avoiding collision with used badges).
   const used = new Set(partial.map((p) => p.short).filter((s): s is string => !!s));
   let next = 0;
   const fallbackShort = () => {

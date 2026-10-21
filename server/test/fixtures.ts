@@ -1,5 +1,5 @@
-// Construtores de linhas JSONL SINTÉTICAS no formato dos transcripts do Claude Code (para testes).
-// Nada aqui vem de conversas reais.
+// Synthetic JSONL line builders matching Claude Code transcript format (for unit testing).
+// Nothing here originates from real conversations.
 import { mkdirSync, mkdtempSync, writeFileSync, appendFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -71,7 +71,7 @@ export const L = {
   system(subtype: string, extra: Record<string, unknown> = {}, o: LineOpts = {}): string {
     return JSON.stringify({ ...base('system', o), subtype, ...extra });
   },
-  /** Linhas de metadados sem timestamp (custom-title, ai-title, cost-state...). */
+  /** Untimestamped metadata lines (custom-title, ai-title, cost-state...). */
   raw(type: string, fields: Record<string, unknown>): string {
     return JSON.stringify({ type, sessionId: 'sess-teste', ...fields });
   },
@@ -80,9 +80,9 @@ export const L = {
     return JSON.stringify({ ...base('user', o), origin: { kind: 'task-notification' }, message: { role: 'user', content: text } });
   },
   /**
-   * Começo do transcript de um fork, como o Claude Code grava: a referência ao contexto do pai, a
-   * CÓPIA da chamada Agent do pai (mesmo tool_use id do meta.json) e o resultado dela ("Fork
-   * started…") com a instrução do fork depois do bloco <fork-boilerplate>.
+   * Fork transcript header as recorded by Claude Code: parent context reference,
+   * COPY of parent Agent call (matching tool_use ID from meta.json), and its result ("Fork
+   * started…") with fork prompt after <fork-boilerplate> block.
    */
   forkStart(agentId: string, toolUseId: string, directive: string, o: LineOpts = {}): string[] {
     const ref = JSON.stringify({ type: 'fork-context-ref', agentId, parentSessionId: o.sessionId ?? 'sess-teste', parentLastUuid: uuid(), contextLength: 42 });
@@ -91,7 +91,7 @@ export const L = {
     const text = `<fork-boilerplate>\nYou are a worker fork. Do the directive.\n</fork-boilerplate>\n\nYour directive: ${directive}`;
     return [ref, JSON.stringify(spawn), L.result(toolUseId, 'Fork started — processing in background', { ...o, agentId, extraText: text })];
   },
-  /** Bash em segundo plano lançado: tool_result com o id da tarefa (como o Claude Code grava). */
+  /** Background Bash spawned: tool_result containing task ID (as recorded by Claude Code). */
   bgLaunched(toolUseId: string, taskId: string, o: LineOpts = {}): string {
     return L.result(toolUseId, `Command running in background with ID: ${taskId}. Output is being written to: /tmp/tasks/${taskId}.output`, {
       ...o,
@@ -99,8 +99,8 @@ export const L = {
     });
   },
   /**
-   * Fim de um shell em segundo plano: 'queue' = linha queue-operation (enqueue, no momento em que termina);
-   * 'message' = a notificação entregue ao agente como mensagem user.
+   * Completion of background shell: 'queue' = queue-operation line (enqueue upon exit);
+   * 'message' = notification delivered to agent as user message.
    */
   shellNotification(
     via: 'queue' | 'message',
@@ -123,15 +123,15 @@ export const L = {
   },
 };
 
-/** O sistema guarda os bits de permissão do POSIX? No Windows, o stat devolve 0o666 (ou 0o444, se só leitura). */
+/** Does file system preserve POSIX permission bits? On Windows, stat returns 0o666 (or 0o444 for read-only). */
 export const HAS_POSIX_MODES = process.platform !== 'win32';
 
-/** Funções do tap de statusline (JavaScript puro, sem tipos). */
+/** Statusline tap helpers (pure JavaScript, un-typed). */
 const { originalShell } = (await import(pathToFileURL(resolve(__dirname, '../../scripts/statusline-tap.mjs')).href)) as { originalShell: () => string | true };
 
 /**
- * Shell em que o Claude Code roda os comandos de hooks e de statusline, para rodar o comando instalado de verdade:
- * /bin/sh; no Windows, o Git Bash (o mesmo que o tap acha). undefined = Windows sem Git Bash (o teste é pulado).
+ * Shell used by Claude Code to execute hooks and statusline commands:
+ * /bin/sh; on Windows, Git Bash (discovered by tap). undefined = Windows without Git Bash (test skipped).
  */
 export function posixShell(): string | undefined {
   if (process.platform !== 'win32') return '/bin/sh';
@@ -140,8 +140,8 @@ export function posixShell(): string | undefined {
 }
 
 /**
- * symlinkSync de arquivo, ou pula o resto do teste quando o sistema não deixa criar o link: no Windows, isso pede o
- * Modo de Desenvolvedor ou administrador (EPERM). Link de pasta: `'junction'`, que no Windows não pede nada.
+ * File symlinkSync, skipping test if system disallows link creation: on Windows this requires
+ * Developer Mode or Administrator privileges (EPERM). Directory symlink: `'junction'` (requires no privileges).
  */
 export function symlinkOrSkip(skip: (note: string) => never, target: string, path: string): void {
   try {
@@ -152,7 +152,7 @@ export function symlinkOrSkip(skip: (note: string) => never, target: string, pat
   }
 }
 
-/** Pasta temporária para um teste (apagada com `cleanup`). */
+/** Temporary directory for test run (cleaned up via `cleanup`). */
 export function tempDir(prefix = 'habblaud-'): { dir: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };

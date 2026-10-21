@@ -1,52 +1,52 @@
-// Minimapa (canto inferior direito): os quarteirões em volta do jogador, cada um mais aceso quanto mais prédios
-// `online` tem (o `minimap` do servidor, grosseiro de propósito), a praça, o retângulo da câmera e o ponto do
-// jogador. Clicar leva a CÂMERA até lá (o jogador fica onde está). O modelo é puro; o desenho é um canvas pequeno.
+// Minimap (bottom right corner): blocks surrounding player, lit progressively according to
+// `online` buildings count (server coarse `minimap` payload), plaza, camera rect and player
+// point. Clicking moves CAMERA there (player remains stationary). Model is pure; rendering is small canvas.
 import { tr } from '../../../../shared/i18n';
 import { BLOCK, BLOCK_STRIDE, BLOCK_TILES, PLAZA, blockAt } from '../../../../shared/world/city';
 import { h } from '../../ui/dom';
 
-/** Quarteirões para cada lado do do jogador. */
+/** Blocks on each side of player block. */
 export const MINIMAP_RADIUS = 4;
-/** Prédios por quarteirão (o máximo de `lit`). */
+/** Buildings per block (maximum `lit` value). */
 const LOTS_PER_BLOCK = BLOCK.w * BLOCK.h;
 
 export interface MinimapCell {
   bx: number;
   by: number;
-  /** Retângulo em px do minimapa. */
+  /** Minimap pixel rectangle. */
   x: number;
   y: number;
   w: number;
   h: number;
-  /** 0..1: intensidade da luz (prédios acesos / 6). */
+  /** 0..1: light intensity (lit buildings / 6). */
   light: number;
-  /** O servidor listou este quarteirão (tem ao menos um prédio). */
+  /** Server listed this block (contains at least one building). */
   occupied: boolean;
   plaza: boolean;
 }
 
 export interface MinimapModel {
   cells: MinimapCell[];
-  /** Ponto do jogador (px do minimapa). */
+  /** Player point (minimap px). */
   me: { x: number; y: number };
-  /** Retângulo visível da câmera (px do minimapa). */
+  /** Camera visible viewport rect (minimap px). */
   view: { x: number; y: number; w: number; h: number };
-  /** px do minimapa por tile. */
+  /** Minimap px per tile. */
   k: number;
-  /** Tile no centro do minimapa. */
+  /** Tile in minimap center. */
   cx: number;
   cy: number;
 }
 
-/** Intensidade da luz de um quarteirão: cresce rápido no começo (um prédio aceso já aparece). */
+/** Block light intensity: grows quickly initially (a single lit building is visible). */
 export function blockLight(lit: number): number {
   if (!(lit > 0)) return 0;
   return Math.min(1, 0.35 + (0.65 * Math.min(lit, LOTS_PER_BLOCK)) / LOTS_PER_BLOCK);
 }
 
 /**
- * Layout do minimapa de `size` px, centrado no quarteirão do jogador (`me` em tiles). `view` = retângulo visível da
- * câmera em tiles.
+ * Minimap layout of `size` px, centered on player block (`me` in tiles). `view` = camera
+ * visible rectangle in tiles.
  */
 export function minimapModel(
   blocks: readonly { x: number; y: number; lit: number }[],
@@ -59,7 +59,7 @@ export function minimapModel(
   const spanX = (2 * radius + 1) * BLOCK_STRIDE.x;
   const spanY = (2 * radius + 1) * BLOCK_STRIDE.y;
   const k = Math.min(size.w / spanX, size.h / spanY);
-  // centro: o meio do quarteirão do jogador
+  // center: middle of player block
   const cx = home.x * BLOCK_STRIDE.x + BLOCK_TILES.w / 2;
   const cy = home.y * BLOCK_STRIDE.y + BLOCK_TILES.h / 2;
   const toX = (tx: number) => size.w / 2 + (tx - cx) * k;
@@ -82,7 +82,7 @@ export function minimapModel(
   return { cells, me: { x: toX(me.x), y: toY(me.y) }, view: { x: toX(view.x), y: toY(view.y), w: view.w * k, h: view.h * k }, k, cx, cy };
 }
 
-/** Tile do mundo sob um ponto do minimapa. */
+/** World tile under a minimap point. */
 export function minimapToTile(m: Pick<MinimapModel, 'k' | 'cx' | 'cy'>, size: { w: number; h: number }, px: number, py: number): { x: number; y: number } {
   return { x: m.cx + (px - size.w / 2) / m.k, y: m.cy + (py - size.h / 2) / m.k };
 }
@@ -114,7 +114,7 @@ export class Minimap {
     });
   }
 
-  /** Redesenha se algo mudou (o jogador anda, a câmera mexe, o servidor manda o minimapa novo). */
+  /** Redraws if changed (player walks, camera moves, server sends fresh minimap). */
   draw(blocks: readonly { x: number; y: number; lit: number }[], version: number, me: { x: number; y: number }, view: { x: number; y: number; w: number; h: number }): void {
     const cw = this.canvas.clientWidth || this.size.w;
     const ch = this.canvas.clientHeight || this.size.h;
@@ -131,7 +131,7 @@ export class Minimap {
     const ctx = this.ctx;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cw, ch);
-    // ruas (o fundo) e quarteirões
+    // streets (background) and blocks
     ctx.fillStyle = '#2a2f3a';
     ctx.fillRect(0, 0, cw, ch);
     for (const c of m.cells) {
@@ -152,11 +152,11 @@ export class Minimap {
         ctx.fillRect(Math.round(x + w / 2 - 1), Math.round(y + hh / 2 - 1), 2, 2);
       }
     }
-    // retângulo da câmera
+    // camera rectangle
     ctx.strokeStyle = 'rgba(232,236,245,0.75)';
     ctx.lineWidth = 1;
     ctx.strokeRect(Math.round(m.view.x) + 0.5, Math.round(m.view.y) + 0.5, Math.max(2, Math.round(m.view.w)), Math.max(2, Math.round(m.view.h)));
-    // eu
+    // local player
     ctx.fillStyle = '#12151d';
     ctx.fillRect(Math.round(m.me.x) - 3, Math.round(m.me.y) - 3, 6, 6);
     ctx.fillStyle = '#7cc8ff';

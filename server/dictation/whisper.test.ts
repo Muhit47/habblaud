@@ -10,11 +10,12 @@ describe('Whisper local', () => {
 
   it('acha binários e o melhor modelo multilíngue (nunca um .en)', () => {
     const have = new Set(['/opt/homebrew/bin/whisper-cli', '/opt/homebrew/bin/ffmpeg', '/h/.whisper/ggml-base.en.bin', '/h/.local/share/whisper/ggml-base.bin', '/h/.local/share/whisper/ggml-small.bin']);
-    const setup = findWhisper({ HOME: '/h', PATH: '' }, (p) => have.has(p));
-    expect(setup).toEqual({ bin: '/opt/homebrew/bin/whisper-cli', ffmpeg: '/opt/homebrew/bin/ffmpeg', model: '/h/.local/share/whisper/ggml-small.bin', langs: ['pt', 'en'] });
+    const setup = findWhisper({ HOME: '/h', PATH: '' }, (p) => have.has(p.replace(/\\/g, '/')));
+    const normSetup = setup && typeof setup === 'object' && 'model' in setup ? { ...setup, model: setup.model.replace(/\\/g, '/') } : setup;
+    expect(normSetup).toEqual({ bin: '/opt/homebrew/bin/whisper-cli', ffmpeg: '/opt/homebrew/bin/ffmpeg', model: '/h/.local/share/whisper/ggml-small.bin', langs: ['pt', 'en'] });
     have.delete('/h/.local/share/whisper/ggml-small.bin');
     have.delete('/h/.local/share/whisper/ggml-base.bin');
-    expect(findWhisper({ HOME: '/h', PATH: '' }, (p) => have.has(p))).toHaveProperty('missing');
+    expect(findWhisper({ HOME: '/h', PATH: '' }, (p) => have.has(p.replace(/\\/g, '/')))).toHaveProperty('missing');
     expect(findWhisper({ HOME: '/h', PATH: '' }, () => false)).toEqual({ missing: 'whisper-cli (brew install whisper-cpp)' });
     expect(findWhisper({ HOME: '/h', PATH: '', HABBLAUD_DICTATION_LANGS: 'en, pt, xx-bad' }, () => true)).toMatchObject({ langs: ['en', 'pt'] });
   });

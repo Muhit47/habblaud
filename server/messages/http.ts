@@ -1,13 +1,13 @@
-// Rotas das mensagens pelo escritório. A trava (recurso ligado + Host local) já foi conferida em http/app.ts; o
-// guard (http/guard.ts) já exigiu JSON e Origin local nos POST (contra CSRF).
+// Office messaging routes. Security locks (feature enabled + local Host) already validated in http/app.ts;
+// edge guard (http/guard.ts) already required JSON and local Origin on POST (CSRF protection).
 //
-//   POST /api/messages          (página)  {agentId, text}: 201 OutboxMessage (queued) | 400 | 404 | 409 | 429
-//   GET  /api/messages/:id      (página)  situação da mensagem: 200 OutboxMessage | 404
-//   POST /api/mod/inbox         (plugin)  {session, account?}: 200 {messages: InboxMessage[]} (e marca a presença)
-//   POST /api/mod/inbox/ack     (plugin)  {session, results: [{id, ok, error?}]}: 200 {ok: true}
-//   POST /api/codex/bridge/poll (auxiliar do Codex no host, npm run codex:bridge)
-//                                         {}: 200 {messages: [{id, account, codexHome, thread, text}]} (marca a presença)
-//   POST /api/codex/bridge/ack  (auxiliar) {results: [{id, ok, error?}]}: 200 {ok: true}
+//   POST /api/messages          (web app)     {agentId, text}: 201 OutboxMessage (queued) | 400 | 404 | 409 | 429
+//   GET  /api/messages/:id      (web app)     message status: 200 OutboxMessage | 404
+//   POST /api/mod/inbox         (plugin)      {session, account?}: 200 {messages: InboxMessage[]} (and marks presence)
+//   POST /api/mod/inbox/ack     (plugin)      {session, results: [{id, ok, error?}]}: 200 {ok: true}
+//   POST /api/codex/bridge/poll (host helper, npm run codex:bridge)
+//                                             {}: 200 {messages: [{id, account, codexHome, thread, text}]} (marks presence)
+//   POST /api/codex/bridge/ack  (helper)      {results: [{id, ok, error?}]}: 200 {ok: true}
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError, readJson, sendJson } from '../http/app';
 import { InvalidRequest, MAX_OPEN, type MessageRegistry } from './registry';

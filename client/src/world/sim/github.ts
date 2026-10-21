@@ -1,47 +1,47 @@
-// GitHub no escritório, lado da simulação: a festa e o alarme das salas que chegam no snapshot
-// (RoomInfo.effect), com os horários do servidor convertidos para o relógio do navegador, e a
-// comemoração dos personagens no começo da festa. O desenho (confete, giroflex, tom vermelho no
-// chão, faixa e balão "!") fica em render/github-fx.ts.
+// GitHub in the office, simulation side: room celebrations and alarms arriving in snapshot
+// (RoomInfo.effect), with server timestamps mapped to browser clock, and
+// character celebrations at start of party. Rendering (confetti, siren beacon, red floor
+// tint, banner, and "!" bubble) is handled in render/github-fx.ts.
 import type { RoomInfo } from '../../../../shared/types';
 import { hash32 } from '../../../../shared/hash';
 import { inRect } from '../layout/geometry';
 import type { Character } from './character';
 import type { Sim } from './sim';
 
-/** Efeito ativo numa sala, no relógio do navegador. */
+/** Active effect in a room, on browser clock. */
 export interface RoomFx {
   roomId: string;
   kind: 'party' | 'alarm';
   text: string;
-  /** Agente responsável (quem abriu/mergeou; quem viu o CI falhar). */
+  /** Responsible agent (author/merger; or who observed CI failure). */
   agentId?: string;
-  /** `at` do servidor: identifica o efeito (outro valor = efeito novo, a animação recomeça). */
+  /** Server `at`: effect identifier (different value = new effect, animation restarts). */
   key: number;
-  /** Início e fim no relógio do navegador. */
+  /** Start and finish on browser clock. */
   start: number;
   end: number;
-  /** Quem já comemorou esta festa. */
+  /** Agents who already celebrated this party. */
   cheered: Set<string>;
-  /** Forçado pela depuração (debug.roomEffect): o snapshot não apaga. */
+  /** Forced via debugging (debug.roomEffect): snapshot does not clear it. */
   sticky?: boolean;
 }
 
-/** Duração dos pulinhos com os braços para cima ('cheer': 2 quadros de 260 ms). */
+/** Duration of celebratory jumping with raised arms ('cheer': 2 frames of 260 ms). */
 export const PARTY_CHEER_MS = 2_600;
-/** Entrada/saída do assento (igual à da simulação). */
+/** Seat enter/exit transition (matches simulation). */
 const SEAT_MS = 180;
-/** Atraso máximo de cada um para começar a comemorar (a sala não pula em uníssono). */
+/** Maximum staggered delay before celebration (room does not jump in unison). */
 const CHEER_STAGGER_MS = 700;
-/** Festa com menos tempo que isto pela frente não começa comemoração nova. */
+/** Party with less remaining time than this does not trigger new celebrations. */
 const CHEER_MIN_LEFT_MS = 3_000;
 
-/** Concilia os efeitos das salas com o snapshot. Puro (sem DOM), testável. */
+/** Reconciles room effects with snapshot. Pure (DOM-free), testable. */
 export class RoomFxState {
   readonly active = new Map<string, RoomFx>();
 
   /**
-   * Aplica os efeitos do snapshot. Relógios do servidor e do navegador podem divergir: o que vale é
-   * quanto já passou e quanto falta segundo o próprio servidor (`serverTime`).
+   * Applies snapshot effects. Server and browser clocks may drift: calculation is based on
+   * elapsed and remaining time relative to server clock (`serverTime`).
    */
   sync(rooms: readonly RoomInfo[], serverTime: number, now: number): void {
     const seen = new Set<string>();
@@ -63,13 +63,13 @@ export class RoomFxState {
     for (const [id, fx] of [...this.active]) if (!seen.has(id) && !fx.sticky) this.active.delete(id);
   }
 
-  /** Efeito visível da sala agora, se houver. */
+  /** Currently visible room effect, if active. */
   get(roomId: string, now: number): RoomFx | undefined {
     const fx = this.active.get(roomId);
     return fx && now < fx.end ? fx : undefined;
   }
 
-  /** Quem está com o alarme da própria sala ligado (o balão "!"): id do agente -> efeito. */
+  /** Agents with active alarm in own room ("!" speech bubble): agent ID -> effect. */
   alarmOwner(agentId: string, now: number): RoomFx | undefined {
     for (const fx of this.active.values()) if (fx.kind === 'alarm' && fx.agentId === agentId && now < fx.end) return fx;
     return undefined;
@@ -87,16 +87,16 @@ export class RoomFxState {
   }
 }
 
-/** Atraso determinístico de cada personagem para começar a comemorar. */
+/** Deterministic per-character celebration onset delay. */
 export function cheerDelay(charId: string): number {
   return hash32(charId) % CHEER_STAGGER_MS;
 }
 
 /**
- * Comemoração da festa: quem está na própria mesa (ou lugar) e parado levanta e dá pulinhos com os
- * braços para cima; quem está andando, numa roda ou ocupado ganha um balãozinho 🎉. O responsável
- * ainda ganha a estrela e um confete. Quem precisa de você (mão levantada) ou está indo embora fica
- * de fora.
+ * Party celebration: agents seated at own desk/spot stand and jump with raised
+ * arms; walking, gathered, or busy agents display a 🎉 bubble. Responsible agent
+ * receives a star and confetti. Agents needing attention (raised hand) or departing are
+ * excluded.
  */
 export function celebrate(sim: Sim, fx: RoomFx, now: number): void {
   const room = sim.rooms.get(fx.roomId);
@@ -123,7 +123,7 @@ export function celebrate(sim: Sim, fx: RoomFx, now: number): void {
   }
 }
 
-/** Pode comemorar a festa desta sala: é dela (ou está lá dentro), visível e disponível. */
+/** Eligible to celebrate room party: assigned to (or inside) room, visible, and available. */
 function inParty(ch: Character, roomId: string, rect: { x: number; y: number; w: number; h: number }, now: number): boolean {
   if (ch.gone || ch.leaving || ch.inside || ch.arriving || ch.alpha < 0.5 || now < ch.hiddenUntil) return false;
   if (ch.mode === 'wait' || ch.mode === 'leave' || ch.mode === 'deliver') return false;

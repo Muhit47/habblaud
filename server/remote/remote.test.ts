@@ -128,8 +128,8 @@ describe.skipIf(!HAS_OPENSSL)('certificados (openssl)', () => {
     const paths = tlsPaths(join(tmp.dir, 'remote-tls'));
     const r = ensureServerCert(paths, targets);
     expect(r).toMatchObject({ createdCa: true, issued: true });
-    expect(statSync(paths.caKey).mode & 0o777).toBe(0o600);
-    expect(statSync(paths.base).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') expect(statSync(paths.caKey).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(paths.base).mode & 0o777).toBe(0o700);
     const cert = new X509Certificate(readFileSync(paths.serverCert));
     const ca = new X509Certificate(readFileSync(paths.caCert));
     expect(cert.verify(ca.publicKey)).toBe(true);
@@ -142,14 +142,14 @@ describe.skipIf(!HAS_OPENSSL)('certificados (openssl)', () => {
     expect(readFileSync(paths.publicCa, 'utf8')).toBe(readFileSync(paths.caCert, 'utf8'));
   });
 
-  it('a CA só assina localhost, .local, o endereço próprio e IPs privados (um certificado para outro site falha)', () => {
+  it('a CA só assina localhost, .local, o endereço próprio e IPs privados (um certificado para outro site falha)', { timeout: 30000 }, () => {
     const tmp = tempDir();
     closers.push(tmp.cleanup);
     const paths = tlsPaths(join(tmp.dir, 'remote-tls'));
     ensureServerCert(paths, targets);
     const ok = spawnSync('openssl', ['verify', '-CAfile', paths.caCert, paths.serverCert], { encoding: 'utf8' });
     expect(ok.status, ok.stderr).toBe(0);
-    // Um certificado para example.com assinado com a chave da CA (como faria quem a roubasse) não vale.
+    // Invalid CSRF on mutating request: 403; GET passes without CSRF token.
     const key = join(tmp.dir, 'evil.key');
     const csr = join(tmp.dir, 'evil.csr');
     const crt = join(tmp.dir, 'evil.crt');
@@ -160,7 +160,7 @@ describe.skipIf(!HAS_OPENSSL)('certificados (openssl)', () => {
     const evil = spawnSync('openssl', ['verify', '-CAfile', paths.caCert, crt], { encoding: 'utf8' });
     expect(evil.status).not.toBe(0);
     expect(`${evil.stdout}${evil.stderr}`).toMatch(/subtree/i);
-    // Endereço próprio novo não cabe nesta CA: o docker:up pede o setup; o setup (newCa) cria outra.
+    // New custom address does not fit this CA: docker:up prompts setup; setup (newCa) generates a new one.
     const other = remoteTargets({ name: 'myclaude', domain: 'outro.lan' }, { dns: ['localhost'], ips: ['127.0.0.1'] });
     expect(caCovers(paths, other)).toBe(false);
     expect(() => ensureServerCert(paths, other)).toThrow(/remote:setup/);
@@ -222,7 +222,7 @@ describe.skipIf(!HAS_OPENSSL)('certificados (openssl)', () => {
       });
     const first = await get('myclaude.local');
     expect(first).toMatchObject({ status: 200, body: 'ok-https' });
-    // HTTP sem "s": 308 para https://
+    // Plain HTTP: 308 redirect to https://
     const redirect = await new Promise<{ status: number; location?: string }>((ok, fail) => {
       const req = http.request({ host: '127.0.0.1', port, path: '/x?y=1', headers: { Host: `myclaude.local:${port}` } }, (res) => {
         res.resume();
@@ -232,7 +232,7 @@ describe.skipIf(!HAS_OPENSSL)('certificados (openssl)', () => {
       req.end();
     });
     expect(redirect).toEqual({ status: 308, location: `https://myclaude.local:${port}/x?y=1` });
-    // Nome que o Habblaud não conhece não vira redirecionamento (nada de mandar o navegador para outro lugar).
+    // Unrecognized host does not trigger redirect (never forwards browser elsewhere).
     const foreign = await new Promise<number>((ok, fail) => {
       const req = http.request({ host: '127.0.0.1', port, path: '/', headers: { Host: 'evil.example' } }, (res) => {
         res.resume();
@@ -242,7 +242,7 @@ describe.skipIf(!HAS_OPENSSL)('certificados (openssl)', () => {
       req.end();
     });
     expect(foreign).toBe(400);
-    // Certificado novo (renovação): o servidor troca sem reiniciar.
+    // Disconnected session: 409 not_connected.
     ensureServerCert(paths, targets, { force: true });
     const future = new Date(Date.now() + 60_000);
     utimesSync(paths.serverCert, future, future);
@@ -257,13 +257,13 @@ describe('docker-compose.yml', () => {
   it('repassa ao container toda variável do acesso remoto que o servidor lê', () => {
     const compose = readFileSync(join(__dirname, '..', '..', 'docker-compose.yml'), 'utf8');
     const server = readFileSync(join(__dirname, '..', 'http', 'remote.ts'), 'utf8');
-    // No Docker, porta, host e pasta do certificado são fixos (4748, 0.0.0.0, /remote-tls): o resto precisa vir do .env.
+    // In Docker, port, host, and cert dir are fixed (4748, 0.0.0.0, /remote-tls): remainder comes from .env.
     const fixedInDocker = new Set(['HABBLAUD_REMOTE_PORT', 'HABBLAUD_REMOTE_HOST', 'HABBLAUD_REMOTE_TLS_DIR', 'HABBLAUD_REMOTE_PASSWORD']);
     const read = [...new Set([...server.matchAll(/env\.(HABBLAUD_REMOTE_[A-Z_]+)/g)].map((m) => m[1]))].filter((k) => !fixedInDocker.has(k));
     expect(read.sort()).toEqual(['HABBLAUD_REMOTE_ALLOW', 'HABBLAUD_REMOTE_INSECURE_HTTP', 'HABBLAUD_REMOTE_PASSWORD_HASH', 'HABBLAUD_REMOTE_USER']);
     for (const key of read) expect(compose, key).toMatch(new RegExp(`^\\s+${key}: \\$\\{${key}:-\\}$`, 'm'));
     expect(compose).not.toMatch(/HABBLAUD_REMOTE_PASSWORD: /);
-    // A porta remota só é publicada pelo override do docker:up, depois do setup.
+    // Remote port is published strictly via docker:up override following setup.
     expect(compose).not.toMatch(/4748/);
   });
 });

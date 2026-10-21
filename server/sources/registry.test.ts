@@ -20,7 +20,7 @@ describe('registro de sessões', () => {
   it('mapeia busy/idle/waiting/shell', () => {
     expect(registryStatus(parseRegistryEntry(entry(1, { status: 'busy' }))!)).toEqual({ status: 'working' });
     expect(registryStatus(parseRegistryEntry(entry(1, { status: 'idle' }))!)).toEqual({ status: 'idle' });
-    // Ocioso com shell em segundo plano rodando (Claude Code 2.1.292+).
+    // Idle with background shell running (Claude Code 2.1.292+).
     expect(registryStatus(parseRegistryEntry(entry(1, { status: 'shell' }))!)).toEqual({ status: 'shell' });
     expect(registryStatus(parseRegistryEntry(entry(1, { status: 'waiting', waitingFor: 'input needed' }))!)).toEqual({
       status: 'waiting',

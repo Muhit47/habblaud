@@ -1,4 +1,4 @@
-// Formatação no idioma ativo (PT-BR por padrão) (tempos, números, uso). Funções puras: sem DOM, testadas em ui/format.test.ts.
+// Active language formatting (PT-BR by default) (times, numbers, usage). Pure functions: no DOM, tested in ui/format.test.ts.
 import { intlLocale, tr } from '../../../shared/i18n';
 
 const SECOND = 1_000;
@@ -11,13 +11,13 @@ const LOCALE = intlLocale();
 const numberFmt1 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
 const integerFmt = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
 const usdFmt = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-// Relógio de 24 h em todos os idiomas (no inglês o AM/PM não cabe na coluna do feed).
+// 24h clock across all languages (in English AM/PM overflows feed column).
 const clockFmt = new Intl.DateTimeFormat(LOCALE, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const clockSecFmt = new Intl.DateTimeFormat(LOCALE, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 const weekdayFmt = new Intl.DateTimeFormat(LOCALE, { weekday: 'short' });
 const dateTimeFmt = new Intl.DateTimeFormat(LOCALE, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
-/** Tempo relativo no passado: "agora", "há 5 s", "há 3 min", "há 2 h", "há 4 d". */
+/** Relative past time: "now", "5s ago", "3m ago", "2h ago", "4d ago". */
 export function relativeTime(at: number, now: number): string {
   const diff = now - at;
   if (!Number.isFinite(diff) || diff < 5 * SECOND) return tr('agora');
@@ -27,7 +27,7 @@ export function relativeTime(at: number, now: number): string {
   return tr('há {0} d', [Math.floor(diff / DAY)]);
 }
 
-/** Duração legível: "12 s", "3 min", "2 h 10 min", "3 d 4 h". */
+/** Human-readable duration: "12 s", "3 min", "2 h 10 min", "3 d 4 h". */
 export function formatDuration(ms: number): string {
   const v = Math.max(0, ms);
   if (v < MINUTE) return `${Math.floor(v / SECOND)} s`;
@@ -43,8 +43,8 @@ export function formatDuration(ms: number): string {
 }
 
 /**
- * Cronômetro de algo que ainda está rodando: "0:07", "12:31", "1:02:10"; a partir de 1 dia, "1 d 2 h".
- * Muda a cada segundo (bom para "tempo correndo"); valores negativos (relógios fora de sincronia) viram "0:00".
+ * Stopwatch for currently running task: "0:07", "12:31", "1:02:10"; from 1 day up, "1 d 2 h".
+ * Updates every second; negative values (out-of-sync clocks) become "0:00".
  */
 export function formatElapsed(ms: number): string {
   const v = Number.isFinite(ms) ? Math.max(0, ms) : 0;
@@ -56,7 +56,7 @@ export function formatElapsed(ms: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
 }
 
-/** Contagem regressiva: "em 2 h 10 min", "em 5 min", "em menos de 1 min", "agora". */
+/** Countdown timer: "in 2 h 10 min", "in 5 min", "in less than 1 min", "now". */
 export function formatCountdown(target: number, now: number): string {
   const diff = target - now;
   if (diff <= 0) return tr('agora');
@@ -70,14 +70,14 @@ function startOfDay(t: number): number {
   return d.getTime();
 }
 
-/** Quantos dias de calendário (hora local) separam `t` de `now` (0 = mesmo dia). */
+/** Calendar days (local time) between `t` and `now` (0 = same day). */
 export function calendarDayDiff(t: number, now: number): number {
   return Math.round((startOfDay(t) - startOfDay(now)) / DAY);
 }
 
 /**
- * Quando uma janela de uso reinicia: "às 14:30" (hoje), "amanhã às 01:30" ou "qui., 20:00".
- * Instante já passado devolve "" (nunca mostra um reinício no passado como se fosse o próximo).
+ * When usage window resets: "at 14:30" (today), "tomorrow at 01:30" or "Thu., 20:00".
+ * Timestamp already elapsed returns "" (never display past reset as if upcoming).
  */
 export function formatResetAt(resetsAt: number, now: number): string {
   if (!Number.isFinite(resetsAt) || resetsAt <= now) return '';
@@ -88,7 +88,7 @@ export function formatResetAt(resetsAt: number, now: number): string {
   return `${weekdayFmt.format(resetsAt)}, ${time}`;
 }
 
-/** Duração compacta para espaços mínimos: "45s", "29min", "1h29", "2h", "3d4h". */
+/** Compact duration for constrained UI: "45s", "29min", "1h29", "2h", "3d4h". */
 export function compactDuration(ms: number): string {
   const v = Math.max(0, ms);
   if (v < MINUTE) return `${Math.floor(v / SECOND)}s`;
@@ -106,23 +106,23 @@ export function compactDuration(ms: number): string {
 export const FIVE_HOURS_MS = 5 * HOUR;
 export const WEEK_MS = 7 * DAY;
 
-/** Apresentação de uma janela de uso (5 h ou semana), já considerando a idade dos números. */
+/** Presentation model of usage window (5h or weekly), taking reading age into account. */
 export interface UsageWindowView {
-  /** Percentual 0–100; null quando a janela renovou depois da leitura (o uso atual é desconhecido). */
+  /** Percentage 0–100; null when window reset after reading (current usage unknown). */
   pct: number | null;
-  /** A janela já reiniciou desde que os números foram lidos. */
+  /** Window has already reset since figures were retrieved. */
   renewed: boolean;
-  /** Próximo reinício: "em 1 h 29 min" (menos de 24 h), "amanhã, 13:49" ou "qui., 13:49"; "" se desconhecido. */
+  /** Next reset: "in 1 h 29 min" (<24h), "tomorrow, 13:49" or "Thu., 13:49"; "" if unknown. */
   reset: string;
-  /** Contagem compacta até o reinício ("1h29"), para telas pequenas; "" se desconhecido. */
+  /** Compact countdown to reset ("1h29"), for small screens; "" if unknown. */
   resetShort: string;
-  /** Frase completa para dicas e leitores de tela. */
+  /** Complete phrase for tooltips and screen readers. */
   summary: string;
 }
 
 /**
- * `windowMs` é a duração da janela (5 h ou 7 d): sem horário de reinício, números lidos há mais que isso
- * já não valem (a janela certamente renovou).
+ * `windowMs` is window duration (5h or 7d): without reset timestamp, readings older than that
+ * are expired (window definitely reset).
  */
 export function usageWindowView(win: { utilization: number; resetsAt?: number } | undefined, fetchedAt: number, now: number, windowMs: number): UsageWindowView | null {
   if (!win) return null;
@@ -166,7 +166,7 @@ export function formatDateTime(at: number): string {
   return dateTimeFmt.format(at);
 }
 
-/** Tokens compactos: "850", "12,3 k", "1,2 M", "1,1 B". */
+/** Compact tokens: "850", "12.3 k", "1.2 M", "1.1 B". */
 export function formatTokens(n: number): string {
   const v = Math.max(0, n);
   if (v < 1_000) return integerFmt.format(v);
@@ -175,17 +175,17 @@ export function formatTokens(n: number): string {
   return `${numberFmt1.format(v / 1_000_000_000)} B`;
 }
 
-/** Número inteiro com separador de milhar: "12.345". */
+/** Integer with thousands separator: "12,345". */
 export function formatInt(n: number): string {
   return integerFmt.format(n);
 }
 
-/** Custo em dólares: "US$ 1,23". */
+/** Cost in USD: "$1.23". */
 export function formatUSD(n: number): string {
   return usdFmt.format(n).replace(/ /g, ' ');
 }
 
-/** Percentual de uso limitado a 0–100 e arredondado. */
+/** Usage percentage clamped to 0–100 and rounded. */
 export function clampPercent(v: number | undefined): number {
   if (v === undefined || !Number.isFinite(v)) return 0;
   return Math.round(Math.min(100, Math.max(0, v)));
@@ -193,19 +193,19 @@ export function clampPercent(v: number | undefined): number {
 
 export type UsageLevel = 'ok' | 'warn' | 'crit';
 
-/** Faixa de cor do uso: verde < 50%, âmbar 50–80%, vermelho >= 80%. */
+/** Color thresholds: green < 50%, amber 50–80%, red >= 80%. */
 export function usageLevel(utilization: number): UsageLevel {
   if (utilization >= 80) return 'crit';
   if (utilization >= 50) return 'warn';
   return 'ok';
 }
 
-/** "1 agente", "3 agentes" */
+/** "1 agent", "3 agents" */
 export function plural(n: number, singular: string, pluralForm: string): string {
   return `${formatInt(n)} ${n === 1 ? singular : pluralForm}`;
 }
 
-/** Remove acentos e normaliza para buscas ("João" -> "joao"). */
+/** Removes diacritics and normalizes for search ("João" -> "joao"). */
 export function normalizeSearch(s: string): string {
   return s
     .normalize('NFD')
@@ -214,7 +214,7 @@ export function normalizeSearch(s: string): string {
     .trim();
 }
 
-/** Nome curto do modelo: "claude-opus-5-5" -> "Opus 5.5". Mantém o original se não reconhecer. */
+/** Short model name: "claude-opus-5-5" -> "Opus 5.5". Preserves original if unrecognized. */
 export function prettyModel(model: string | undefined): string {
   if (!model) return '—';
   // Codex: "gpt-5.3-codex" -> "GPT-5.3 Codex", "gpt-5.1-codex-mini" -> "GPT-5.1 Codex Mini", "gpt-5" -> "GPT-5".
@@ -226,7 +226,7 @@ export function prettyModel(model: string | undefined): string {
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
     return [`GPT-${gpt[1]}`, ...words].join(' ');
   }
-  // Formatos: "claude-opus-5-5", "claude-sonnet-4-5-20250929", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022".
+  // Formats: "claude-opus-5-5", "claude-sonnet-4-5-20250929", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022".
   const m = /claude-(?:(\d{1,2}(?:-\d{1,2})?)-)?([a-z]+)(?:-(\d{1,2})(?!\d)(?:-(\d{1,2})(?!\d))?)?/i.exec(model);
   if (!m) return model;
   const family = m[2].charAt(0).toUpperCase() + m[2].slice(1).toLowerCase();
@@ -248,7 +248,7 @@ export function permissionLabel(mode: string | undefined): string {
   return PERMISSION_LABELS[mode] ?? mode;
 }
 
-/** Encurta caminhos da pasta pessoal: "/Users/ana/projetos/x" -> "~/projetos/x". */
+/** Shortens home directory paths: "/Users/ana/projects/x" -> "~/projects/x". */
 export function shortPath(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~').replace(/^[A-Za-z]:\\Users\\[^\\]+(?=\\|$)/, '~');
 }

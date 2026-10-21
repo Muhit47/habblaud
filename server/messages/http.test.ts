@@ -1,6 +1,6 @@
-// Mensagens pelo escritório pelas rotas de verdade (guard, app e server/messages/http.ts): a trava da config
-// (terminal + HABBLAUD_MENSAGENS), a trava das rotas (recurso desligado / Host que não é local), os status (400, 404,
-// 405, 409, 429), o fluxo completo página → caixa de entrada do plugin → confirmação → consulta, e o demo.
+// Office messaging via actual routes (guard, app, and server/messages/http.ts): config lock
+// (terminal + HABBLAUD_MENSAGENS), route locks (disabled feature / non-local Host), status codes (400, 404,
+// 405, 409, 429), complete flow web app → plugin inbox → ack → query, and demo simulation.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -30,7 +30,7 @@ interface MessageServer {
   close(): Promise<void>;
 }
 
-/** Office + Hub + rotas de verdade numa porta livre do 127.0.0.1, com um agente principal na sessão "sess-1". */
+/** Real Office + Hub + routes on free 127.0.0.1 port with primary agent in "sess-1". */
 async function serveMessages(opts: { enabled?: boolean; demo?: boolean; registry?: Partial<MessageRegistryOptions> } = {}): Promise<MessageServer> {
   const tmp = tempDir();
   const enabled = opts.enabled ?? true;
@@ -111,7 +111,7 @@ describe('trava das mensagens (config)', () => {
     for (const v of ['0', 'false', 'off', 'no']) expect(messagesOffReason({ HABBLAUD_MENSAGENS: v }, '127.0.0.1', false)).toBe(`HABBLAUD_MENSAGENS=${v}`);
     expect(messagesOffReason({}, '0.0.0.0', false)).toMatch(/^mesma trava do terminal: a porta está exposta/);
     expect(messagesOffReason({ HABBLAUD_TERMINAL: '0' }, '127.0.0.1', false)).toMatch(/HABBLAUD_TERMINAL=0/);
-    // Ligar as mensagens não liga o que a trava do terminal desliga.
+    // Enabling messages does not bypass terminal lock requirements.
     expect(messagesOffReason({ HABBLAUD_MENSAGENS: '1' }, '0.0.0.0', false)).toBeDefined();
     expect(messagesOffReason({ HABBLAUD_MENSAGENS: '1', HABBLAUD_BIND: '127.0.0.1' }, '0.0.0.0', true)).toBeUndefined();
     expect(messagesOffReason({ HABBLAUD_MENSAGENS: '1' }, '0.0.0.0', true)).toMatch(/HABBLAUD_BIND/);
@@ -186,7 +186,7 @@ describe('rotas', () => {
     }
     expect((await post(srv, '/api/messages', { agentId: 'nao-existe', text: 'oi' })).status).toBe(404);
     expect((await request(srv.base, '/api/messages/nao-existe')).status).toBe(404);
-    // Sessão sem o plugin conectado.
+    // Session without plugin connected.
     const noPlugin = await post(srv, '/api/messages', { agentId: MAIN, text: 'oi' });
     expect(noPlugin.status).toBe(409);
     expect(noPlugin.json).toMatchObject({ error: expect.stringMatching(/habblaud-mensagens/) });
@@ -197,7 +197,7 @@ describe('rotas', () => {
     expect((await post(srv, '/api/mod/inbox', {})).status).toBe(400);
     expect((await post(srv, '/api/mod/inbox/ack', { session: SESSION })).status).toBe(400);
 
-    // Com o plugin: 5 na fila, a 6ª recebe 429.
+    // With plugin: 5 in queue, 6th receives 429.
     expect((await post(srv, '/api/mod/inbox', { session: SESSION, account: 'acc' })).json).toEqual({ messages: [] });
     for (let i = 0; i < 5; i++) expect((await post(srv, '/api/messages', { agentId: MAIN, text: `m${i}` })).status).toBe(201);
     const full = await post(srv, '/api/messages', { agentId: MAIN, text: 'demais' });

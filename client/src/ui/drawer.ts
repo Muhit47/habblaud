@@ -1,5 +1,5 @@
-// Gaveta de detalhes (direita): agente ou sala selecionados. Agente do Codex: selo "Codex", textos dele (onde
-// responder, o terminal, a aprovação no lugar do modo de permissão, sem custo) e a dica dos hooks do Codex.
+// Details drawer (right): selected agent or room. Codex agent: "Codex" badge, Codex-specific copy (where
+// to reply, terminal, approval instead of permission mode, no cost) and hint about Codex hooks.
 import type { Activity, AgentInfo, FeedItem, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
 import { roomTheme } from '../art';
 import { createAvatarPlaceholder, updateAvatar } from './avatar';
@@ -61,11 +61,11 @@ import {
 } from './widgets';
 import { tr } from '../../../shared/i18n';
 
-/** Itens da linha do tempo mostrados de início; "Mostrar mais" acrescenta outro tanto. */
+/** Timeline items initially displayed; "Show more" adds another batch. */
 const TIMELINE_STEP = 15;
 const ROOM_FEED_LIMIT = 15;
 
-// ---------------------------------------------------------------- peças
+// ---------------------------------------------------------------- parts
 
 function section(title: string, ...children: (Node | null)[]): { el: HTMLElement; title: HTMLElement; extra: HTMLElement } {
   const t = h('h3', { class: 'ui-sec__title', text: title });
@@ -129,7 +129,7 @@ function updateTimelineItem(li: HTMLElement, a: Activity, now: number, who?: str
   li.classList.toggle('is-shell-fail', done === 'fail');
 }
 
-// ---------------------------------------------------------------- shells rodando
+// ---------------------------------------------------------------- running shells
 
 interface ShellRefs {
   icon: HTMLElement;
@@ -182,7 +182,7 @@ function updateShellItem(li: HTMLElement, j: ShellJob, now: number): void {
 }
 
 
-// ---------------------------------------------------------------- visão do agente
+// ---------------------------------------------------------------- agent view
 
 class AgentView {
   readonly el: HTMLElement;
@@ -190,9 +190,9 @@ class AgentView {
   private last: AgentInfo | null = null;
   private history: Activity[] = [];
   private historyReq = 0;
-  /** Sobe ao trocar ao vivo ↔ replay ou ao retroceder: a resposta da geração anterior não entra. */
+  /** Incremented when switching live <-> replay or rewinding: discard response from earlier generation. */
   private historyGen = 0;
-  /** Fonte e instante da última linha do tempo (para perceber troca e retrocesso). */
+  /** Source and timestamp of last timeline (to detect switch and rewind). */
   private historyReplay = false;
   private historyAt = 0;
   private historyBound = false;
@@ -205,7 +205,7 @@ class AgentView {
   private accName: HTMLElement;
   private accProv: HTMLElement;
   private accEmail: HTMLElement;
-  /** Dica dos hooks do Codex (ao vivo e aprovar pelo escritório), na gaveta de um agente do Codex. */
+  /** Codex hooks guidance (live streaming and approving via office), in Codex agent drawer. */
   private codexHint: HTMLElement;
   private roomBtn: HTMLButtonElement;
   private roomName: HTMLElement;
@@ -216,20 +216,20 @@ class AgentView {
   private followBtn: HTMLButtonElement;
   private termBtn: HTMLButtonElement;
   private termLabel: HTMLElement;
-  /** Por que o terminal não abre: no celular não há hover para ler o title, então o toque mostra o motivo aqui. */
+  /** Why terminal cannot open: mobile lacks hover for title, so tap displays reason here. */
   private termWhy: HTMLElement;
   private termWhyTimer: ReturnType<typeof setTimeout> | null = null;
   private alert: HTMLElement;
   private alertText: HTMLElement;
   /**
-   * Perguntas e opções do AskUserQuestion pendente, só para leitura: com o pedido no escritório (hook de
-   * permissão), quem aparece é o cartão de resposta, no lugar do alerta.
+   * Questions and options of pending AskUserQuestion, read-only: when request arrives in office
+   * (permission hook), response card renders in place of alert.
    */
   private alertQuestions: HTMLElement;
   private alertQuestionsKey = '';
-  /** Dica de como responder as perguntas por aqui (o plugin de permissões). */
+  /** Hint explaining how to answer questions here (permission plugin). */
   private alertAnswerHint: HTMLElement;
-  /** Pedido de permissão (ou pergunta) para responder por aqui (substitui o alerta genérico enquanto existe). */
+  /** Permission request (or question) to answer here (replaces generic alert while active). */
   private perm: PermissionCard;
   private shellBox: HTMLElement;
   private shellText: HTMLElement;
@@ -242,7 +242,7 @@ class AgentView {
   private actTime: HTMLElement;
   private actDetails: HTMLDetailsElement;
   private actDetail: HTMLElement;
-  /** Mandar mensagem ao agente principal pelo Habblaud (plugin habblaud-mensagens). */
+  /** Sends message to primary agent via Habblaud (habblaud-mensagens plugin). */
   private composer: MessageComposer;
   private msgSec: ReturnType<typeof section>;
   private tasksSec: ReturnType<typeof section>;
@@ -255,7 +255,7 @@ class AgentView {
   private timelineSec: ReturnType<typeof section>;
   private timelineMore: HTMLButtonElement;
   private timelineLess: HTMLButtonElement;
-  /** Quantos itens da linha do tempo aparecem agora. */
+  /** Number of timeline entries currently rendered. */
   private timelineShown = TIMELINE_STEP;
   private stats: KvList<StatKey>;
   private social: SocialSection;
@@ -306,7 +306,7 @@ class AgentView {
       h('span', { class: 'ui-status__actions' }, this.followBtn, centerBtn),
     );
 
-    // Terminal: a conversa da sessão como o Claude Code mostra, ao vivo (só com acesso local).
+    // Terminal: session conversation rendered live matching Claude Code (local access only).
     this.termLabel = h('span', { class: 'ui-term-cta__label', text: tr('Abrir terminal') });
     const termIcon = h('span', { class: 'ui-term-cta__icon', attrs: { 'aria-hidden': 'true' } });
     termIcon.innerHTML = ICONS.terminal;
@@ -333,7 +333,7 @@ class AgentView {
       h('div', {}, h('strong', { class: 'ui-alert__title', text: tr('Precisa de você') }), this.alertText, this.alertQuestions, this.alertAnswerHint),
     );
 
-    // Esperando o shell: caixa de status (com a fase da espera no escritório) e a lista de comandos rodando.
+    // Waiting for shell: status box (with office wait phase) and active command list.
     this.shellText = h('p', { class: 'ui-alert__text' });
     this.shellMood = h('span', { class: 'ui-shell-mood__text' });
     this.shellNext = h('span', { class: 'ui-shell-mood__next' });
@@ -357,7 +357,7 @@ class AgentView {
     const nowSec = section(tr('Agora'), h('div', { class: 'ui-now' }, this.actIcon, h('div', { class: 'ui-now__body' }, this.actText, this.actTime)), this.actDetails);
     this.composer = new MessageComposer(ctx, 'drawer');
     this.msgSec = section(tr('Mandar mensagem'), this.composer.el);
-    // No celular a caixa fica presa no rodapé da gaveta enquanto a conversa rola (styles.css, .ui-sec--msg).
+    // On mobile, box pins to drawer footer while conversation scrolls (styles.css, .ui-sec--msg).
     this.msgSec.el.classList.add('ui-sec--msg');
     this.social = new SocialSection(ctx);
     this.perm = new PermissionCard(ctx);
@@ -447,7 +447,7 @@ class AgentView {
     this.loadHistory();
   }
 
-  /** Histórico longo do agente (o pedido mais recente vale; ver historyGen). */
+  /** Long agent history (most recent request wins; see historyGen). */
   private loadHistory(): void {
     const id = this.id;
     if (!id) return;
@@ -456,19 +456,19 @@ class AgentView {
     this.ctx.store
       .agentHistory(id)
       .then((hist) => {
-        // Outro agente (req) ou troca de fonte/retrocesso no meio do caminho (gen): a resposta não vale mais.
+        // Different agent (req) or source change/rewind in flight (gen): response is obsolete.
         if (req !== this.historyReq || gen !== this.historyGen) return;
         this.history = mergeHistory(hist, this.history, 200, this.ctx.store.replaying ? this.ctx.store.snapshot?.serverTime : undefined);
         this.ctx.invalidate();
       })
       .catch(() => {
-        // Sem histórico longo: a linha do tempo usa as atividades recentes do snapshot.
+        // No long history: timeline uses recent activities from snapshot.
       });
   }
 
   /**
-   * No replay, a linha do tempo para no instante reproduzido. Trocar a fonte ou retroceder invalida
-   * o pedido em curso; na troca, recomeça pelo snapshot (e, de volta ao vivo, busca o histórico de novo).
+   * In replay, timeline stops at current playback timestamp. Switching source or rewinding
+   * invalidates active request; on switch, restarts from snapshot (and, back in live mode, fetches history again).
    */
   private historyUntil(): number | undefined {
     const replaying = this.ctx.store.replaying;
@@ -490,11 +490,11 @@ class AgentView {
     return replaying ? at : undefined;
   }
 
-  /** Abre (ou fecha) o terminal deste agente; desligado sem acesso local ou depois que ele saiu. */
+  /** Opens (or closes) terminal for this agent; disabled without local access or after agent leaves. */
   toggleTerminal(): void {
     if (!this.id) return;
     if (this.termBtn.getAttribute('aria-disabled') === 'true') {
-      // No celular não há hover para ler a dica: o toque mostra o motivo embaixo do botão.
+      // On mobile there is no hover to read tooltip: tap shows reason below button.
       const why = this.termBtn.title;
       setText(this.termWhy, why);
       setHidden(this.termWhy, false);
@@ -516,7 +516,7 @@ class AgentView {
   toggleFollow(): void {
     const follow = !this.ctx.world.getOptions().followSelected;
     this.ctx.world.setOptions({ followSelected: follow });
-    // Foca de novo com a opção nova: ligar começa a seguir; desligar mantém o agente no centro, parado.
+    // Focus again with new option: turning on starts following; turning off keeps agent centered and still.
     if (this.id) this.ctx.focusSelection();
     this.ctx.invalidate();
   }
@@ -544,7 +544,7 @@ class AgentView {
     updateAccountChip(this.accChip, account, a.account, a.provider);
     setText(this.accName, account?.name ?? a.account);
     updateProviderTag(this.accProv, provider, account?.name ?? '');
-    // E-mail (Claude Code) ou, no Codex (sem e-mail), o plano.
+    // Email (Claude Code) or, in Codex (no email), plan.
     const accSub = account?.email ?? (codex && account?.plan ? tr('plano {0}', [account.plan]) : '');
     setText(this.accEmail, accSub);
     setHidden(this.accEmail, !accSub);
@@ -553,12 +553,12 @@ class AgentView {
     setHidden(this.gone, !!live);
     this.el.classList.toggle('is-gone', !live);
 
-    // Status (quem está parado num comando longo aparece como "Esperando o shell", como no escritório).
+    // Status (agents stuck in a long command appear as "Waiting for shell", as in the office).
     const wait = live ? shellWaitIn(a, this.ctx.store.snapshot?.agents ?? [], now) : null;
     const status = wait ? 'shell' : a.status;
     updateStatusDot(this.dot, status);
     setText(this.statusText, statusLabel(status));
-    // Parado num comando longo: o "desde" é o início do comando (o status do servidor continua 'working').
+    // Stuck in a long command: "since" is start of command (server status remains 'working').
     const since = wait?.foreground ? wait.since : a.statusSince;
     setText(this.statusSince, relativeTime(since, now));
     setTitle(this.statusSince, tr('Desde {0}', [formatClock(since)]));
@@ -567,26 +567,26 @@ class AgentView {
     this.followBtn.classList.toggle('is-on', following);
     this.renderTerminalButton(!!live);
 
-    // Alerta.
+    // Alert.
     const waiting = a.status === 'waiting' && !!live;
     this.perm.render(live);
     setHidden(this.alert, !waiting || this.perm.visible);
     if (waiting) {
       const accName = account?.name ?? a.account;
-      // Codex: "Vá ao Codex (Conta X)"; sem repetir quando a conta já se chama "Codex".
+      // Codex: "Go to Codex (Account X)"; don't repeat if account is already named "Codex".
       const where = codex ? tr('ao Codex{0}', [/codex/i.test(accName) ? '' : ` (${accName})`]) : tr('ao terminal da {0}', [accName]);
       setText(this.alertText, tr('Vá {0} em {1} para responder{2}', [where, room?.name ?? tr('seu projeto'), a.waitingFor ? `: ${a.waitingFor}` : '.']));
     }
-    // Perguntas do AskUserQuestion (só leitura): o Codex não pergunta pelo escritório.
+    // AskUserQuestion queries (read-only): Codex does not ask via the office.
     const asking = waiting && !codex && a.activity?.kind === 'ask' ? a.activity : undefined;
     this.renderQuestions(asking);
-    // Sem o pedido no escritório: dá para responder por aqui com o plugin (só com a trava local, como o cartão). O Codex
-    // não responde perguntas pelo escritório.
+    // Without prompt in office: can respond here via plugin (only with local lock, like the card). Codex
+    // does not answer questions via the office.
     const answerable =
       !codex && !!asking?.questions?.length && !this.perm.visible && !this.ctx.store.mock && !!this.ctx.store.snapshot?.meta.terminal && access().permissions;
     setHidden(this.alertAnswerHint, !answerable);
 
-    // Esperando o shell.
+    // Waiting for shell.
     setHidden(this.shellBox, !wait);
     if (wait) {
       setText(this.shellText, shellBoxText(wait));
@@ -596,18 +596,18 @@ class AgentView {
       setHidden(this.shellNext, stage.nextIn === null);
       setTitle(this.shellNext, tr('Quanto falta para o personagem mudar o que faz enquanto espera (veja a Ajuda)'));
     }
-    // Sem shells próprios, mostra os que ele espera de um subagente.
+    // Without own shells, displays those waited on from a subagent.
     const own = live ? visibleShells(a, now) : [];
     const jobs = own.length || !wait ? own : wait.jobs;
     setHidden(this.shellsSec.el, jobs.length === 0);
     setText(this.shellsSec.extra, jobs.length > 1 ? String(jobs.length) : '');
     this.shells.sync(jobs);
 
-    // Atividade atual.
+    // Current activity.
     const act = a.activity;
     setText(this.actIcon, act?.icon ?? '·');
     setText(this.actText, act?.text ?? activityFallback(a));
-    // A duração só entra quando o texto ainda não a traz ("Concluiu em 33s" já diz quanto levou).
+    // Duration is only shown when text does not already include it ("Completed in 33s" already conveys it).
     const showDuration = !!act?.durationMs && act.kind !== 'done' && !/\d\s?(?:ms|s|min|h)\b/.test(act.text);
     setText(this.actTime, act ? `${relativeTime(act.at, now)}${showDuration ? ` · levou ${formatDuration(act.durationMs!)}` : ''}` : '');
     this.actText.classList.toggle('is-error', !!act?.error);
@@ -615,21 +615,21 @@ class AgentView {
     setHidden(this.actDetails, !detail);
     setText(this.actDetail, detail);
 
-    // Mandar mensagem: só para principais presentes (com o recurso ligado e a página local; sem o plugin, a dica).
+    // Send message: only for present main agents (with feature enabled and local page; without plugin, shows hint).
     setHidden(this.msgSec.el, this.composer.render(live, this.id) === 'off');
 
-    // Vida social (personalidade, carteira, rodas): só de quem está no escritório.
+    // Social life (personality, wallet, circles): only for agents currently in office.
     if (live) this.social.render(a.id, now);
     else setHidden(this.social.el, true);
 
-    // Tarefas.
+    // Tasks.
     const tp = taskProgress(a.tasks);
     setHidden(this.tasksSec.el, a.tasks.length === 0);
     updateProgress(this.tasksBar, tp.completed, tp.total, tp.inProgress);
     setText(this.tasksSec.extra, `${tp.completed}/${tp.total}`);
     this.tasks.sync(a.tasks);
 
-    // Equipe: subagentes (principal) ou responsável (sub).
+    // Team: subagents (main) or owner (sub).
     if (a.kind === 'main') {
       const subs = sortByUrgency((this.ctx.store.snapshot?.agents ?? []).filter((s) => s.parentId === a.id));
       setText(this.teamSec.title, tr('Subagentes'));
@@ -646,7 +646,7 @@ class AgentView {
       this.team.sync(parent ? [parent] : []);
     }
 
-    // Linha do tempo (mais recente primeiro). No replay, nada depois do instante reproduzido.
+    // Timeline (most recent first). In replay, nothing after the playback timestamp.
     const until = this.historyUntil();
     this.history = mergeHistory(this.history, a.recent, 200, until);
     const items = this.history.slice(-this.timelineShown).reverse();
@@ -659,11 +659,11 @@ class AgentView {
 
     this.renderStats(a, now);
 
-    // Codex: como ter o ao vivo e as aprovações por aqui (o servidor ainda não diz se os hooks dele estão ligados).
+    // Codex: how to have live updates and approvals here (server doesn't yet say if hooks are enabled).
     setHidden(this.codexHint, !codex || a.kind !== 'main' || !live || this.ctx.store.replaying);
   }
 
-  /** Lista as perguntas pendentes com as opções, só para leitura (sem o pedido no escritório, a resposta é no Claude Code). */
+  /** Lists pending questions with options, read-only (without prompt in office, reply in Claude Code). */
   private renderQuestions(act: Activity | undefined): void {
     const qs = act?.questions ?? [];
     setHidden(this.alertQuestions, qs.length === 0);
@@ -694,11 +694,11 @@ class AgentView {
     const router = this.ctx.terminals;
     const available = (router ? router.available : !!this.ctx.store.snapshot?.meta.terminal) && access().terminal;
     const open = (router ? router.openAgentId : this.terminal.agentId) === this.id;
-    // Interativo: o Claude Code roda aqui (pty) ou roda noutro terminal e dá para assumir pela janela.
+    // Interactive: Claude Code runs here (pty) or runs in another terminal and can be taken over via window.
     const readOnly = !!this.ctx.store.snapshot?.meta.terminal;
     const kind = !this.id ? '' : router?.interactive(this.id) ? 'interativo' : !readOnly && this.pty.enabled && ptyControllable(this.last) ? 'em outro terminal' : 'ao vivo';
     setText(this.termRo, kind === 'interativo' ? tr('interativo') : kind === 'ao vivo' ? tr('ao vivo') : kind ? tr('em outro terminal') : '');
-    // aria-disabled (e não disabled): o botão continua focável e a dica do porquê aparece no hover.
+    // aria-disabled (not disabled): button remains focusable and reason tooltip shows on hover.
     const enabled = open || (available && live);
     if (enabled) setHidden(this.termWhy, true);
     setAttr(this.termBtn, 'aria-disabled', enabled ? null : 'true');
@@ -744,10 +744,9 @@ class AgentView {
     st.set('subs', a.kind === 'main' ? formatInt(s.subagents) : null);
     st.set('model', prettyModel(a.model));
     st.set('branch', a.gitBranch ?? null);
-    // Codex: a política de aprovação (quando o servidor a manda) no lugar do modo de permissão do Claude Code.
+    // Codex: approval policy (when server sends it) instead of Claude Code permission mode.
     st.label('perm', codex ? tr('Aprovações') : tr('Permissões'));
     st.set('perm', a.kind !== 'main' ? null : codex ? (a.permissionMode ? codexApprovalLabel(a.permissionMode) : null) : permissionLabel(a.permissionMode));
-
     setText(this.sessionValue, a.sessionId);
     setTitle(this.sessionValue, a.sessionId);
     st.set('start', formatDateTime(a.startedAt));
@@ -758,7 +757,7 @@ class AgentView {
 
 type StatKey = 'tools' | 'tokensIn' | 'tokensOut' | 'cost' | 'lines' | 'subs' | 'model' | 'branch' | 'perm' | 'session' | 'start' | 'duration' | 'bg';
 
-/** Lista chave/valor de linhas fixas: cada linha é criada uma vez e só tem o texto/visibilidade atualizados. */
+/** Key/value list of fixed rows: each row is created once and only has text/visibility updated. */
 class KvList<K extends string> {
   readonly el: HTMLElement;
   private rows = new Map<K, { dt: HTMLElement; dd: HTMLElement }>();
@@ -774,12 +773,12 @@ class KvList<K extends string> {
     }
   }
 
-  /** Troca o rótulo da linha (ex.: "Aprovações" no Codex). */
+  /** Updates row label (e.g. "Approvals" in Codex). */
   label(key: K, text: string): void {
     setText(this.rows.get(key)!.dt, text);
   }
 
-  /** Define o texto da linha; `null` oculta a linha. */
+  /** Sets row text; `null` hides the row. */
   set(key: K, value: string | null): void {
     const r = this.rows.get(key)!;
     this.show(key, value !== null);
@@ -793,7 +792,7 @@ class KvList<K extends string> {
   }
 }
 
-// ---------------------------------------------------------------- visão da sala
+// ---------------------------------------------------------------- room view
 
 class RoomView {
   readonly el: HTMLElement;
@@ -824,7 +823,7 @@ class RoomView {
     this.newMsg = h('p', { class: 'ui-actions__msg is-error', role: 'status', hidden: true });
     this.swatch = h('span', { class: 'ui-room-hero__swatch', attrs: { 'aria-hidden': 'true' } });
     this.name = h('h2', { class: 'ui-hero__name' });
-    // Lápis: o mesmo campo do botão direito na sala (ui/roomrename.ts), aberto embaixo do nome.
+    // Pencil: same field as right-click on room (ui/roomrename.ts), opened below name.
     this.renameBtn = iconButton(
       ICONS.pencil,
       tr('Renomear sala'),
@@ -848,7 +847,7 @@ class RoomView {
       update: (el, id) => {
         const acc = ctx.account(id);
         updateAccountChip(el.firstElementChild as HTMLElement, acc, id);
-        // "Conta C · dev@x.com"; no Codex, "Codex · plano Team".
+        // "Account C · dev@x.com"; in Codex, "Codex · Team plan".
         setText(el.lastElementChild!, accountChipLabel(acc, id, accountProvider(acc, id)).replace(/ \((.+)\)$/, ' · $1'));
       },
     });
@@ -893,11 +892,11 @@ class RoomView {
     return this.id;
   }
 
-  /** Sessão nova na pasta da sala, na conta de quem estiver nela (ou na padrão). */
+  /** New session in room folder, under account of whoever is in it (or default). */
   private newSession(): void {
     const r = this.last;
     if (!r) return;
-    // Só conta do Claude Code (nem Codex nem demo); sem nenhuma na sala, o servidor usa a padrão.
+    // Only Claude Code accounts (neither Codex nor demo); if none in room, server uses default.
     const account = (this.ctx.store.snapshot?.agents ?? []).find((a) => a.roomId === r.id && ptyControllable(a))?.account;
     setHidden(this.newMsg, true);
     this.pty.newSession(r.path, account).catch((err: Error) => {
@@ -926,7 +925,7 @@ class RoomView {
     try {
       setStyleVar(this.swatch, '--room', roomTheme(r.seed).accent);
     } catch {
-      // Sem tema: cor padrão.
+      // No theme: default color.
     }
     setHidden(this.gone, !!live);
     setHidden(this.renameBtn, !live || !canRenameRoom(this.ctx, r.id));
@@ -952,7 +951,7 @@ class RoomView {
   }
 }
 
-// ---------------------------------------------------------------- gaveta
+// ---------------------------------------------------------------- drawer
 
 export class Drawer implements UiComponent {
   readonly el: HTMLElement;
@@ -962,7 +961,7 @@ export class Drawer implements UiComponent {
   private mode: 'agent' | 'room' | null = null;
   private heading: HTMLElement;
   private movable: Movable;
-  /** Avisado quando a gaveta é solta ou volta ao lugar (a área livre do escritório muda). */
+  /** Notified when drawer is detached or docked (free office area changes). */
   onLayoutChange: (() => void) | null = null;
 
   constructor(
@@ -982,7 +981,7 @@ export class Drawer implements UiComponent {
       bar,
       this.body,
     );
-    // Arrastar pela barra solta a gaveta: flutuante, ela não cobre mais a lateral do escritório.
+    // Dragging bar detaches drawer: floating, it no longer covers office side area.
     this.movable = new Movable(this.el, bar, { key: 'habblaud.move.drawer', enabled: () => !ctx.isNarrow(), onChange: () => this.onLayoutChange?.() });
     this.el.inert = true;
   }
@@ -991,7 +990,7 @@ export class Drawer implements UiComponent {
     return this.mode !== null;
   }
 
-  /** Solta do lugar (arrastada pela barra). */
+  /** Detached from side (dragged by header bar). */
   get floating(): boolean {
     return this.movable.floating;
   }
@@ -1004,7 +1003,7 @@ export class Drawer implements UiComponent {
     const sel = this.ctx.selection();
     const mode = sel?.type ?? null;
     if (mode !== this.mode) {
-      // Gaveta fechada ou fora do agente: o editor fecha, e ao reabrir começa do estado atual do agente.
+      // Drawer closed or off agent: editor closes, and upon reopen starts from agent's current state.
       if (this.mode === 'agent') this.agentView.character.close();
       this.mode = mode;
       this.body.replaceChildren(...(mode === 'agent' ? [this.agentView.el] : mode === 'room' ? [this.roomView.el] : []));

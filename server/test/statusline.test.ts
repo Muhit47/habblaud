@@ -1,5 +1,5 @@
-// Tap de statusline (scripts/statusline-tap.mjs, testado como processo de verdade) e o instalador
-// (scripts/statusline-install.ts). Tudo com HOME e config dirs FALSOS em pastas temporárias.
+// Statusline tap (scripts/statusline-tap.mjs, tested as real process) and installer
+// (scripts/statusline-install.ts). Mock HOME and config dirs in temporary folders.
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -43,8 +43,8 @@ function statusJson(over: Record<string, unknown> = {}): string {
   });
 }
 
-// Cada chamada sobe processos de verdade (no Windows, também o Git Bash do comando original): com a suíte inteira
-// rodando, passa dos 5 s padrão.
+// Each test spawns real processes (on Windows, also Git Bash for original command): with full suite
+// running, exceeds default 5s timeout.
 describe('statusline-tap.mjs', { timeout: 20_000 }, () => {
   let tmp: ReturnType<typeof tempDir>;
   let env: NodeJS.ProcessEnv;
@@ -53,8 +53,8 @@ describe('statusline-tap.mjs', { timeout: 20_000 }, () => {
   beforeEach(() => {
     tmp = tempDir();
     usageDir = join(tmp.dir, 'usage');
-    // HOME falso e pasta de uso explícita: o teste nunca toca em ~/.habblaud nem em ~/.claude*.
-    // CLAUDE_CODE_GIT_BASH_PATH: o mesmo Git Bash de SH também para o comando original (Windows).
+    // Mock HOME and explicit usage folder: test never touches ~/.habblaud or ~/.claude*.
+    // CLAUDE_CODE_GIT_BASH_PATH: same Git Bash from SH for original command (Windows).
     env = { PATH: process.env.PATH, HOME: join(tmp.dir, 'home'), HABBLAUD_USAGE_DIR: usageDir, CLAUDE_CODE_GIT_BASH_PATH: process.env.CLAUDE_CODE_GIT_BASH_PATH };
   });
   afterEach(() => tmp.cleanup());
@@ -80,15 +80,15 @@ describe('statusline-tap.mjs', { timeout: 20_000 }, () => {
       seven_day: { utilization: 15, resets_at: NOW_S + 86_400 },
     });
     expect(Math.abs(rec.fetchedAt - Date.now())).toBeLessThan(30_000);
-    // Nada do resto do stdin (custo, sessão, cwd...).
+    // Ignores remaining stdin (cost, session, cwd...).
     const raw = readFileSync(file, 'utf8');
     for (const leak of ['sess-1', 'total_cost_usd', '/x/proj', 'claude-teste']) expect(raw).not.toContain(leak);
   });
 
   it.skipIf(!SH)('sai com o código do comando original; comandos com pipe e aspas continuam valendo', () => {
     expect(tap(['--', 'exit', '7'], statusJson()).status).toBe(7);
-    // O instalador põe o comando complexo entre aspas simples; o shell do Claude Code as tira e o tap
-    // recebe o comando inteiro como um único argumento.
+    // Installer wraps complex command in single quotes; Claude Code shell unquotes and tap
+    // receives entire command as single argument.
     const complex = `printf '%s|' "a b" | tr a-z A-Z`;
     const viaShell = spawnSync(SH!, ['-c', `"${process.execPath}" "${TAP}" -- ${encodeOriginal(complex)}`], {
       input: statusJson(),
@@ -111,7 +111,7 @@ describe('statusline-tap.mjs', { timeout: 20_000 }, () => {
     expect(tap(['--', 'cat'], noLimits).stdout).toBe(noLimits);
     expect(tap(['--', 'cat'], 'isto não é json').stdout).toBe('isto não é json');
     expect(existsSync(usageDir)).toBe(false);
-    // HABBLAUD_USAGE_DIR aponta para um arquivo: a gravação falha em silêncio.
+    // HABBLAUD_USAGE_DIR points to file: save fails silently.
     writeFileSync(join(tmp.dir, 'arquivo'), 'x');
     const r = tap(['--', 'echo', 'ok'], statusJson(), { HABBLAUD_USAGE_DIR: join(tmp.dir, 'arquivo') });
     expect(r.status).toBe(0);
@@ -155,7 +155,7 @@ describe('statusline-tap.mjs', { timeout: 20_000 }, () => {
     expect(originalShell({ PATH: join(git, 'cmd'), CLAUDE_CODE_GIT_BASH_PATH: join(git, 'nao-existe.exe') })).toBe(bash);
     expect(originalShell({ PATH: tmp.dir })).toBe(true);
     expect(originalShell({})).toBe(true);
-    // Entrada relativa do PATH não conta: resolveria contra a pasta atual.
+    // Relative PATH entry ignored: would resolve against cwd.
     const code = `const m = await import(${JSON.stringify(pathToFileURL(TAP).href)}); console.log(m.originalShell({ PATH: 'Git/cmd' }));`;
     expect(spawnSync(process.execPath, ['--input-type=module', '-e', code], { cwd: tmp.dir, encoding: 'utf8' }).stdout.trim()).toBe('true');
   });
@@ -198,7 +198,7 @@ describe('statusline-install.ts (funções puras)', () => {
     const un = planUninstall(inst.settings);
     expect(un.action === 'uninstall' && un.settings).toEqual(settings);
     expect(planUninstall(settings).action).toBe('none');
-    // Sem statusLine: cria um só com o tap; remover tira o campo.
+    // Without statusLine: creates tap entry; remove strips field.
     const created = planInstall({ model: 'x' }, 'node', tapPath);
     expect(created.action === 'install' && created.settings).toEqual({ model: 'x', statusLine: { type: 'command', command: wrapCommand('node', tapPath) } });
     expect(created.action === 'install' && planUninstall(created.settings)).toMatchObject({ action: 'uninstall', settings: { model: 'x' } });
@@ -206,7 +206,7 @@ describe('statusline-install.ts (funções puras)', () => {
     expect(planInstall({ statusLine: { type: 'outro' } }, 'node', tapPath).action).toBe('skip');
   });
 
-  // Lugares estáveis do macOS e do Linux; no Windows o binário é node.exe e o comando fica sempre "node".
+  // Stable locations for macOS and Linux; on Windows binary is node.exe and command is always "node".
   it.skipIf(process.platform === 'win32')('node estável no PATH vira caminho absoluto; nvm/fnm viram só "node"', () => {
     const home = '/Users/fulano';
     const has = (set: string[]) => (p: string) => set.includes(p);
@@ -248,7 +248,7 @@ describe('statusline-install.ts (arquivos, HOME falso)', () => {
     if (HAS_POSIX_MODES) expect(statSync(join(home, '.claude', 'settings.json')).mode & 0o777).toBe(0o644);
     const backup = join(home, '.claude', 'settings.json.habblaud-backup-20261006-140509');
     expect(JSON.parse(readFileSync(backup, 'utf8'))).toEqual(original);
-    // Conta sem settings.json: cria um só com o statusline do tap (sem backup, não havia nada).
+    // Account lacking settings.json: creates file with tap statusline (no backup created).
     expect(read('.claude-conta2')).toEqual({ statusLine: { type: 'command', command: wrapCommand(process.execPath, TAP_SCRIPT) } });
     expect(readdirSync(join(home, '.claude-conta2'))).not.toContain(expect.stringContaining('backup'));
 
@@ -295,16 +295,16 @@ describe('statusline-install.ts (arquivos, HOME falso)', () => {
     expect(existsSync(join(home, '.codetown'))).toBe(false);
     expect(readFileSync(join(home, '.habblaud', 'usage', '.claude.json'), 'utf8')).toBe('{"fetchedAt":1}');
     expect(read('.claude').statusLine.command).toBe(wrapCommand(process.execPath, TAP_SCRIPT, 'npx -y ccstatusline'));
-    // Já migrado: nada a dizer.
+    // Already migrated: no-op.
     out = [];
     exec('install');
     expect(out.join('\n')).not.toContain('nome antigo');
   });
 
-  // No Windows o chmod não tira a escrita de uma pasta: o rename passaria.
+  // On Windows chmod does not strip directory write permissions: rename succeeds.
   it.skipIf(!HAS_POSIX_MODES)('nome antigo: se não der para mover, avisa e instala assim mesmo', () => {
     mkdirSync(join(home, '.codetown', 'usage'), { recursive: true });
-    // HOME só de leitura: o rename de ~/.codetown falha (as contas, por dentro, seguem graváveis).
+    // Read-only HOME: rename of ~/.codetown fails (internal accounts remain writable).
     chmodSync(home, 0o555);
     try {
       expect(exec('install')).toBe(0);
@@ -350,7 +350,7 @@ describe('statusline-install.ts (arquivos, HOME falso)', () => {
     } catch (err) {
       message = (err as Error).message;
     }
-    // A chave gravada no meio fica no arquivo: a instalação aborta e não deixa backup nem temporário.
+    // Interrupted write leaves file: install aborts without leaving backup or temp file.
     expect(readFileSync(file, 'utf8')).toBe(concurrent);
     expect(message).toMatch(/rode o comando de novo/);
     expect(readdirSync(join(home, '.claude')).filter((f) => f.includes('habblaud-backup') || f.includes('habblaud-tmp'))).toEqual([]);

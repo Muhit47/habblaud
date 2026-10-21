@@ -1,18 +1,18 @@
-// Simulador de escritório para demonstração e desenvolvimento.
-// Puro (sem Node/DOM): roda no servidor (HABBLAUD_DEMO=1) e no navegador (?mock=1).
+// Office simulator for demo and development.
+// Pure (no Node/DOM): runs on server (HABBLAUD_DEMO=1) and in browser (?mock=1).
 //
-// Gera sessões fictícias com ciclos realistas: prompt -> trabalho -> (permissão ou pergunta, com pedido
-// fictício para responder pelo escritório) -> (subagentes)
-// -> (comando longo em primeiro plano) -> fim de turno -> (esperando shell em segundo plano) ->
-// pausa -> ... e encerra sessões de tempos em tempos para exercitar as animações de chegada,
-// saída, "apagar a luz" e sumiço de salas.
+// Generates mock sessions with realistic cycles: prompt -> work -> (permission or question, with mock
+// request to answer via office) -> (subagents)
+// -> (long foreground command) -> end of turn -> (waiting for background shell) ->
+// pause -> ... and terminates sessions periodically to exercise animations for arrival,
+// departure, "lights off", and room disappearance.
 //
-// Parte das sessões é do Codex (conta própria, modelos gpt-*-codex, uso lido "dos arquivos do Codex", pedidos de
-// aprovação sem "sempre permitir" e mensagens que entram na fila da sessão). A abertura sempre tem uma sala com
-// Claude Code e Codex juntos. Quem é do Codex e o uso dele saem de um sorteio à parte (hash do id da sessão e
-// `codexRng`), sem chamadas a mais no sorteio principal; ainda assim o escritório de cada semente mudou em relação
-// às versões sem o Codex (a 2ª sessão muda de sala, e os agentes do Codex não sorteiam custo). Vale sempre: a mesma
-// semente gera o mesmo escritório.
+// Part of the sessions belong to Codex (dedicated account, gpt-*-codex models, usage read "from Codex files",
+// approval requests without "always allow", and messages entering session queue). The opening always includes a room
+// with Claude Code and Codex together. Who belongs to Codex and their usage come from a separate random draw (hash of session ID and
+// `codexRng`), without extra calls to main random sequence; nonetheless each seed's office changed relative
+// to pre-Codex versions (second session changes room, and Codex agents do not draw costs). Always guaranteed: identical
+// seed generates identical office.
 import type { AccountInfo, AccountUsage, Activity, AgentInfo, FeedItem, Notice, OfficeSnapshot, PermissionDecision, RoomInfo, ShellJob, TaskItem } from '../types';
 import { describePrompt, describeShellJob, describeTool, SHELL_DONE_TOOL, SHELL_WAIT_TOOL, SPECIAL, type ActivityDescription, type ShellOutcome } from '../activity';
 import { answerSummary, ASK_TOOL, checkAnswers } from '../answers';
@@ -93,7 +93,7 @@ const PROJECTS: DemoProject[] = [
   },
 ];
 
-/** Projetos do demo (o histórico fictício do "Meu dia" usa todos, não só as salas abertas no momento). */
+/** Demo projects (mock "My Day" history uses all of them, not just currently open rooms). */
 export const DEMO_PROJECT_NAMES: readonly string[] = PROJECTS.map((p) => p.name);
 
 const SUB_TYPES = ['Explore', 'general-purpose', 'Plan', 'code-reviewer', 'test-runner'];
@@ -108,14 +108,14 @@ const SUB_TASKS = [
   tr('Analisar logs de erro'),
 ];
 const MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-1'];
-/** Modelos das sessões do Codex. */
+/** Models for Codex sessions. */
 const CODEX_MODELS = ['gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.1-codex-mini'];
-/** Papéis dos subagentes do Codex (o `agent_role` de quem o Codex dispara). */
+/** Subagent roles for Codex (`agent_role` of subagents spawned by Codex). */
 const CODEX_SUB_ROLES = ['explorer', 'worker', 'reviewer'];
-/** Parte das sessões novas que abre no Codex (decidida pelo hash do id da sessão). */
+/** Share of new sessions opening in Codex (determined by session ID hash). */
 const CODEX_SHARE = 30;
 
-/** Comandos que os agentes deixam rodando em segundo plano (e encerram o turno esperando). */
+/** Commands agents leave running in background (and finish turn waiting for). */
 const BACKGROUND_JOBS: Array<{ description: string; command: string }> = [
   { description: tr('Rodar a suíte de testes'), command: 'npm test -- --runInBand' },
   { description: tr('Build de produção'), command: 'npm run build -- --mode production' },
@@ -126,29 +126,29 @@ const BACKGROUND_JOBS: Array<{ description: string; command: string }> = [
   { description: tr('Testes de ponta a ponta'), command: 'npx playwright test' },
   { description: tr('Auditoria de desempenho'), command: 'npx lighthouse http://localhost:4321 --quiet' },
 ];
-/** Comandos demorados em primeiro plano (o agente fica parado esperando o resultado). */
+/** Long foreground commands (agent stands waiting for result). */
 const FOREGROUND_JOBS: Array<{ description: string; command: string }> = [
   { description: tr('Instalar as dependências'), command: 'npm ci' },
   { description: tr('Rodar os testes do módulo'), command: 'npm test -- src/api' },
   { description: tr('Compilar o projeto'), command: 'npm run build' },
   { description: tr('Baixar a imagem do banco'), command: 'docker pull postgres:17' },
 ];
-/** Chance de, ao fim de um turno, deixar um shell em segundo plano rodando. */
+/** Chance of leaving a background shell running at end of turn. */
 const SHELL_CHANCE = 0.35;
-/** Chance, a cada ação, de rodar um comando longo em primeiro plano (no máximo um por turno). */
+/** Chance per action to run a long foreground command (at most one per turn). */
 const FOREGROUND_CHANCE = 0.07;
-/** Chance de um shell em segundo plano falhar. */
+/** Chance of a background shell failing. */
 const SHELL_FAIL_CHANCE = 0.15;
 
 type DemoAccount = Omit<AccountInfo, 'sessions' | 'usage' | 'usageStatus'>;
 
-// No ?mock=1 as contas imitam o cenário real (C e D no Claude Code, mais uma do Codex). Misturado aos dados reais
-// no servidor (idPrefix), o demo usa contas próprias, inconfundíveis com as de verdade.
+// In ?mock=1 accounts imitate real setup (C and D in Claude Code, plus one from Codex). Mixed with real data
+// on server (idPrefix), demo uses dedicated accounts, distinct from real ones.
 const DEMO_ACCOUNTS: DemoAccount[] = [
   { id: '.claude', short: 'C', name: 'Conta C', email: 'dev@empresa.example', organization: tr('Empresa'), plan: 'Max', color: '#f08a3c', configDir: '~/.claude' },
   { id: '.claude-conta2', short: 'D', name: 'Conta D', email: 'dev@pessoal.example', plan: 'Max', color: '#4aa8e8', configDir: '~/.claude-conta2' },
 ];
-/** Conta do Codex (um CODEX_HOME): sem e-mail (o Habblaud não lê credenciais), com o plano dos `rate_limits`. */
+/** Codex account (a CODEX_HOME): no email (Habblaud does not read credentials), with plan from `rate_limits`. */
 const DEMO_CODEX_ACCOUNT: DemoAccount = { id: '.codex', provider: 'codex', short: 'X', name: 'Codex', plan: 'Team', color: '#a77bf3', configDir: '~/.codex' };
 const MERGED_ACCOUNTS: Array<Pick<DemoAccount, 'short' | 'name' | 'color'>> = [
   { short: 'X', name: 'Demo X', color: '#5cc97b' },
@@ -157,9 +157,9 @@ const MERGED_ACCOUNTS: Array<Pick<DemoAccount, 'short' | 'name' | 'color'>> = [
 const MERGED_CODEX_ACCOUNT: Pick<DemoAccount, 'short' | 'name' | 'color'> = { short: 'Z', name: 'Demo Codex', color: '#f06fa0' };
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
-/** Uso do Codex com mais de 30 min (sem sessão rodando) aparece como antigo, como no servidor. */
+/** Codex usage older than 30 min (no running session) appears as stale, as on server. */
 const CODEX_STALE_MS = 30 * MINUTE;
-/** Mensagem para uma sessão ociosa do Codex: o dono consulta a fila a cada ~10 s (entra entre 2 e 8 s, no demo). */
+/** Message to idle Codex session: owner polls queue every ~10 s (enters between 2 and 8 s, in demo). */
 const CODEX_QUEUE_MIN_MS = 2_000;
 const CODEX_QUEUE_SPREAD_MS = 6_000;
 
@@ -177,14 +177,14 @@ interface SimAgent {
   closeAt: number;
   removeAt?: number;
   taskCursor: number;
-  /** Fim (e desfecho) de cada shell em segundo plano rodando, por id do job. */
+  /** End (and outcome) of each running background shell, by job ID. */
   shellEnds: Map<string, { at: number; outcome: ShellOutcome }>;
-  /** Comando em primeiro plano rodando até este instante. */
+  /** Foreground command running until this timestamp. */
   foregroundUntil?: number;
-  /** Já disparou shell (segundo plano) ou comando longo (primeiro plano) neste turno. */
+  /** Already launched shell (background) or long command (foreground) this turn. */
   shelledThisTurn: boolean;
   foregroundThisTurn: boolean;
-  /** Codex: mensagens na fila da sessão (entram quando ela fica ociosa) e a partir de quando entram. */
+  /** Codex: messages in session queue (enter when session becomes idle) and timestamp when they enter. */
   inbox?: string[];
   inboxAt?: number;
 }
@@ -197,13 +197,13 @@ export interface DemoTickResult {
 
 export interface DemoOptions {
   seed?: number;
-  /** Multiplicador de velocidade (2 = tudo acontece 2x mais rápido). */
+  /** Speed multiplier (2 = everything happens 2x faster). */
   speed?: number;
-  /** Quantas sessões principais manter abertas (aprox.). */
+  /** Approximate number of main sessions to keep open. */
   sessions?: number;
-  /** Prefixo de ids (o servidor usa "demo:" para não colidir com dados reais). */
+  /** ID prefix (server uses "demo:" to avoid colliding with real data). */
   idPrefix?: string;
-  /** Conta do Codex sempre "sem cota" (capturas de tela e testes); sem isso, ela fica sem cota só de vez em quando. */
+  /** Codex account always "no quota" (screenshots and tests); otherwise only periodically out of quota. */
   codexNoQuota?: boolean;
 }
 
@@ -216,7 +216,7 @@ export class DemoSimulator {
   private speed: number;
   private target: number;
   private prefix: string;
-  /** Marca desta instância: ids de agentes/atividades/avisos não se repetem ao religar o demo. */
+  /** Tag of this instance: agent/activity/notice IDs do not repeat on demo restart. */
   private tag: string;
   private accounts: DemoAccount[];
   private agents = new Map<string, SimAgent>();
@@ -230,30 +230,30 @@ export class DemoSimulator {
   private pendingFeed: FeedItem[] = [];
   private pendingNotices: Notice[] = [];
   private usage = new Map<string, { five: number; week: number; fiveReset: number; weekReset: number }>();
-  /** Eventos do GitHub fictícios (festa/alarme nas salas): sorteio próprio, sem mexer no resto. */
+  /** Mock GitHub events (party/alarm in rooms): dedicated random draw, without affecting rest. */
   private ghRng: () => number;
   private effects = new RoomEffects();
   private nextGitHubAt: number;
   private prSeq: number;
-  /** Conta do Codex (fica depois das do Claude Code no snapshot). */
+  /** Codex account (placed after Claude Code accounts in snapshot). */
   private codexAccount: DemoAccount;
-  /** Sorteio próprio do Codex (uso, "sem cota"): não mexe na sequência do resto. */
+  /** Dedicated Codex random draw (usage, "no quota"): does not affect sequence of the rest. */
   private codexRng: () => number;
-  /** Quando os números de uso do Codex foram "lidos" pela última vez: a última atividade de uma sessão do Codex. */
+  /** When Codex usage figures were last "read": last activity of a Codex session. */
   private codexFetchedAt: number;
-  /** "Sem cota" do Codex: sempre (opção) ou em janelas de alguns minutos, de tempos em tempos. */
+  /** Codex "no quota": always (option) or in periodic multi-minute windows. */
   private codexNoQuotaAlways: boolean;
   private noQuotaFrom: number;
   private noQuotaUntil: number;
-  /** A última leitura do uso do Codex veio "sem cota". */
+  /** Last read of Codex usage came as "no quota". */
   private codexReadNoQuota: boolean;
-  /** Sessões principais abertas até agora (a 2ª da abertura é a do Codex dividindo a sala da 1ª). */
+  /** Main sessions spawned so far (2nd at startup is Codex sharing 1st room). */
   private mainsSpawned = 0;
 
   constructor(opts: DemoOptions = {}, now = Date.now()) {
     this.rng = mulberry32(opts.seed ?? hash32(String(now)));
     this.speed = opts.speed ?? 1;
-    // o primeiro evento do GitHub vem logo (para os prints), os outros a cada 35–80 s
+    // first GitHub event arrives soon (for screenshots), subsequent ones every 35–80 s
     this.ghRng = mulberry32(((opts.seed ?? hash32(String(now))) ^ 0x6a09e667) >>> 0);
     this.nextGitHubAt = now + (10_000 + this.ghRng() * 10_000) / this.speed;
     this.prSeq = 12 + Math.floor(this.ghRng() * 80);
@@ -276,7 +276,7 @@ export class DemoSimulator {
         weekReset: now + (2 + i * 2.5) * 24 * HOUR,
       }),
     );
-    // Codex: números de antes de o escritório abrir (a última sessão rodou há alguns minutos).
+    // Codex: figures from before office opened (last session ran a few minutes ago).
     this.usage.set(this.codexAccount.id, {
       five: 30 + this.codexRng() * 40,
       week: 25 + this.codexRng() * 45,
@@ -288,32 +288,32 @@ export class DemoSimulator {
     this.noQuotaFrom = now + (6 + this.codexRng() * 6) * MINUTE / this.speed;
     this.noQuotaUntil = this.noQuotaFrom + (2 + this.codexRng() * 2) * MINUTE / this.speed;
     this.codexReadNoQuota = this.codexNoQuotaAlways;
-    // Começa com o escritório já movimentado — e com alguém esperando um shell (a espera leva minutos;
-    // sem isso, a primeira só apareceria depois do primeiro turno completo).
+    // Start with already active office — and with someone waiting for a shell (wait takes minutes;
+    // without this, first would only appear after first complete turn).
     for (let i = 0; i < this.target - 1; i++) this.spawnSession(now, true);
     const first = [...this.agents.values()].find((a) => a.info.kind === 'main');
     if (first) this.startBackgroundShells(first, now, true);
     this.nextSpawnAt = now + this.ms(20_000, 40_000);
-    // Descarta o feed/avisos de abertura.
+    // Discard opening feed/notices.
     this.pendingFeed = [];
     this.pendingNotices = [];
   }
 
-  /** Muda quantas sessões principais manter abertas (o gerador de timelapse varia isso ao longo do dia). */
+  /** Changes how many main sessions to keep open (timelapse generator varies this across the day). */
   setSessions(n: number): void {
     this.target = Math.max(0, Math.floor(n));
   }
 
   /**
-   * Mensagem mandada pelo escritório a um agente principal (fictícia: nada vai a uma sessão de verdade): a
-   * atividade "Mensagem pelo Habblaud" e, se ele estava à toa, o próximo turno começa logo, como se respondesse.
-   * false = agente desconhecido, subagente ou que já saiu.
+   * Message sent via office to a main agent (mock: nothing goes to real session):
+   * "Message via Habblaud" activity and, if idle, next turn starts shortly, as if replying.
+   * false = unknown agent, subagent, or already departed.
    */
   receiveMessage(agentId: string, text: string, now = Date.now()): boolean {
     const a = this.agents.get(agentId);
     if (!a || a.info.kind !== 'main' || a.removeAt !== undefined || a.phase === 'leaving') return false;
     if (a.info.provider === 'codex') {
-      // Codex (`codex queue`): a mensagem entra na fila da sessão e só vira prompt quando ela fica ociosa.
+      // Codex (`codex queue`): message enters session queue and only becomes prompt when session is idle.
       (a.inbox ??= []).push(text);
       a.inboxAt = Math.max(a.inboxAt ?? 0, now + (CODEX_QUEUE_MIN_MS + (hash32(`${agentId}:${text}:${now}`) % CODEX_QUEUE_SPREAD_MS)) / this.speed);
       return true;
@@ -323,7 +323,7 @@ export class DemoSimulator {
     return true;
   }
 
-  /** Avança a simulação até `now`. */
+  /** Advances simulation to `now`. */
   tick(now: number): DemoTickResult {
     if (now >= this.nextSpawnAt) {
       const open = [...this.agents.values()].filter((a) => a.info.kind === 'main' && a.phase !== 'leaving').length;
@@ -382,8 +382,8 @@ export class DemoSimulator {
   }
 
   /**
-   * Conta do Codex: o uso vem "dos arquivos do Codex", lido na última atividade de uma sessão dele (sem sessão
-   * rodando, os números envelhecem); "sem cota" = sem janelas, nunca 0%.
+   * Codex account: usage comes "from Codex files", read at last activity of its session (without running session,
+   * figures become stale); "no quota" = without windows, never 0%.
    */
   private codexAccountInfo(now: number): AccountInfo {
     const acc = this.codexAccount;
@@ -400,7 +400,7 @@ export class DemoSimulator {
     return { ...acc, sessions: this.sessionsOf(acc.id), usage, usageStatus: now - fetchedAt > CODEX_STALE_MS ? 'stale' : 'ok' };
   }
 
-  /** Sem cota agora: sempre (opção) ou numa janela de alguns minutos que se repete. */
+  /** Out of quota now: always (option) or in repeating multi-minute window. */
   private codexNoQuota(now: number): boolean {
     if (now >= this.noQuotaUntil) {
       this.noQuotaFrom = now + ((12 + this.codexRng() * 8) * MINUTE) / this.speed;
@@ -409,19 +409,19 @@ export class DemoSimulator {
     return this.codexNoQuotaAlways || now >= this.noQuotaFrom;
   }
 
-  // ---------------------------------------------------------------- pedidos de permissão (fictícios)
+  // ---------------------------------------------------------------- permission requests (mock)
 
   /**
-   * Resposta a um pedido fictício pelo escritório: aprovar, recusar ou responder a pergunta retomam o
-   * trabalho na hora; "responder no terminal" só tira o pedido do escritório (o agente continua esperando
-   * um pouco). false = pedido desconhecido (já respondido ou de outra instância) ou resposta que não serve
-   * (pergunta só se responde com as respostas, conferidas como no servidor).
+   * Response to a mock request via office: allow, deny, or answering questions resume
+   * work immediately; "respond in terminal" only removes request from office (agent continues waiting
+   * a bit). false = unknown request (already answered or from another instance) or invalid response
+   * (questions must be answered with answers, verified like on server).
    */
   decidePermission(requestId: string, d: PermissionDecision, now = Date.now()): boolean {
     const a = [...this.agents.values()].find((x) => x.info.permission?.id === requestId);
     if (!a || a.phase !== 'waiting') return false;
     const p = a.info.permission!;
-    // Codex (como no servidor): sem respostas, sem "sempre permitir" nem interromper, e recusa só com motivo.
+    // Codex (like on server): no answers, no "always allow" or interrupt, and rejection requires reason.
     if (p.provider === 'codex' && (d.behavior === 'answer' || d.suggestion !== undefined || d.interrupt || (d.behavior === 'deny' && !d.message?.trim()))) return false;
     const ask = p.tool === ASK_TOOL;
     const answers = d.behavior === 'answer' && ask ? checkAnswers(p.questions ?? [], d.answers) : undefined;
@@ -445,10 +445,10 @@ export class DemoSimulator {
   }
 
   /**
-   * Faz um agente principal que está trabalhando (ou, sem nenhum, um ocioso ou esperando um shell) pedir permissão
-   * agora (`kind` força uma permissão ou uma pergunta do AskUserQuestion; sem ele, é sorteado). Para testes
-   * e capturas de tela; devolve o id do agente. `provider` escolhe a ferramenta do agente (padrão: Claude Code);
-   * no Codex o pedido é sempre de aprovação (ele não pergunta pelo escritório).
+   * Forces a working main agent (or, if none, idle or waiting for shell) to request permission
+   * now (`kind` forces permission or AskUserQuestion question; without it, randomly chosen). For tests
+   * and screenshots; returns agent ID. `provider` chooses agent tool (default: Claude Code);
+   * in Codex request is always approval (it does not ask questions via office).
    */
   forcePermission(now = Date.now(), kind?: DemoPermissionKind, provider: 'claude' | 'codex' = 'claude'): string | undefined {
     const mains = [...this.agents.values()].filter((a) => a.info.kind === 'main' && a.removeAt === undefined && (a.info.provider ?? 'claude') === provider);
@@ -463,10 +463,10 @@ export class DemoSimulator {
     return a.info.id;
   }
 
-  /** Para no meio do turno pedindo permissão ou perguntando (com o pedido fictício para responder pelo escritório). */
+  /** Stops mid-turn requesting permission or asking question (with mock request to answer via office). */
   private askPermission(a: SimAgent, now: number, kind?: DemoPermissionKind): void {
     a.phase = 'waiting';
-    // Com o cartão para responder, a espera é mais longa (dá tempo de clicar).
+    // With card to answer, wait is longer (gives time to click).
     a.phaseUntil = now + this.ms(25_000, 50_000);
     const id = `${this.prefix}perm-${this.tag}-${++this.seq}`;
     const codex = a.info.provider === 'codex';
@@ -487,7 +487,7 @@ export class DemoSimulator {
     this.dirty = true;
   }
 
-  // ---------------------------------------------------------------- internos
+  // ---------------------------------------------------------------- internals
 
   private ms(min: number, max: number): number {
     return (min + this.rng() * (max - min)) / this.speed;
@@ -518,19 +518,19 @@ export class DemoSimulator {
   private spawnSession(now: number, warm: boolean): void {
     const k = this.mainsSpawned++;
     const activeRooms = new Set([...this.rooms.values()].map((r) => r.name));
-    // 35% de chance de reaproveitar uma sala existente (2 sessões no mesmo projeto).
+    // 35% chance to reuse existing room (2 sessions in same project).
     const reuse = activeRooms.size > 0 && this.rng() < 0.35;
     const candidates = PROJECTS.filter((p) => (reuse ? activeRooms.has(p.name) : !activeRooms.has(p.name)));
     let project = this.pick(candidates.length ? candidates : PROJECTS);
-    // Abertura: a 2ª sessão é do Codex e entra na sala da 1ª (Claude Code e Codex dividindo a sala). O sorteio da
-    // sala acontece igual (a sequência das outras sessões não muda); só o resultado é trocado.
+    // Opening: 2nd session is Codex and joins 1st room (Claude Code and Codex sharing room). Room
+    // draw happens identically (subsequent sessions sequence unchanged); only result is swapped.
     const host = warm && k === 1 ? [...this.agents.values()].find((x) => x.info.kind === 'main') : undefined;
     if (host) project = host.project;
     const room = this.ensureRoom(project, now);
     const n = ++this.seq;
     const sessionId = `${this.prefix}sess-${this.tag}-${n}-${Math.floor(this.rng() * 1e9).toString(36)}`;
     const id = `${this.prefix || 'demo:'}${this.tag}-${n}`;
-    // Codex: na abertura, só a 2ª; depois, ~30% das sessões novas (pelo hash do id, sem gastar o sorteio).
+    // Codex: at opening, only 2nd; thereafter, ~30% of new sessions (via ID hash, without consuming random draw).
     const codex = !!host || (!warm && hash32(`codex:${sessionId}`) % 100 < CODEX_SHARE);
     const person = pickName(sessionId, this.usedNames());
     const rng = mulberry32(hash32(sessionId));
@@ -553,18 +553,18 @@ export class DemoSimulator {
       tasks,
       model: this.pick(codex ? CODEX_MODELS : MODELS, rng),
       gitBranch: this.pick(['main', 'develop', 'feat/checkout', 'fix/webhooks'], rng),
-      // Codex: a política de aprovação (approval_policy) no lugar do modo de permissão do Claude Code.
+      // Codex: approval policy (approval_policy) instead of Claude Code permission mode.
       permissionMode: codex ? 'on-request' : 'default',
       startedAt: now,
       lastEventAt: now,
       statusSince: now,
-      // O Codex não grava custo: só tokens.
+      // Codex does not record cost: tokens only.
       stats: codex
         ? { toolCalls: 0, tokensIn: 0, tokensOut: 0, linesAdded: 0, linesRemoved: 0, subagents: 0 }
         : { toolCalls: 0, tokensIn: 0, tokensOut: 0, costUSD: 0, linesAdded: 0, linesRemoved: 0, subagents: 0 },
       seed: hash32(id),
-      // Sessão fictícia "com o plugin de mensagens" (no Codex, "com o entregador"): dá para mandar mensagem pelo
-      // escritório (receiveMessage).
+      // Mock session "with messages plugin" (in Codex, "with deliverer"): can send messages via
+      // office (receiveMessage).
       canMessage: true,
     };
     if (codex) info.provider = 'codex';
@@ -645,14 +645,14 @@ export class DemoSimulator {
   private step(a: SimAgent, now: number): void {
     if (a.removeAt !== undefined) return;
     if (a.info.kind === 'sub') return this.stepSub(a, now);
-    // Codex: as mensagens da fila entram quando a sessão fica ociosa (e ela começa um turno logo depois).
+    // Codex: queued messages enter when session becomes idle (and it begins turn shortly after).
     if (a.inbox?.length && a.phase === 'idle' && now >= (a.inboxAt ?? 0)) {
       for (const text of a.inbox.splice(0)) this.activity(a, now, describeMessage(text));
       a.phaseUntil = Math.min(a.phaseUntil, now + 1_500 / this.speed);
       a.closeAt = Math.max(a.closeAt, now + 30_000 / this.speed);
     }
 
-    // Encerramento da sessão (só quando ocioso, como um usuário fechando o terminal).
+    // Session termination (only when idle, like user closing terminal).
     if (now >= a.closeAt && a.phase === 'idle') {
       a.phase = 'leaving';
       this.setStatus(a, 'offline', now);
@@ -678,13 +678,13 @@ export class DemoSimulator {
         }
         break;
       case 'waiting':
-        // O "hook" desistiu de esperar (no Codex, em segundos): o pedido sai do escritório e vale o terminal.
+        // The "hook" gave up waiting (in Codex, in seconds): request leaves office and terminal applies.
         if (a.info.permission && now >= a.info.permission.expiresAt) {
           delete a.info.permission;
           this.dirty = true;
         }
         if (now >= a.phaseUntil) {
-          // Respondido "no terminal": o pedido some do escritório.
+          // Answered "in terminal": request disappears from office.
           this.resumeFromWaiting(a, now);
         }
         break;
@@ -699,7 +699,7 @@ export class DemoSimulator {
         break;
       }
       case 'shell': {
-        // Shell(s) terminando: a notificação acorda o agente, que lê o resultado e trabalha mais um pouco.
+        // Shell(s) completing: notification wakes agent, which reads result and works a bit more.
         const due = [...a.shellEnds].filter(([, e]) => e.at <= now).map(([id]) => id);
         if (!due.length) break;
         for (const id of due) this.finishShell(a, id, now);
@@ -712,7 +712,7 @@ export class DemoSimulator {
       case 'working':
         if (now < a.nextActionAt) break;
         if (a.foregroundUntil !== undefined) this.endForeground(a);
-        // Shell em segundo plano terminando no meio do turno: a notificação chega e o agente segue trabalhando.
+        // Background shell finishing mid-turn: notification arrives and agent continues working.
         for (const [id, end] of [...a.shellEnds]) {
           if (end.at > now) continue;
           this.finishShell(a, id, now);
@@ -721,7 +721,7 @@ export class DemoSimulator {
         }
         if (now < a.nextActionAt) break;
         if (a.actionsLeft <= 0) {
-          // Ainda há shell em segundo plano rodando (já pedido antes): volta a esperar por ele.
+          // Background shell still running (requested earlier): return to waiting for it.
           if (a.shellEnds.size) {
             this.waitForShells(a, now, false);
             break;
@@ -780,8 +780,8 @@ export class DemoSimulator {
   // ---------------------------------------------------------------- shells
 
   /**
-   * Deixa 1 (ou 2) comandos rodando em segundo plano e encerra o turno esperando por eles (status 'shell').
-   * `warm` = abertura do escritório: o shell já roda há um tempo e não há aviso.
+   * Leaves 1 (or 2) commands running in background and finishes turn waiting for them (status 'shell').
+   * `warm` = office startup: shell has been running for a while and there is no notice.
    */
   private startBackgroundShells(a: SimAgent, now: number, warm: boolean): void {
     const count = a.rng() < 0.25 ? 2 : 1;
@@ -796,7 +796,7 @@ export class DemoSimulator {
       const spec = specs.splice(Math.floor(a.rng() * specs.length), 1)[0];
       const d = describeShellJob('Bash', spec);
       const id = `b${Math.floor(this.rng() * 2 ** 40).toString(36)}`;
-      // Um tool_use depois do outro: o primeiro é o mais antigo (é ele que dá o tempo da espera).
+      // Sequential tool_uses: first is oldest (gives elapsed time of wait).
       const job: ShellJob = { id, label: d.label, startedAt: base - (count - 1 - i) * 1_200, background: true, kind: 'shell' };
       if (d.command) job.command = d.command;
       jobs.push(job);
@@ -809,7 +809,7 @@ export class DemoSimulator {
     this.waitForShells(a, now, !warm);
   }
 
-  /** Fim de turno com shell(s) em segundo plano rodando: fica na mesa esperando. */
+  /** End of turn with running background shell(s): sits at desk waiting. */
   private waitForShells(a: SimAgent, now: number, notify: boolean): void {
     const jobs = (a.info.shells ?? []).filter((j) => j.background);
     const main = jobs[0];
@@ -819,7 +819,7 @@ export class DemoSimulator {
     if (notify && main) this.notice(now, 'info', tr('⏳ {0} está esperando o shell em {1}: {2}', [a.info.name, a.project.name, main.label]), a.info.id, a.info.roomId);
   }
 
-  /** Um shell em segundo plano terminou: atividade 'ShellDone' (o mundo comemora ou lamenta) e aviso. */
+  /** A background shell finished: 'ShellDone' activity (world celebrates or laments) and notice. */
   private finishShell(a: SimAgent, id: string, now: number): void {
     const end = a.shellEnds.get(id);
     a.shellEnds.delete(id);
@@ -832,8 +832,8 @@ export class DemoSimulator {
   }
 
   /**
-   * Evento do GitHub fictício (PR aberto/mergeado, CI, release) num agente principal que está trabalhando
-   * ou à toa: atividade, aviso e festa/alarme na sala. Sala com alarme tende a ver o CI voltar a passar.
+   * Mock GitHub event (opened/merged PR, CI, release) on a working or idle main
+   * agent: activity, notice, and party/alarm in room. Room with alarm tends to see CI pass again.
    */
   private gitHubEvent(now: number): void {
     const mains = [...this.agents.values()].filter((a) => a.info.kind === 'main' && (a.phase === 'working' || a.phase === 'idle'));
@@ -850,7 +850,7 @@ export class DemoSimulator {
     if (this.effects.apply(a.info.roomId, ev, now, a.info.id)) this.dirty = true;
   }
 
-  /** Comando demorado em primeiro plano: o agente fica parado esperando o resultado (status continua 'working'). */
+  /** Long foreground command: agent stands waiting for result (status remains 'working'). */
   private startForeground(a: SimAgent, now: number): void {
     const spec = this.pick(FOREGROUND_JOBS, a.rng);
     const d = describeShellJob('Bash', spec);
@@ -863,7 +863,7 @@ export class DemoSimulator {
     this.activity(a, now, describeTool('Bash', spec));
   }
 
-  /** O comando em primeiro plano devolveu o resultado. */
+  /** Foreground command returned result. */
   private endForeground(a: SimAgent): void {
     a.foregroundUntil = undefined;
     this.setShells(a, (a.info.shells ?? []).filter((j) => j.background));
@@ -921,7 +921,7 @@ export class DemoSimulator {
     if (!synthetic && d.kind !== 'prompt' && d.kind !== 'done' && d.kind !== 'wait' && d.kind !== 'think') {
       a.info.stats.toolCalls++;
     }
-    // Codex: cada atividade de uma sessão dele renova a leitura do uso (é quando os arquivos ganham rate_limits).
+    // Codex: each session activity renews usage read (when files gain rate_limits).
     if (a.info.provider === 'codex') {
       this.codexFetchedAt = now;
       this.codexReadNoQuota = this.codexNoQuota(now);
