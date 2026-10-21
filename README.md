@@ -2,19 +2,20 @@
   <img src="client/public/assets/brand/logo-mark@4x.png" width="96" alt="Habblaud logo: a small pixel-art building" />
 </p>
 
-<h1 align="center">Habblaud</h1>
+<h1 align="center">Habblaud — AI Agent Manager</h1>
 
 <p align="center">
-  <b>The virtual office for your Claude Code (and Codex) agents.</b><br />
+  <b>The animated virtual office for your AI coding agents: Google Antigravity, Kilo, Claude Code, and Codex.</b><br />
   Each project becomes a room, and each agent becomes a pixel-art character that shows, in real time, what it's doing.
 </p>
 
 <p align="center">
   <img alt="Node.js 22.12+" src="https://img.shields.io/badge/node-%E2%89%A522.12-5fa04e?logo=node.js&logoColor=white" />
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-7-3178c6?logo=typescript&logoColor=white" />
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-blue" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ed?logo=docker&logoColor=white" />
   <img alt="Zero runtime dependencies" src="https://img.shields.io/badge/runtime%20dependencies-0-f08a3c" />
-  <img alt="Interface in Portuguese, English, Spanish and French" src="https://img.shields.io/badge/interface-PT%20%C2%B7%20EN%20%C2%B7%20ES%20%C2%B7%20FR-4aa8e8" />
+  <img alt="Interface in English, Portuguese, Spanish and French" src="https://img.shields.io/badge/interface-EN%20%C2%B7%20PT%20%C2%B7%20ES%20%C2%B7%20FR-4aa8e8" />
 </p>
 
 <p align="center">
@@ -23,18 +24,18 @@
 
 ---
 
-You open Claude Code in several projects, launch subagents, leave tasks running… and lose track of who's doing
-what. **Habblaud** turns all of that into an office you can take in at a glance: who's typing, who raised a hand
-because they **need you**, who delivered their work and left, who went for a coffee while waiting for the next
-instruction — and how much of each account you've already used in the 5-hour session and in the week.
+You open **Google Antigravity**, **Kilo**, **Claude Code**, or **Codex** across several projects, launch subagents, leave background tasks running… and lose track of who's doing what.
 
-And when two or more agents have nothing to do, the office gets a **social life**: each one has its own personality,
-and they watch soccer together in the lounge, play video games and ping-pong, gossip in the kitchen, freshen up at the
-mirror and bet coins on rock-paper-scissors. See [Social life](#social-life).
+**Habblaud** turns all of that into an animated virtual office you can take in at a glance:
+- **Who's typing & active:** real-time visual statuses with animated desks and computers.
+- **Who needs you:** agents rush to their desk, raise a hand, and sound alerts when asking for permissions or prompt inputs.
+- **Dedicated Offices:** dedicated rooms for **Antigravity Office** and **Kilo Office** alongside project workspaces.
+- **Live Usage Tracking:** real-time daily and weekly token consumption displayed right in the top bar with provider logos.
+- **Subagent Collaboration:** subagents arrive by elevator, complete work, and hand delivered packages (📦) back to parent agents before leaving.
+- **Waiting on shell:** agents eat popcorn, spin on chairs, and celebrate with confetti upon command completion.
+- **Social life:** when idle, agents take coffee breaks in the kitchen, play video games, challenge coworkers to arcade games or ping-pong, watch TV in the lounge, or rest when inactive. See [Social life](#social-life).
 
-Everything runs on your machine, reading the files Claude Code itself already writes (plus only the `alias` lines in
-your shell, to give each account its letter). Nothing leaves the computer: Habblaud doesn't read credentials or make
-external calls.
+Everything runs locally on your machine. Nothing leaves the computer: Habblaud reads your local session, SQLite, and presence files directly with zero telemetry and zero external data tracking.
 
 ## Contents
 
@@ -121,45 +122,50 @@ shrinks on its own.
 
 > The images above use **demo mode** (made-up projects, people and accounts).
 
-## Installation
+## Installation & Quick Start
+
+### Supported AI Agent Providers
+- **[Google Antigravity Desktop](https://antigravity.google.com)**: Auto-detected via `~/.gemini/antigravity`. Displays active sessions, background subagents, brain logs, and token usage inside the dedicated **Antigravity Office**.
+- **[Kilo Desktop](https://kilo.ai)**: Auto-detected via `~/.local/share/kilo/kilo.db`. Displays active sessions, locks, and usage inside the dedicated **Kilo Office**.
+- **[Claude Code](https://code.claude.com)**: Auto-detected via Claude session files. Supports full interactive mod, permissions, and messages.
+- **[OpenAI Codex](https://github.com/openai/codex)**: Auto-detected via `~/.codex`.
 
 ### Requirements
+- **Windows**, **macOS**, or **Linux**.
+- **Node.js 22.12+** and **npm** (tested with Node 22/24).
+- Any of the supported AI agent tools installed locally.
 
-- **macOS** (tested) or Linux.
-- **[Claude Code](https://code.claude.com)** installed, with one or more accounts (2.1.287 or newer for the mod).
-- **Node.js 22.12+** and **npm** (developed with Node 24; Docker already uses Node 24).
-- **Docker Desktop** (or Docker Engine with Compose v2), if you're going to run it in a container.
-
-### 1. Get the project
+### 1. Clone & Install
 
 ```bash
-git clone https://github.com/marmottajr/habblaud.git
+git clone https://github.com/Muhit47/habblaud.git
 cd habblaud
 npm install
 ```
 
-> `npm install` only downloads build tools (Vite, TypeScript, tsx…). The Habblaud server has no
-> runtime dependencies: it only uses Node's built-in modules.
+### 2. Launch Habblaud
 
-### 2. Start Habblaud
+**On Windows (1-Click Launcher):**
+Double-click `Start Agent Manager.bat` in the root folder. It automatically sets the English environment, compiles if needed, frees port 4747, opens your browser to `http://127.0.0.1:4747`, and launches the office!
 
-**Option A — Docker (recommended for keeping it always on)**
-
-```bash
-npm run docker:up
-```
-
-The script detects your Claude Code accounts, mounts only the folders it needs (read-only), builds
-the image and starts the container — which restarts on its own along with Docker. Open **http://localhost:4747**.
-
-**Option B — Node, without Docker**
-
+**Cross-Platform (Node.js):**
 ```bash
 npm run build
 npm start
 ```
+For development mode with hot reload:
+```bash
+npm run dev
+```
+For demo mode with simulated agents:
+```bash
+npm run demo
+```
 
-Open **http://localhost:4747**. For development, use `npm run dev` (server + Vite with hot reload).
+**Option C — Docker:**
+```bash
+npm run docker:up
+```
 
 Now open Claude Code in any project and watch your agent arrive by elevator. 🎉
 
@@ -299,7 +305,7 @@ in the clear on the network). In Node mode: `HABBLAUD_REMOTE_PORT` and `HABBLAUD
 ### Updating
 
 The version in use shows up in the top bar, next to "Connected", and in **Settings › About**. Every 6 hours
-Habblaud checks GitHub for a new version (the [releases](https://github.com/marmottajr/habblaud/releases)
+Habblaud checks GitHub for a new version (the [releases](https://github.com/Muhit47/habblaud/releases)
 of this repository). When there is one, the green **New version** badge appears in place of the number, along with a notice and a dot on the
 settings button. **About** has the link to what changed and the **Check now** button (each version's notes
 are also in [`CHANGELOG.md`](CHANGELOG.md)). To update:
@@ -337,7 +343,7 @@ npm run docker:up        # removes codetown container and copies data from old v
 - **Variables:** the `CODETOWN_*` ones no longer work; rename them to `HABBLAUD_*` in `.env` (e.g. `HABBLAUD_BIND`). The
   server and `docker:up` warn you when they find an old one.
 - **Repository:** it's now `github.com/marmottajr/habblaud` (GitHub redirects the old address). To fix your
-  clone: `git remote set-url origin https://github.com/marmottajr/habblaud.git`. The local folder can keep its
+  clone: `git remote set-url origin https://github.com/Muhit47/habblaud.git`. The local folder can keep its
   old name.
 - `settings.json` backups made before the switch keep the name `settings.json.codetown-backup-<data>`.
 
@@ -938,7 +944,7 @@ metadata (letter, email, organization) is read on the host by `docker:up` and pa
   (`habblaud-mensagens`) is separate precisely because it acts: it types into the session what you sent from the office.
 - **Local only, by default:** the server only accepts connections from the computer it runs on; opening it to the local network is optional.
   There's no telemetry. The only external call is the new-version check: every 6 hours, an anonymous request,
-  with no token, to the public GitHub API (`api.github.com/repos/marmottajr/habblaud/releases/latest`). It doesn't send anything
+  with no token, to the public GitHub API (`api.github.com/repos/Muhit47/habblaud/releases/latest`). It doesn't send anything
   about your sessions; GitHub only sees your IP and the version in use, which goes in the `User-Agent`.
   `HABBLAUD_UPDATE_CHECK=0` turns off the request.
   [Habblaud World](#habblaud-world) (on by default) only sends something to the world server after you create an
